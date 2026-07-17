@@ -1,0 +1,91 @@
+using System.Collections.Generic;
+using Godot;
+
+namespace Mechanize;
+
+/// <summary>Shared PartData factories for catalogue modules.</summary>
+public static class CatalogBuilders
+{
+	public static ManufacturerData MakeManufacturer(string id, string name, Color color, string blurb, string niche) => new()
+	{
+		Id = id, DisplayName = name, AccentColor = color, Blurb = blurb, Niche = niche
+	};
+
+	public static PartData Empty(string id, string name, PartSlot slot) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = "trinova", Slot = slot,
+		Tint = new Color(0.4f, 0.4f, 0.4f), VisualKind = "empty"
+	};
+
+	public static PartData Leg(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		float armor, float speed, float turn, string kind, LegMode mode, LegType type,
+		bool canSprint, float sprintMult = 1.45f, float sprintHeat = 0f, float sprintLoad = 0f,
+		float moveHeat = 2f, float idleHeat = 0.5f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+		VisualKind = kind, LegMode = mode, LegType = type, CanSprint = canSprint,
+		SprintMultiplier = sprintMult, SprintHeatPerSec = sprintHeat, SprintPowerLoad = sprintLoad,
+		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
+	};
+
+	public static PartData Torso(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		float armor, int housing, float hull, int shoulders, int backs, Vector3? scale = null,
+		float heatCap = 10f, float idleHeat = 1f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Torso,
+		Armor = armor, Tint = m[mfg].AccentColor, VisualKind = "torso",
+		VisualScale = scale ?? Vector3.One, PowerCoreHousing = housing, HullBonus = hull,
+		ShoulderMountCount = shoulders, BackpackMountCount = backs,
+		HeatCapBonus = heatCap, IdleHeatPerSec = idleHeat
+	};
+
+	public static PartData Head(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		float armor, float turn, float visionRange, float visionAngle, float close,
+		float scanRange, float scanRes, float idleHeat, float speed = 0f, float fireRateBonus = 0f,
+		Vector3? scale = null) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Head,
+		Armor = armor, TurnRateDegrees = turn, MaxSpeed = speed, Tint = m[mfg].AccentColor,
+		VisualKind = "head", VisualScale = scale ?? Vector3.One, FireRateBonus = fireRateBonus,
+		VisionRange = visionRange, VisionAngleDeg = visionAngle, CloseTargeting = close,
+		ScannerRange = scanRange, ScannerResolution = scanRes, IdleHeatPerSec = idleHeat
+	};
+
+	public static PartData Core(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		int cls, float capacity, float output, float heatCap, float idleHeat, float dissipate,
+		float armor = -1f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.PowerCore,
+		Tint = m[mfg].AccentColor, VisualKind = "core", PowerCoreClass = cls,
+		PowerCapacity = capacity, PowerOutput = output, HeatCapBonus = heatCap,
+		IdleHeatPerSec = idleHeat, HeatDissipation = dissipate,
+		Armor = armor < 0f ? 5f + cls * 3f : armor
+	};
+
+	public static PartData Weapon(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		PartSlot slot, string kind, float damage, float fireRate, float range, float proj, AimMode aim,
+		float heatShot, float powerLoad, WeaponFamily family,
+		TargetingMode targeting = TargetingMode.Standard) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
+		Tint = m[mfg].AccentColor, Damage = damage, FireRate = fireRate, Range = range,
+		ProjectileSpeed = proj, AimMode = aim, TargetingMode = targeting,
+		HeatPerShot = heatShot, PowerLoadWhileFiring = powerLoad, IdleHeatPerSec = 0.2f,
+		WeaponFamily = family
+	};
+
+	public static PartData AbilityPart(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		PartSlot slot, string kind, float armor, AbilityId abilityId, float cd, float power,
+		float heatBurst, float powerLoad, float damage = 0f, float range = 40f, float proj = 30f,
+		float radius = 12f, float duration = 3f, float speed = 0f,
+		WeaponFamily family = WeaponFamily.Missile) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, Armor = armor,
+		Tint = m[mfg].AccentColor, VisualKind = kind, AbilityKind = AbilityKind.Active,
+		AbilityId = abilityId, AbilityCooldown = cd, AbilityPower = power, AbilityRadius = radius,
+		AbilityDuration = duration, Damage = damage, Range = range, ProjectileSpeed = proj,
+		MaxSpeed = speed, AbilityHeatBurst = heatBurst, AbilityPowerLoad = powerLoad,
+		IdleHeatPerSec = 0.3f, WeaponFamily = family
+	};
+}

@@ -1,0 +1,19 @@
+# Godot-specific ignores
+.godot/
+*.import
+
+# Mono/C# specific ignores
+.mono/
+bin/
+obj/
+dotnet/
+.csproj.old
+.sln.old
+
+# Editor-specific ignores
+.vscode/
+.idea/
+*.swp
+*.tmp
+*.dtmp
+.~*

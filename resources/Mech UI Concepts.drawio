@@ -1,0 +1,91 @@
+<mxfile host="Electron">
+  <diagram name="Page-1" id="VO2IZ8LEOfiPqSkq_Pta">
+    <mxGraphModel dx="2054" dy="1201" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="570" width="480" x="1080" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#60a917;fontColor=#ffffff;strokeColor=#2D7600;" value="Head" vertex="1">
+          <mxGeometry height="80" width="80" x="360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#1ba1e2;fontColor=#ffffff;strokeColor=#006EAF;" value="Chasis" vertex="1">
+          <mxGeometry height="160" width="160" x="320" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;" value="Legs" vertex="1">
+          <mxGeometry height="220" width="160" x="320" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a20025;fontColor=#ffffff;strokeColor=#6F0000;" value="Arm 2" vertex="1">
+          <mxGeometry height="160" width="80" x="520" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a20025;fontColor=#ffffff;strokeColor=#6F0000;" value="&lt;b&gt;Arm 1&lt;/b&gt;&lt;br&gt;- Primary Weapon" vertex="1">
+          <mxGeometry height="160" width="80" x="200" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#60a917;fontColor=#ffffff;strokeColor=#2D7600;" value="&lt;b&gt;The Head&lt;br&gt;&lt;/b&gt;- CPU&lt;br&gt;- Scanning&lt;br&gt;- Targetting" vertex="1">
+          <mxGeometry height="80" width="80" x="360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;fontColor=#ffffff;strokeColor=#006EAF;" value="&lt;b&gt;The Chasis&lt;/b&gt;&lt;br&gt;- Core Stats&lt;br&gt;- PSU&lt;br&gt;- Missile Attachment Slots" vertex="1">
+          <mxGeometry height="160" width="160" x="320" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#a20025;fontColor=#ffffff;strokeColor=#6F0000;" value="&lt;b&gt;&lt;br&gt;Arm 2&lt;/b&gt;&lt;br&gt;- Secondary Weapon" vertex="1">
+          <mxGeometry height="160" width="80" x="520" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;" value="&lt;b&gt;Legs&lt;/b&gt;&lt;br&gt;- Mobility Type" vertex="1">
+          <mxGeometry height="220" width="160" x="320" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-13" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Head" vertex="1">
+          <mxGeometry height="80" width="80" x="1280" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-14" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Torso" vertex="1">
+          <mxGeometry height="160" width="160" x="1240" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Arm 2" vertex="1">
+          <mxGeometry height="160" width="80" x="1440" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-16" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Arm 1" vertex="1">
+          <mxGeometry height="160" width="80" x="1120" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Leg System" vertex="1">
+          <mxGeometry height="160" width="160" x="1240" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" value="General Stats Panel" vertex="1">
+          <mxGeometry height="570" width="180" x="870" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" value="Details Panel&lt;br&gt;(opens when you click on component)" vertex="1">
+          <mxGeometry height="570" width="180" x="1570" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-23" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="When clicking a component that has attached or customizable systems - That component enlarges and its slots&amp;nbsp; are shown around it" vertex="1">
+          <mxGeometry height="30" width="220" x="1200" y="800" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-24" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Torso" vertex="1">
+          <mxGeometry height="160" width="160" x="1220" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="30" width="40" x="1330" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="30" width="40" x="1230" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="30" width="40" x="1280" y="1010" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-28" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="This would be a torso with both shoulder slots and 1 back o&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;r additional slot&lt;/span&gt;" vertex="1">
+          <mxGeometry height="30" width="220" x="1200" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-29" parent="1" style="triangle;whiteSpace=wrap;html=1;rotation=-180;" value="" vertex="1">
+          <mxGeometry height="20" width="20" x="1054" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-30" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="Can be clicked to minimize GSP" vertex="1">
+          <mxGeometry height="60" width="96" x="1024" y="770" as="geometry" />
+        </mxCell>
+        <mxCell id="Rf9xki_Hy8NI2Y5CoxAD-31" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;entryX=0.086;entryY=-0.036;entryDx=0;entryDy=0;entryPerimeter=0;" target="Rf9xki_Hy8NI2Y5CoxAD-29" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="1072" y="782" as="sourcePoint" />
+            <mxPoint x="1440" y="490" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

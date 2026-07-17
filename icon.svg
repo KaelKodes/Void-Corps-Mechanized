@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1218"/>
+      <stop offset="100%" stop-color="#152028"/>
+    </linearGradient>
+    <linearGradient id="armor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7a8490"/>
+      <stop offset="100%" stop-color="#4e5660"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="url(#bg)"/>
+  <rect x="10" y="10" width="108" height="108" fill="none" stroke="#3d4a55" stroke-width="2"/>
+  <rect x="14" y="14" width="12" height="2" fill="#c48a2e"/>
+  <rect x="102" y="14" width="12" height="2" fill="#c48a2e"/>
+  <rect x="14" y="112" width="12" height="2" fill="#c48a2e"/>
+  <rect x="102" y="112" width="12" height="2" fill="#c48a2e"/>
+  <text x="64" y="34" text-anchor="middle" fill="#8fa3b0" font-family="Segoe UI, Arial, sans-serif" font-size="10" letter-spacing="2.5">VOID CORPS</text>
+  <!-- shoulders -->
+  <rect x="24" y="50" width="16" height="14" rx="2" fill="#3a424a"/>
+  <rect x="88" y="50" width="16" height="14" rx="2" fill="#3a424a"/>
+  <!-- torso -->
+  <rect x="36" y="46" width="56" height="34" rx="3" fill="url(#armor)"/>
+  <rect x="44" y="52" width="40" height="8" fill="#2e353c"/>
+  <rect x="52" y="64" width="24" height="6" fill="#c48a2e"/>
+  <!-- head -->
+  <rect x="48" y="38" width="32" height="12" rx="2" fill="#6a7480"/>
+  <circle cx="54" cy="44" r="3.5" fill="#c48a2e"/>
+  <circle cx="74" cy="44" r="3.5" fill="#c48a2e"/>
+  <!-- legs -->
+  <rect x="42" y="80" width="14" height="16" fill="#5c6570"/>
+  <rect x="72" y="80" width="14" height="16" fill="#5c6570"/>
+  <rect x="38" y="94" width="20" height="6" fill="#3a424a"/>
+  <rect x="70" y="94" width="20" height="6" fill="#3a424a"/>
+  <text x="64" y="116" text-anchor="middle" fill="#d7dee4" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1.5">MECHANIZE</text>
+</svg>

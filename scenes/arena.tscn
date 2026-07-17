@@ -1,0 +1,203 @@
+[gd_scene load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://scripts/arena/ArenaController.cs" id="1_arena"]
+[ext_resource type="PackedScene" path="res://scenes/mech.tscn" id="2_mech"]
+[ext_resource type="Script" path="res://scripts/mech/TopDownCamera.cs" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/arena/DummyTarget.cs" id="4_target"]
+[ext_resource type="Script" path="res://scripts/ui/GarageUi.cs" id="5_garage"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(80, 1, 80)
+
+[sub_resource type="StandardMaterial3D" id="Mat_floor"]
+albedo_color = Color(0.16, 0.19, 0.22, 1)
+roughness = 0.92
+metallic = 0.08
+
+[sub_resource type="BoxShape3D" id="BoxShape_floor"]
+size = Vector3(80, 1, 80)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall"]
+size = Vector3(80, 4, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_wall"]
+albedo_color = Color(0.28, 0.32, 0.36, 1)
+roughness = 0.88
+metallic = 0.12
+
+[sub_resource type="BoxShape3D" id="BoxShape_wall"]
+size = Vector3(80, 4, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_cover_a"]
+size = Vector3(12, 3, 4)
+
+[sub_resource type="BoxShape3D" id="BoxShape_cover_a"]
+size = Vector3(12, 3, 4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_cover_b"]
+size = Vector3(16, 3, 3)
+
+[sub_resource type="BoxShape3D" id="BoxShape_cover_b"]
+size = Vector3(16, 3, 3)
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.07, 0.1, 0.13, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.48, 0.55, 0.6, 1)
+ambient_light_energy = 0.65
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1_arena")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 20, 0)
+shadow_enabled = true
+light_energy = 1.15
+
+[node name="World" type="Node3D" parent="."]
+
+[node name="Floor" type="StaticBody3D" parent="World"]
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("Mat_floor")
+
+[node name="Collision" type="CollisionShape3D" parent="World/Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("BoxShape_floor")
+
+[node name="WallNorth" type="StaticBody3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -40)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/WallNorth"]
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/WallNorth"]
+shape = SubResource("BoxShape_wall")
+
+[node name="WallSouth" type="StaticBody3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 40)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/WallSouth"]
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/WallSouth"]
+shape = SubResource("BoxShape_wall")
+
+[node name="WallWest" type="StaticBody3D" parent="World"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -40, 2, 0)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/WallWest"]
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/WallWest"]
+shape = SubResource("BoxShape_wall")
+
+[node name="WallEast" type="StaticBody3D" parent="World"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 40, 2, 0)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/WallEast"]
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/WallEast"]
+shape = SubResource("BoxShape_wall")
+
+[node name="CoverA" type="StaticBody3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 1.5, -8)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/CoverA"]
+mesh = SubResource("BoxMesh_cover_a")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/CoverA"]
+shape = SubResource("BoxShape_cover_a")
+
+[node name="CoverB" type="StaticBody3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 1.5, 6)
+collision_layer = 1
+
+[node name="Mesh" type="MeshInstance3D" parent="World/CoverB"]
+mesh = SubResource("BoxMesh_cover_b")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="World/CoverB"]
+shape = SubResource("BoxShape_cover_b")
+
+[node name="Targets" type="Node3D" parent="."]
+
+[node name="CrateA" type="StaticBody3D" parent="Targets"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, -12)
+script = ExtResource("4_target")
+MaxHealth = 90.0
+ShatterPieces = 16
+
+[node name="CrateB" type="StaticBody3D" parent="Targets"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0, 10)
+script = ExtResource("4_target")
+MaxHealth = 70.0
+AliveColor = Color(0.3, 0.55, 0.75, 1)
+ShatterPieces = 14
+
+[node name="CrateC" type="StaticBody3D" parent="Targets"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0, 14)
+script = ExtResource("4_target")
+MaxHealth = 120.0
+AliveColor = Color(0.55, 0.35, 0.7, 1)
+ShatterPieces = 18
+
+[node name="Mech" parent="." instance=ExtResource("2_mech")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 8)
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707, 0.707, 0, -0.707, 0.707, 0, 28, 26)
+current = true
+fov = 50.0
+script = ExtResource("3_cam")
+TargetPath = NodePath("../Mech")
+Offset = Vector3(0, 28, 18)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Hud" type="Label" parent="UI"]
+offset_left = 24.0
+offset_top = 16.0
+offset_right = 900.0
+offset_bottom = 48.0
+theme_override_font_sizes/font_size = 20
+text = "HP"
+
+[node name="Hint" type="Label" parent="UI"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -48.0
+offset_right = 900.0
+offset_bottom = -16.0
+theme_override_font_sizes/font_size = 18
+text = "VOID CORPS: MECHANIZE — hold the claim"
+
+[node name="GarageUi" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("5_garage")
