@@ -8,7 +8,7 @@ public partial class DummyTarget : StaticBody3D
 	[Export] public Color AliveColor { get; set; } = new(0.75f, 0.35f, 0.2f);
 	[Export] public Color DeadColor { get; set; } = new(0.25f, 0.25f, 0.25f);
 	[Export] public int ShatterPieces { get; set; } = 14;
-	[Export] public bool BlocksMovement { get; set; }
+	[Export] public bool BlocksMovement { get; set; } = true;
 
 	private Damageable? _health;
 	private Node3D? _visualRoot;
@@ -19,7 +19,7 @@ public partial class DummyTarget : StaticBody3D
 
 	public override void _Ready()
 	{
-		CollisionLayer = BlocksMovement ? 1u : 8u;
+		CollisionLayer = BlocksMovement ? PhysicsLayers.World : PhysicsLayers.Targets;
 		CollisionMask = 0;
 
 		EnsureVisual();

@@ -10,10 +10,17 @@ public static class CoverVisualFactory
 {
 	public readonly struct BuiltCover
 	{
-		public BuiltCover(Node3D visual, Vector3 collisionSize, float health, bool destructible, Color shatterColor)
+		public BuiltCover(
+			Node3D visual,
+			Vector3 collisionSize,
+			float health,
+			bool destructible,
+			Color shatterColor,
+			Vector3? collisionCenter = null)
 		{
 			Visual = visual;
 			CollisionSize = collisionSize;
+			CollisionCenter = collisionCenter ?? new Vector3(0f, collisionSize.Y * 0.5f, 0f);
 			Health = health;
 			Destructible = destructible;
 			ShatterColor = shatterColor;
@@ -21,6 +28,8 @@ public static class CoverVisualFactory
 
 		public Node3D Visual { get; }
 		public Vector3 CollisionSize { get; }
+		/// <summary>Local center of the blocking volume (matches visual footprint).</summary>
+		public Vector3 CollisionCenter { get; }
 		public float Health { get; }
 		public bool Destructible { get; }
 		public Color ShatterColor { get; }
@@ -88,7 +97,7 @@ public static class CoverVisualFactory
 		}
 
 		var size = new Vector3(unit.X, unit.Y * tiers, unit.Z);
-		return new BuiltCover(root, size, stacked ? 220f : 150f, true, paint);
+		return Finish(root, size, stacked ? 220f : 150f, true, paint);
 	}
 
 	private static BuiltCover BuildConcreteBarrier(Color ambience, float scale, bool row)
@@ -116,8 +125,9 @@ public static class CoverVisualFactory
 				new Vector3(x, segment.Y * 0.55f, segment.Z * 0.52f));
 		}
 
-		var size = new Vector3(totalX, segment.Y * 1.15f, segment.Z * 1.4f);
-		return new BuiltCover(root, size, row ? 160f : 110f, true, concrete.AlbedoColor);
+		// Slightly thicker than the mesh so CharacterBody can't tunnel at sprint speed.
+		var size = new Vector3(totalX, segment.Y * 1.15f, Mathf.Max(1.35f, segment.Z * 1.6f));
+		return Finish(root, size, row ? 160f : 110f, true, concrete.AlbedoColor);
 	}
 
 	private static BuiltCover BuildOilTank(Color ambience, float scale, bool cluster)
@@ -153,7 +163,7 @@ public static class CoverVisualFactory
 			// Catwalk
 			AddBox(root, dark, new Vector3(7.2f * scale, 0.15f, 1.2f * scale), new Vector3(0f, h * 0.72f, -1.4f * scale));
 			var size = new Vector3(8.5f, h + 0.6f, 7.5f) * scale;
-			return new BuiltCover(root, size, 300f, true, steel.AlbedoColor);
+			return Finish(root, size, 300f, true, steel.AlbedoColor);
 		}
 
 		{
@@ -161,7 +171,7 @@ public static class CoverVisualFactory
 			var h = 6.5f * scale;
 			AddTank(Vector3.Zero, r, h);
 			var size = new Vector3(r * 2.2f, h + 0.5f, r * 2.2f);
-			return new BuiltCover(root, size, 240f, true, steel.AlbedoColor);
+			return Finish(root, size, 240f, true, steel.AlbedoColor);
 		}
 	}
 
@@ -191,7 +201,7 @@ public static class CoverVisualFactory
 		AddWheel(root, dark, new Vector3(1.2f, 0.45f, -4.6f) * scale, scale);
 
 		var size = new Vector3(2.8f, 3.5f, 12.5f) * scale;
-		return new BuiltCover(root, size, 200f, true, trailer.AlbedoColor);
+		return Finish(root, size, 200f, true, trailer.AlbedoColor);
 	}
 
 	private static BuiltCover BuildWarehouse(Color ambience, float scale)
@@ -216,7 +226,7 @@ public static class CoverVisualFactory
 			new Vector3(0f, h * 0.85f, d * 0.52f));
 
 		var size = new Vector3(w * 1.05f, h + 0.5f, d * 1.05f);
-		return new BuiltCover(root, size, 320f, true, wall.AlbedoColor);
+		return Finish(root, size, 320f, true, wall.AlbedoColor);
 	}
 
 	private static BuiltCover BuildIndustrialShed(Color ambience, float scale)
@@ -235,7 +245,7 @@ public static class CoverVisualFactory
 		AddBox(root, dark, new Vector3(0.2f, h * 1.2f, 0.2f), new Vector3(w * 0.4f, h * 0.7f, -d * 0.35f));
 
 		var size = new Vector3(w * 1.1f, h + 0.4f, d * 1.1f);
-		return new BuiltCover(root, size, 200f, true, wall.AlbedoColor);
+		return Finish(root, size, 200f, true, wall.AlbedoColor);
 	}
 
 	private static BuiltCover BuildSkyscraper(Color ambience, float scale)
@@ -265,7 +275,7 @@ public static class CoverVisualFactory
 
 		var size = new Vector3(w * 1.15f, h + 2.5f * scale, d * 1.15f);
 		// Backdrop — tough, not field cover to punch through mid-fight.
-		return new BuiltCover(root, size, 2000f, false, facade.AlbedoColor);
+		return Finish(root, size, 2000f, false, facade.AlbedoColor);
 	}
 
 	private static BuiltCover BuildPipeRack(Color ambience, float scale)
@@ -278,13 +288,13 @@ public static class CoverVisualFactory
 
 		var len = 10f * scale;
 		var h = 3.8f * scale;
-		var depth = 2.2f * scale;
-		// Legs
+		var depth = 2.4f * scale;
+		// Legs — sizes already include scale; do not multiply Vector3 by scale again.
 		foreach (var x in new[] { -len * 0.45f, len * 0.45f })
 		foreach (var z in new[] { -depth * 0.4f, depth * 0.4f })
-			AddBox(root, frame, new Vector3(0.25f, h, 0.25f) * scale, new Vector3(x, h * 0.5f, z));
-		AddBox(root, frame, new Vector3(len, 0.2f, depth) * scale, new Vector3(0f, h, 0f));
-		AddBox(root, dark, new Vector3(len, 0.15f, depth * 0.8f) * scale, new Vector3(0f, h * 0.55f, 0f));
+			AddBox(root, frame, new Vector3(0.28f * scale, h, 0.28f * scale), new Vector3(x, h * 0.5f, z));
+		AddBox(root, frame, new Vector3(len, 0.22f * scale, depth), new Vector3(0f, h, 0f));
+		AddBox(root, dark, new Vector3(len, 0.16f * scale, depth * 0.8f), new Vector3(0f, h * 0.55f, 0f));
 		AddCylinder(root, pipeA, 0.28f * scale, len * 0.95f, new Vector3(0f, h * 0.75f, -0.4f * scale),
 			Vector3.Forward * Mathf.Tau * 0.25f);
 		AddCylinder(root, pipeB, 0.22f * scale, len * 0.95f, new Vector3(0f, h * 0.75f, 0.4f * scale),
@@ -292,8 +302,89 @@ public static class CoverVisualFactory
 		AddCylinder(root, pipeA, 0.18f * scale, len * 0.95f, new Vector3(0f, h * 0.4f, 0f),
 			Vector3.Forward * Mathf.Tau * 0.25f);
 
-		var size = new Vector3(len, h + 0.3f, depth);
-		return new BuiltCover(root, size, 180f, true, frame.AlbedoColor);
+		// Solid blocking volume for the whole rack (lanes, not walk-through).
+		var size = new Vector3(len + 0.4f * scale, h + 0.35f * scale, depth + 0.35f * scale);
+		return Finish(root, size, 180f, true, frame.AlbedoColor);
+	}
+
+	/// <summary>
+	/// Prefer measured visual AABB so collision matches what the player sees
+	/// (fixes scale drift / overhangs that let mechs ghost through).
+	/// </summary>
+	private static BuiltCover Finish(
+		Node3D root,
+		Vector3 fallbackSize,
+		float health,
+		bool destructible,
+		Color shatterColor)
+	{
+		if (!TryMeasureAabb(root, out var center, out var size))
+			return new BuiltCover(root, fallbackSize, health, destructible, shatterColor);
+
+		// Pad slightly so sprinting CharacterBodies don't tunnel thin faces.
+		size += new Vector3(0.15f, 0.1f, 0.15f);
+		size.X = Mathf.Max(size.X, fallbackSize.X * 0.85f);
+		size.Y = Mathf.Max(size.Y, fallbackSize.Y * 0.85f);
+		size.Z = Mathf.Max(size.Z, fallbackSize.Z * 0.85f);
+		// Keep volume sitting on the ground plane.
+		center.Y = size.Y * 0.5f;
+		return new BuiltCover(root, size, health, destructible, shatterColor, center);
+	}
+
+	private static bool TryMeasureAabb(Node3D root, out Vector3 center, out Vector3 size)
+	{
+		var min = new Vector3(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+		var max = new Vector3(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+		var any = false;
+		AccumulateMeshes(root, Transform3D.Identity, ref min, ref max, ref any);
+		if (!any)
+		{
+			center = Vector3.Zero;
+			size = Vector3.One;
+			return false;
+		}
+
+		center = (min + max) * 0.5f;
+		size = max - min;
+		return size.X > 0.05f && size.Y > 0.05f && size.Z > 0.05f;
+	}
+
+	private static void AccumulateMeshes(
+		Node node,
+		Transform3D parent,
+		ref Vector3 min,
+		ref Vector3 max,
+		ref bool any)
+	{
+		var local = parent;
+		if (node is Node3D n3)
+			local = parent * n3.Transform;
+
+		if (node is MeshInstance3D mi && mi.Mesh != null)
+		{
+			var aabb = mi.Mesh.GetAabb();
+			var corners = new[]
+			{
+				aabb.Position,
+				aabb.Position + new Vector3(aabb.Size.X, 0f, 0f),
+				aabb.Position + new Vector3(0f, aabb.Size.Y, 0f),
+				aabb.Position + new Vector3(0f, 0f, aabb.Size.Z),
+				aabb.Position + new Vector3(aabb.Size.X, aabb.Size.Y, 0f),
+				aabb.Position + new Vector3(aabb.Size.X, 0f, aabb.Size.Z),
+				aabb.Position + new Vector3(0f, aabb.Size.Y, aabb.Size.Z),
+				aabb.Position + aabb.Size
+			};
+			foreach (var c in corners)
+			{
+				var w = local * c;
+				min = new Vector3(Mathf.Min(min.X, w.X), Mathf.Min(min.Y, w.Y), Mathf.Min(min.Z, w.Z));
+				max = new Vector3(Mathf.Max(max.X, w.X), Mathf.Max(max.Y, w.Y), Mathf.Max(max.Z, w.Z));
+				any = true;
+			}
+		}
+
+		foreach (var child in node.GetChildren())
+			AccumulateMeshes(child, local, ref min, ref max, ref any);
 	}
 
 	private static Color PickContainerPaint(Color ambience)

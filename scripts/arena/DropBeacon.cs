@@ -61,7 +61,7 @@ public partial class DropBeacon : Node3D
 	}
 
 	/// <summary>Pad beside spawn, nudged toward the map rim so drops stay off midfield.</summary>
-	public static Vector3 PadBesideSpawn(Vector3 spawn, float offset = 4f)
+	public static Vector3 PadBesideSpawn(Vector3 spawn, float offset = 4f, float limit = -1f)
 	{
 		var awayFromCenter = new Vector3(spawn.X, 0f, spawn.Z);
 		if (awayFromCenter.LengthSquared() < 0.01f)
@@ -69,7 +69,8 @@ public partial class DropBeacon : Node3D
 		awayFromCenter = awayFromCenter.Normalized();
 
 		var pad = spawn + awayFromCenter * offset;
-		const float limit = 35.5f;
+		if (limit < 0f)
+			limit = ArenaSizeUtil.PadLimit(ArenaSize.Small);
 		pad.X = Mathf.Clamp(pad.X, -limit, limit);
 		pad.Z = Mathf.Clamp(pad.Z, -limit, limit);
 		pad.Y = 0f;

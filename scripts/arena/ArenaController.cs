@@ -51,6 +51,7 @@ public partial class ArenaController : Node3D, IMissionHost
 	private readonly HashSet<string> _enemyDeathHooked = new();
 	private readonly HashSet<string> _enemyResolved = new();
 	private readonly Dictionary<string, LoadoutData> _enemyLoadouts = new();
+	private readonly HashSet<ulong> _telemetryDamageHooked = new();
 
 	private sealed class DropInSequence
 	{
@@ -226,7 +227,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		}
 
 		_claimHud.Text =
-			$"{VoidCorpsIdentity.ProductTitle}  //  {_claim.Code}  —  {_claim.DisplayName}";
+			$"{VoidCorpsIdentity.ProductTitle}  //  [{ArenaSizeUtil.Label(_layout.Size)}]  {_claim.Code}  —  {_claim.DisplayName}";
 
 		var brief = GetNodeOrNull<Label>("UI/ClaimBrief");
 		if (brief == null)
@@ -250,7 +251,14 @@ public partial class ArenaController : Node3D, IMissionHost
 		brief.OffsetTop = 34;
 		brief.OffsetRight = 1124;
 		brief.OffsetBottom = 62;
-		brief.Text = _claim.Brief;
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var corp = session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename;
+		var contract = session is { MatchFromCampaign: true, LastMissionManufacturerId.Length: > 0 }
+			? GameCatalog.GetManufacturer(session.LastMissionManufacturerId).DisplayName
+			: session?.Profile.AffiliatedManufacturerId is { Length: > 0 } id
+				? GameCatalog.GetManufacturer(id).DisplayName
+				: "open contract";
+		brief.Text = $"{corp} // {contract}\n{_claim.Brief}";
 		brief.Modulate = new Color(0.72f, 0.8f, 0.86f, 0.9f);
 
 		if (_hud != null)
@@ -311,9 +319,56 @@ public partial class ArenaController : Node3D, IMissionHost
 		_enemySpawnA = _layout.EnemySpawnA;
 		_enemySpawnB = _layout.EnemySpawnB;
 
+		ApplyArenaShell(_layout.Size);
 		ApplyAtmosphere(_layout);
 		RebuildCover(_layout);
 		PlaceCrates(_layout);
+	}
+
+	/// <summary>Resize the shared floor/walls for Small / Medium / Large footprints.</summary>
+	private void ApplyArenaShell(ArenaSize size)
+	{
+		var extent = ArenaSizeUtil.Extent(size);
+		var half = ArenaSizeUtil.HalfExtent(size);
+		var floorSize = new Vector3(extent, 1f, extent);
+		var wallSize = new Vector3(extent, 4f, 1f);
+
+		SetBoxMeshAndShape("World/Floor/Mesh", "World/Floor/Collision", floorSize);
+		foreach (var name in new[] { "WallNorth", "WallSouth", "WallWest", "WallEast" })
+			SetBoxMeshAndShape($"World/{name}/Mesh", $"World/{name}/Collision", wallSize);
+
+		SetNodePosition("World/WallNorth", new Vector3(0f, 2f, -half));
+		SetNodePosition("World/WallSouth", new Vector3(0f, 2f, half));
+		SetNodePosition("World/WallWest", new Vector3(-half, 2f, 0f));
+		SetNodePosition("World/WallEast", new Vector3(half, 2f, 0f));
+	}
+
+	private void SetBoxMeshAndShape(string meshPath, string collisionPath, Vector3 size)
+	{
+		var meshInst = GetNodeOrNull<MeshInstance3D>(meshPath);
+		if (meshInst != null)
+		{
+			if (meshInst.Mesh is BoxMesh box)
+				box.Size = size;
+			else
+				meshInst.Mesh = new BoxMesh { Size = size };
+		}
+
+		var collision = GetNodeOrNull<CollisionShape3D>(collisionPath);
+		if (collision != null)
+		{
+			if (collision.Shape is BoxShape3D shape)
+				shape.Size = size;
+			else
+				collision.Shape = new BoxShape3D { Size = size };
+		}
+	}
+
+	private void SetNodePosition(string path, Vector3 position)
+	{
+		var node = GetNodeOrNull<Node3D>(path);
+		if (node != null)
+			node.Position = position;
 	}
 
 	private void ApplyAtmosphere(ClaimArenaLayout layout)
@@ -408,9 +463,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			{
 				Name = $"Cover_{piece.Kind}_{i}",
 				Position = new Vector3(piece.Position.X, 0f, piece.Position.Z),
-				RotationDegrees = new Vector3(0f, piece.YawDegrees, 0f),
-				CollisionLayer = 1,
-				CollisionMask = 0
+				RotationDegrees = new Vector3(0f, piece.YawDegrees, 0f)
 			};
 			body.AddChild(built.Visual);
 
@@ -418,9 +471,14 @@ public partial class ArenaController : Node3D, IMissionHost
 			{
 				Name = "Collision",
 				Shape = new BoxShape3D { Size = built.CollisionSize },
-				Position = new Vector3(0f, built.CollisionSize.Y * 0.5f, 0f)
+				Position = built.CollisionCenter,
+				Disabled = false
 			};
 			body.AddChild(collision);
+			root.AddChild(body);
+			// World layer — mechs mask layer 1; projectiles also hit layer 1.
+			body.CollisionLayer = PhysicsLayers.World;
+			body.CollisionMask = 0;
 
 			if (built.Destructible)
 			{
@@ -446,8 +504,6 @@ public partial class ArenaController : Node3D, IMissionHost
 					}
 				};
 			}
-
-			root.AddChild(body);
 		}
 	}
 
@@ -472,7 +528,7 @@ public partial class ArenaController : Node3D, IMissionHost
 				crates[i].ProcessMode = ProcessModeEnum.Inherit;
 				crates[i].GlobalPosition = layout.CratePositions[i];
 				if (crates[i] is CollisionObject3D body)
-					body.CollisionLayer = crates[i].BlocksMovement ? 1u : 8u;
+					body.CollisionLayer = crates[i].BlocksMovement ? PhysicsLayers.World : PhysicsLayers.Targets;
 			}
 			else
 			{
@@ -490,10 +546,12 @@ public partial class ArenaController : Node3D, IMissionHost
 				Name = $"CrateExtra_{i}",
 				MaxHealth = 80f + i * 10f,
 				ShatterPieces = 12 + i,
-				AliveColor = layout.WallColor.Lightened(0.25f)
+				AliveColor = layout.WallColor.Lightened(0.25f),
+				BlocksMovement = true
 			};
 			targets.AddChild(extra);
 			extra.GlobalPosition = layout.CratePositions[i];
+			extra.CollisionLayer = PhysicsLayers.World;
 		}
 	}
 
@@ -512,6 +570,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_mission == null)
 			CreateMission();
 		_mission!.SetupBattlefield();
+		HookMissionTelemetry();
 	}
 
 	private void EnsurePlayerDropBeacon()
@@ -520,14 +579,14 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (existing != null)
 		{
 			_playerDropBeacon = existing;
-			_playerDropBeacon.GlobalPosition = DropBeacon.PadBesideSpawn(_playerSpawn);
+			_playerDropBeacon.GlobalPosition = DropBeacon.PadBesideSpawn(_playerSpawn, limit: _layout.PadLimit);
 			_playerDropBeacon.SetState(DropBeaconState.Ready);
 			return;
 		}
 
 		_playerDropBeacon = DropBeacon.Create(
 			"PlayerDropBeacon",
-			DropBeacon.PadBesideSpawn(_playerSpawn),
+			DropBeacon.PadBesideSpawn(_playerSpawn, limit: _layout.PadLimit),
 			TeamId.Player);
 		AddChild(_playerDropBeacon);
 	}
@@ -736,7 +795,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			var old = GetNodeOrNull<DropBeacon>(beaconName);
 			old?.QueueFree();
 
-			var pad = DropBeacon.PadBesideSpawn(landing);
+			var pad = DropBeacon.PadBesideSpawn(landing, limit: _layout.PadLimit);
 			beacon = DropBeacon.Create(beaconName, pad, mech.Team);
 			landing = new Vector3(pad.X, 0f, pad.Z);
 			AddChild(beacon);
@@ -905,9 +964,39 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_playerDeathHooked = true;
 		if (_mech.Health != null)
+		{
 			_mech.Health.Died += OnPlayerDown;
+			HookDamageTelemetry(_mech.Health, TelemetryTargetKind.Map, playerOwned: true);
+		}
 		if (_mech.Integrity != null)
 			_mech.Integrity.MechCollapsed += OnPlayerDown;
+	}
+
+	private void HookMissionTelemetry()
+	{
+		var missionRoot = GetNodeOrNull<Node>("MissionRuntime");
+		if (missionRoot == null)
+			return;
+
+		foreach (var node in missionRoot.GetChildren())
+		{
+			if (node is EscortAsset escort && escort.GetNodeOrNull<Damageable>("Damageable") is { } dmg)
+				HookDamageTelemetry(dmg, TelemetryTargetKind.Escort, playerOwned: true);
+		}
+	}
+
+	private void HookDamageTelemetry(Damageable damageable, TelemetryTargetKind kind, bool playerOwned)
+	{
+		var id = damageable.GetInstanceId();
+		if (!_telemetryDamageHooked.Add(id))
+			return;
+
+		damageable.Damaged += (amount, _) =>
+		{
+			if (amount <= 0.01f || !playerOwned)
+				return;
+			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Telemetry.RecordDamageTaken(amount, kind);
+		};
 	}
 
 	private void HookEnemyDeath(MechController enemy)
@@ -1095,6 +1184,7 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		if (!_matchResolved && _phase == MatchPhase.Fighting)
 		{
+			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Tick(dt);
 			var buyPressed = Input.IsActionPressed("buy_life");
 			if (buyPressed && !_buyLifeLatch)
 			{
@@ -1279,9 +1369,12 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		var match = session?.Match;
+		var sponsorLine = session?.InCampaign == true && !string.IsNullOrEmpty(session.Profile.AffiliatedManufacturerId)
+			? $"  |  {GameCatalog.GetManufacturer(session.Profile.AffiliatedManufacturerId).DisplayName} REP {session.Profile.ReputationWith(session.Profile.AffiliatedManufacturerId):+0;-0;0}"
+			: "";
 		var runLine = match == null
 			? ""
-			: $"LIVES {match.LivesRemaining}  |  SCRAP {match.RunScrap}  |  B buy life ({match.NextLifeCost})";
+			: $"LIVES {match.LivesRemaining}  |  SCRAP {match.RunScrap}  |  B buy life ({match.NextLifeCost}){sponsorLine}";
 
 		var power = _mech.PowerHeat;
 		var cloaked = _mech.Abilities?.IsCloaked == true ? "  |  SHROUD" : "";

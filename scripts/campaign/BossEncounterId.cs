@@ -12,5 +12,7 @@ public enum BossEncounterId
 	None,
 	OrbitalDuelist,
 	GridAshSwarmLord,
-	WharfHiddenWarden
+	WharfHiddenWarden,
+	SlagFoundryDuelist,
+	SpireNullWarden
 }

@@ -8,8 +8,8 @@
 size = Vector3(1.6, 2.2, 1.6)
 
 [node name="Mech" type="CharacterBody3D"]
-collision_layer = 2
-collision_mask = 1
+		collision_layer = 2
+collision_mask = 9
 floor_stop_on_slope = true
 script = ExtResource("1_controller")
 

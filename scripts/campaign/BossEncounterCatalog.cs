@@ -44,6 +44,26 @@ public static class BossEncounterCatalog
 			ArrivalLine = "The structure ruptures — WHARF-WARDEN stands.",
 			Brief = "Seek and destroy the marked structure. Something nests inside.",
 			LoadoutVariant = 2
+		},
+		new BossEncounterDef
+		{
+			Id = BossEncounterId.SlagFoundryDuelist,
+			Template = BossEncounterTemplate.Showdown,
+			BossName = "SLAG-CROWN",
+			SectorClaimCode = "VC-CLAIM SLAG-FOUNDRY",
+			ArrivalLine = "SLAG-CROWN walks the pour floor.",
+			Brief = "Foundry duel. Deny the furnace rights.",
+			LoadoutVariant = 2
+		},
+		new BossEncounterDef
+		{
+			Id = BossEncounterId.SpireNullWarden,
+			Template = BossEncounterTemplate.HiddenBoss,
+			BossName = "SPIRE-NULL",
+			SectorClaimCode = "VC-CLAIM SPIRE-NULL",
+			ArrivalLine = "The plaza monument cracks — SPIRE-NULL rises.",
+			Brief = "Crack the plaza nest. The skyline claim answers.",
+			LoadoutVariant = 1
 		}
 	];
 

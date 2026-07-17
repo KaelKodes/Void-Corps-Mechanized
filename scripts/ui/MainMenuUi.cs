@@ -117,7 +117,9 @@ public partial class MainMenuUi : Control
 
 		var blurb = new Label
 		{
-			Text = "One-way sector path. Fight, refit, commit. Warning node is a named boss.",
+			Text =
+				"Cadet tutorial, graduation, manufacturer convention, then deep-space shadow work. " +
+				"The current playable slice begins once your merc corps enters active operations.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = new Color(0.7f, 0.76f, 0.8f)
@@ -125,6 +127,36 @@ public partial class MainMenuUi : Control
 		root.AddChild(blurb);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var profile = session?.Profile;
+		var affiliation = string.IsNullOrEmpty(profile?.AffiliatedManufacturerId)
+			? "Provisional / not chosen yet"
+			: GameCatalog.GetManufacturer(profile!.AffiliatedManufacturerId).DisplayName;
+		var dossier = new Label
+		{
+			Text =
+				$"Merc corps  ·  {profile?.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename}\n" +
+				$"Manufacturer affiliation  ·  {affiliation}\n" +
+				$"{VoidCorpsIdentity.CampaignPremise}",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = new Color(0.62f, 0.69f, 0.74f)
+		};
+		dossier.AddThemeFontSizeOverride("font_size", 15);
+		root.AddChild(dossier);
+
+		var acts = new Label
+		{
+			Text =
+				"Act 1  ·  MAP Cadet Program (tutorial)\n" +
+				"Act 2  ·  Big Four convention and manufacturer trials\n" +
+				"Act 3  ·  Shadow-arm merc operations across claim sectors",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = new Color(0.76f, 0.81f, 0.86f)
+		};
+		acts.AddThemeFontSizeOverride("font_size", 14);
+		root.AddChild(acts);
+
 		if (session?.Campaign is { Alive: true })
 		{
 			root.AddChild(MakeButton("CONTINUE RUN", () =>
@@ -134,7 +166,7 @@ public partial class MainMenuUi : Control
 			}));
 		}
 
-		root.AddChild(MakeButton("NEW RUN — Sector 1", () =>
+		root.AddChild(MakeButton("NEW RUN — ACTIVE OPS SLICE", () =>
 		{
 			SfxService.Confirm();
 			session?.BeginCampaignRun(0);
@@ -192,7 +224,9 @@ public partial class MainMenuUi : Control
 		void RefreshClaim()
 		{
 			var claim = VoidCorpsIdentity.ClaimSites[claimIndex];
-			claimLabel.Text = $"{claim.Code}\n{claim.DisplayName}\n{claim.Brief}";
+			claimLabel.Text =
+				$"[{ArenaSizeUtil.Label(claim.Size)}]  v{claim.MapVersion:0.0}\n" +
+				$"{claim.Code}\n{claim.DisplayName}\n{claim.Brief}";
 			session?.SetClaim(claim);
 		}
 		RefreshClaim();

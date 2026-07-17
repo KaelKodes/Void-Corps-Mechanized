@@ -15,6 +15,9 @@ public partial class GameSession : Node
 	public PilotDifficulty PendingDifficulty { get; set; } = PilotDifficulty.Easy;
 	public MissionType PendingMission { get; set; } = MissionType.DestroyAllEnemies;
 	public BossEncounterId PendingBossEncounter { get; set; } = BossEncounterId.None;
+	public int PendingOfferIndex { get; set; } = -1;
+	/// <summary>Manufacturer that offered the last campaign mission (drives post-mission shop).</summary>
+	public string LastMissionManufacturerId { get; set; } = "";
 	public bool LaunchSkirmishOnArenaLoad { get; set; }
 	/// <summary>When true, main menu opens directly on skirmish setup.</summary>
 	public bool OpenSkirmishSetupOnMenu { get; set; }
@@ -59,6 +62,8 @@ public partial class GameSession : Node
 		ReturnToCampaignMap = false;
 		MatchFromCampaign = false;
 		PendingBossEncounter = BossEncounterId.None;
+		PendingOfferIndex = -1;
+		LastMissionManufacturerId = "";
 		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
 		LaunchSkirmishOnArenaLoad = true;
 	}
@@ -68,10 +73,12 @@ public partial class GameSession : Node
 		Campaign = CampaignRun.StartNew(sectorIndex);
 		ReturnToCampaignMap = true;
 		MatchFromCampaign = false;
-		ApplySectorClaim();
+		PendingOfferIndex = -1;
+		LastMissionManufacturerId = "";
+		ApplyLocationClaim(Campaign.CurrentNode);
 	}
 
-	public bool DeployCampaignNode(string nodeId)
+	public bool DeployCampaignNode(string nodeId, int offerIndex)
 	{
 		if (Campaign == null || !Campaign.Alive)
 			return false;
@@ -82,10 +89,16 @@ public partial class GameSession : Node
 		if (node == null)
 			return false;
 
-		ApplySectorClaim();
-		PendingMission = node.MissionType;
-		PendingDifficulty = node.Difficulty;
-		PendingBossEncounter = node.BossEncounterId;
+		var offer = node.GetOffer(offerIndex);
+		if (offer == null)
+			return false;
+
+		ApplyLocationClaim(node);
+		PendingOfferIndex = offerIndex;
+		PendingMission = offer.MissionType;
+		PendingDifficulty = offer.Difficulty;
+		PendingBossEncounter = offer.BossEncounterId;
+		LastMissionManufacturerId = offer.ManufacturerId;
 		ReturnToCampaignMap = true;
 		MatchFromCampaign = true;
 		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
@@ -100,23 +113,15 @@ public partial class GameSession : Node
 
 		if (outcome == MatchOutcome.Victory)
 		{
-			Campaign.MarkCurrentCleared();
+			ApplyMissionOfferReputation();
+			Campaign.MarkCurrentCleared(PendingOfferIndex);
 			var node = Campaign.CurrentNode;
 			if (node is { Kind: CampaignNodeKind.Warning })
 			{
-				// Advance to next sector or end run.
-				var next = Campaign.SectorIndex + 1;
-				if (next >= VoidCorpsIdentity.ClaimSites.Length)
-				{
-					Campaign.EndRun();
-					Campaign = null;
-					ReturnToCampaignMap = false;
-				}
-				else
-				{
-					Campaign = CampaignRun.StartNew(next, Campaign.Seed ^ (next * 9973));
-					ReturnToCampaignMap = true;
-				}
+				ApplyCampaignClaimReward();
+				Campaign.EndRun();
+				Campaign = null;
+				ReturnToCampaignMap = false;
 			}
 		}
 		else
@@ -127,12 +132,45 @@ public partial class GameSession : Node
 		}
 	}
 
-	private void ApplySectorClaim()
+	private void ApplyMissionOfferReputation()
+	{
+		if (Campaign?.CurrentNode == null || PendingOfferIndex < 0)
+			return;
+
+		var offer = Campaign.CurrentNode.GetOffer(PendingOfferIndex);
+		if (offer == null)
+			return;
+
+		Profile.AddReputation(offer.ManufacturerId, offer.RepGain);
+		Profile.AddReputation(offer.RivalManufacturerId, -offer.RepLoss);
+	}
+
+	private void ApplyCampaignClaimReward()
 	{
 		if (Campaign == null)
 			return;
-		var idx = Mathf.Clamp(Campaign.SectorIndex, 0, VoidCorpsIdentity.ClaimSites.Length - 1);
-		CurrentClaim = VoidCorpsIdentity.ClaimSites[idx];
+
+		var stipend = 20 + Mathf.Max(0, Match.RunScrap / 4);
+		Profile.Scrap += stipend;
+		Campaign.AddManufacturerPayout(stipend);
+
+		if (!string.IsNullOrEmpty(LastMissionManufacturerId))
+			Profile.AddReputation(LastMissionManufacturerId, 2);
+	}
+
+	private void ApplyLocationClaim(CampaignNode? node)
+	{
+		if (node == null || string.IsNullOrEmpty(node.LocationClaimCode))
+			return;
+
+		foreach (var claim in VoidCorpsIdentity.ClaimSites)
+		{
+			if (claim.Code == node.LocationClaimCode)
+			{
+				CurrentClaim = claim;
+				return;
+			}
+		}
 	}
 
 	public void SaveProfile()

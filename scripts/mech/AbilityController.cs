@@ -153,6 +153,8 @@ public partial class AbilityController : Node
 		{
 			_cooldowns[index] = part.AbilityCooldown;
 			powerHeat?.AddHeat(part.AbilityHeatBurst);
+			if (_mech.IsPlayerControlled)
+				TelemetryUtil.Match(_mech)?.Telemetry.RecordUtilityUse();
 		}
 
 		return used;
@@ -174,6 +176,8 @@ public partial class AbilityController : Node
 		_pulseSlot = index;
 		_pulseActive = true;
 		_pulseAiAutoRemaining = aiAutoSeconds;
+		if (_mech.IsPlayerControlled)
+			TelemetryUtil.Match(_mech)?.Telemetry.RecordUtilityUse();
 		SfxService.Play("capture", 1.15f, -8f);
 		return true;
 	}
@@ -351,6 +355,9 @@ public partial class AbilityController : Node
 			}
 		}
 
+		if (healed > 0.01f && _mech.IsPlayerControlled)
+			TelemetryUtil.Match(_mech)?.Telemetry.RecordHeal(healed);
+
 		return healed;
 	}
 
@@ -396,6 +403,13 @@ public partial class AbilityController : Node
 			missile.Damage = part.Damage;
 			parent.AddChild(missile);
 			missile.LaunchLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+		}
+
+		if (_mech.IsPlayerControlled)
+		{
+			var telemetry = TelemetryUtil.Match(_mech)?.Telemetry;
+			for (var i = 0; i < count; i++)
+				telemetry?.RecordShot(missile: true);
 		}
 
 		SfxService.Play("weapon_fire", 0.72f, -1f);

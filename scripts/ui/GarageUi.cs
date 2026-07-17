@@ -225,7 +225,7 @@ public partial class GarageUi : Control
 
 		var reset = new Button
 		{
-			Text = "Reset Corps Starter Kit",
+			Text = "Reset Starter Kit",
 			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
 			CustomMinimumSize = new Vector2(240, 36)
 		};

@@ -684,6 +684,8 @@ public partial class MechController : CharacterBody3D
 			    out _,
 			    out var heat))
 		{
+			if (IsPlayerControlled)
+				TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
 			_powerHeat?.AddHeat(heat * heatOver * ghost);
 			NoteFamilyFire(part.WeaponFamily, slot);
 		}

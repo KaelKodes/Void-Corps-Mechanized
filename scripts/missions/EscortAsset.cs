@@ -29,7 +29,7 @@ public partial class EscortAsset : CharacterBody3D
 			Position = start,
 			_destination = destination,
 			CollisionLayer = 2,
-			CollisionMask = 1
+			CollisionMask = 1 | 8
 		};
 		asset.Build();
 		return asset;

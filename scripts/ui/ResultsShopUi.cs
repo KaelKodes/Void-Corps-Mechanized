@@ -23,6 +23,7 @@ public partial class ResultsShopUi : Control
 	private string? _selectedPartId;
 	private ShopOffer? _selectedOffer;
 	private bool _committed;
+	private string _shopManufacturerId = "";
 
 	private Label? _telemetry;
 	private Label? _manifestBody;
@@ -42,6 +43,9 @@ public partial class ResultsShopUi : Control
 	{
 		_profile = session.Profile;
 		_match = session.Match;
+		_shopManufacturerId = session.MatchFromCampaign
+			? session.LastMissionManufacturerId
+			: "";
 		if (!_committed)
 		{
 			_match.ApplyToProfile(_profile);
@@ -53,7 +57,7 @@ public partial class ResultsShopUi : Control
 		Visible = true;
 		MouseFilter = MouseFilterEnum.Stop;
 		SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		_stock = ShopService.GenerateStock(_profile);
+		_stock = ShopService.GenerateStock(_profile, manufacturerId: _shopManufacturerId);
 		_mode = ExchangeMode.Buy;
 		_selectedPartId = null;
 		_selectedOffer = null;
@@ -120,9 +124,12 @@ public partial class ResultsShopUi : Control
 		bannerInner.AddThemeConstantOverride("separation", 4);
 		banner.AddChild(bannerInner);
 
+		var shopLine = string.IsNullOrEmpty(_shopManufacturerId)
+			? "FIELD DEBRIEF"
+			: $"{GameCatalog.GetManufacturer(_shopManufacturerId).DisplayName.ToUpperInvariant()} FIELD EXCHANGE";
 		var brand = new Label
 		{
-			Text = "VOID CORPS  ·  FIELD DEBRIEF",
+			Text = $"VOID CORPS  ·  {shopLine}",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Accent.Darkened(0.1f)
 		};
@@ -184,7 +191,10 @@ public partial class ResultsShopUi : Control
 		headerRow.AddThemeConstantOverride("separation", 12);
 		inner.AddChild(headerRow);
 
-		_listSection = MechUiTheme.MakeSectionLabel("FIELD EXCHANGE");
+		var sectionTitle = string.IsNullOrEmpty(_shopManufacturerId)
+			? "FIELD EXCHANGE"
+			: $"{GameCatalog.GetManufacturer(_shopManufacturerId).DisplayName.ToUpperInvariant()} STOCK";
+		_listSection = MechUiTheme.MakeSectionLabel(sectionTitle);
 		_listSection.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 		headerRow.AddChild(_listSection);
 
@@ -389,7 +399,8 @@ public partial class ResultsShopUi : Control
 			return;
 		_telemetry.Text =
 			$"Run scrap {_match.RunScrap}   ·   Profile scrap {_profile.Scrap}   ·   " +
-			$"Lives {_profile.LivesBank}   ·   Parts {_profile.OwnedCopyCount}";
+			$"Lives {_profile.LivesBank}   ·   Parts {_profile.OwnedCopyCount}\n" +
+			_match.Telemetry.BuildSummary();
 	}
 
 	private void RefreshManifest()
@@ -405,9 +416,14 @@ public partial class ResultsShopUi : Control
 				return $"  ·  {part?.DisplayName ?? id}  ({part?.Slot.ToString() ?? "?"})";
 			}));
 
+		var shopNote = string.IsNullOrEmpty(_shopManufacturerId)
+			? "Open field exchange"
+			: $"{GameCatalog.GetManufacturer(_shopManufacturerId).DisplayName} resupply";
 		_manifestBody.Text =
 			$"Outcome\n  {_match.Outcome}\n\n" +
 			$"Run scrap banked\n  {_match.RunScrap}\n\n" +
+			$"Merc corps\n  {_profile.MercCorpName}\n\n" +
+			$"Post-mission shop\n  {shopNote}\n\n" +
 			$"Recovered parts\n{drops}";
 	}
 

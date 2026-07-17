@@ -1,9 +1,10 @@
 using System.Collections.Generic;
+using System.Text;
 using Godot;
 
 namespace Mechanize;
 
-/// <summary>FTL-style one-way sector map with fog of war.</summary>
+/// <summary>Sector board of claim-locations; full visibility, adjacent deploy with manufacturer offers.</summary>
 public partial class CampaignMapUi : Control
 {
 	private CampaignRun _run = null!;
@@ -11,7 +12,9 @@ public partial class CampaignMapUi : Control
 	private Label? _status;
 	private PanelContainer? _detailPanel;
 	private Label? _detailBody;
+	private VBoxContainer? _offerList;
 	private string? _pendingCommitId;
+	private int _pendingOfferIndex = -1;
 
 	public override void _Ready()
 	{
@@ -28,6 +31,9 @@ public partial class CampaignMapUi : Control
 		foreach (var child in GetChildren())
 			child.QueueFree();
 		_nodeButtons.Clear();
+		_pendingCommitId = null;
+		_pendingOfferIndex = -1;
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 
 		var dim = new ColorRect
 		{
@@ -39,7 +45,7 @@ public partial class CampaignMapUi : Control
 
 		var title = new Label
 		{
-			Text = _run.Graph.SectorTitle,
+			Text = $"{session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename}  ·  {_run.Graph.SectorTitle}",
 			Position = new Vector2(40, 28),
 			Size = new Vector2(1200, 40),
 			Modulate = new Color(0.85f, 0.7f, 0.38f)
@@ -49,17 +55,18 @@ public partial class CampaignMapUi : Control
 
 		_status = new Label
 		{
-			Text = "Select a revealed adjacent node. Paths only move forward.",
+			Text = BuildStatusLine(session),
 			Position = new Vector2(40, 68),
-			Size = new Vector2(1400, 28),
+			Size = new Vector2(1700, 48),
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = new Color(0.65f, 0.72f, 0.78f)
 		};
 		AddChild(_status);
 
 		var map = new Control
 		{
-			Position = new Vector2(40, 110),
-			Size = new Vector2(1840, 780),
+			Position = new Vector2(40, 100),
+			Size = new Vector2(1840, 560),
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		AddChild(map);
@@ -71,8 +78,8 @@ public partial class CampaignMapUi : Control
 		_detailPanel = new PanelContainer
 		{
 			Visible = false,
-			Position = new Vector2(560, 820),
-			CustomMinimumSize = new Vector2(800, 160)
+			Position = new Vector2(280, 680),
+			CustomMinimumSize = new Vector2(1360, 280)
 		};
 		_detailPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
@@ -100,6 +107,10 @@ public partial class CampaignMapUi : Control
 		_detailBody.AddThemeFontSizeOverride("font_size", 15);
 		detailRoot.AddChild(_detailBody);
 
+		_offerList = new VBoxContainer();
+		_offerList.AddThemeConstantOverride("separation", 6);
+		detailRoot.AddChild(_offerList);
+
 		var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
 		row.AddThemeConstantOverride("separation", 12);
 		detailRoot.AddChild(row);
@@ -110,6 +121,7 @@ public partial class CampaignMapUi : Control
 		cancel.Pressed += () =>
 		{
 			_pendingCommitId = null;
+			_pendingOfferIndex = -1;
 			_detailPanel.Visible = false;
 		};
 		row.AddChild(cancel);
@@ -156,13 +168,12 @@ public partial class CampaignMapUi : Control
 
 	private void PlaceNodes(Control map, MapLayout layout)
 	{
-		const float nodeSize = 84f;
+		const float nodeSize = 96f;
 		foreach (var node in _run.Graph.Nodes)
 		{
 			var pos = layout.Positions[node.Id];
-			var revealed = _run.IsRevealed(node);
 			var isHere = node.Id == _run.CurrentNodeId;
-			var canCommit = revealed && _run.Graph.IsAdjacent(_run.CurrentNodeId, node.Id) && !node.Cleared
+			var canCommit = _run.Graph.IsAdjacent(_run.CurrentNodeId, node.Id) && !node.Cleared
 				&& node.Kind != CampaignNodeKind.Start;
 
 			var btn = new Button
@@ -170,12 +181,12 @@ public partial class CampaignMapUi : Control
 				Position = pos - new Vector2(nodeSize * 0.5f, nodeSize * 0.5f),
 				CustomMinimumSize = new Vector2(nodeSize, nodeSize),
 				Size = new Vector2(nodeSize, nodeSize),
-				Text = NodeLabel(node, revealed, isHere),
+				Text = NodeLabel(node, isHere),
 				Disabled = !canCommit && !isHere,
 				ClipText = true
 			};
-			btn.AddThemeFontSizeOverride("font_size", isHere || node.Kind == CampaignNodeKind.Warning ? 13 : 12);
-			btn.Modulate = NodeColor(node, revealed, isHere, canCommit);
+			btn.AddThemeFontSizeOverride("font_size", isHere || node.Kind == CampaignNodeKind.Warning ? 12 : 11);
+			btn.Modulate = NodeColor(node, isHere, canCommit);
 			if (canCommit)
 			{
 				var id = node.Id;
@@ -195,18 +206,10 @@ public partial class CampaignMapUi : Control
 				|| !layout.Positions.TryGetValue(toId, out var b))
 				continue;
 
-			var fromNode = _run.Graph.Get(fromId);
-			var toNode = _run.Graph.Get(toId);
-			var lit = fromNode != null && toNode != null
-				&& (_run.IsRevealed(fromNode) || fromNode.Id == _run.CurrentNodeId)
-				&& (_run.IsRevealed(toNode) || toNode.Id == _run.CurrentNodeId);
-
 			var line = new Line2D
 			{
 				Width = 3.5f,
-				DefaultColor = lit
-					? new Color(0.78f, 0.82f, 0.88f, 0.7f)
-					: new Color(0.45f, 0.48f, 0.52f, 0.28f),
+				DefaultColor = new Color(0.78f, 0.82f, 0.88f, 0.7f),
 				Antialiased = true,
 				BeginCapMode = Line2D.LineCapMode.Round,
 				EndCapMode = Line2D.LineCapMode.Round
@@ -217,7 +220,6 @@ public partial class CampaignMapUi : Control
 		}
 	}
 
-	/// <summary>Column-centered layout so short columns sit mid-band like FTL.</summary>
 	private static Vector2 NodeScreenPos(CampaignNode node, int maxCol, int columnHeight, Vector2 mapSize)
 	{
 		var x = 100f + node.Column / Mathf.Max(1f, maxCol) * (mapSize.X - 200f);
@@ -227,29 +229,30 @@ public partial class CampaignMapUi : Control
 		return new Vector2(x, y);
 	}
 
-	private static string NodeLabel(CampaignNode node, bool revealed, bool isHere)
+	private static string NodeLabel(CampaignNode node, bool isHere)
 	{
 		if (isHere)
 			return "YOU";
 		if (node.Cleared)
 			return "DONE";
-		if (!revealed)
-			return "?";
 		if (node.Kind == CampaignNodeKind.Warning)
 			return "WARNING!";
 		if (node.Kind == CampaignNodeKind.Start)
 			return "START";
-		return MissionCatalog.Get(node.MissionType).Title.Split(' ')[0].ToUpperInvariant();
+
+		var name = node.LocationDisplayName;
+		if (string.IsNullOrEmpty(name))
+			return "LOC";
+		var parts = name.Split(' ');
+		return parts.Length > 0 ? parts[^1].ToUpperInvariant() : name.ToUpperInvariant();
 	}
 
-	private static Color NodeColor(CampaignNode node, bool revealed, bool isHere, bool canCommit)
+	private static Color NodeColor(CampaignNode node, bool isHere, bool canCommit)
 	{
 		if (isHere)
 			return new Color(0.95f, 0.82f, 0.4f);
 		if (node.Cleared)
 			return new Color(0.4f, 0.55f, 0.45f);
-		if (!revealed)
-			return new Color(0.45f, 0.48f, 0.52f);
 		if (node.Kind == CampaignNodeKind.Warning)
 			return new Color(0.95f, 0.4f, 0.3f);
 		if (canCommit)
@@ -260,36 +263,113 @@ public partial class CampaignMapUi : Control
 	private void OpenCommit(string nodeId)
 	{
 		var node = _run.Graph.Get(nodeId);
-		if (node == null || _detailPanel == null || _detailBody == null)
+		if (node == null || _detailPanel == null || _detailBody == null || _offerList == null)
 			return;
 
 		_pendingCommitId = nodeId;
+		_pendingOfferIndex = node.Offers.Count > 0 ? 0 : -1;
 		_detailPanel.Visible = true;
 
-		if (node.Kind == CampaignNodeKind.Warning)
+		foreach (var child in _offerList.GetChildren())
+			child.QueueFree();
+
+		var claimBrief = "";
+		foreach (var claim in VoidCorpsIdentity.ClaimSites)
 		{
-			var boss = BossEncounterCatalog.Get(node.BossEncounterId);
+			if (claim.Code == node.LocationClaimCode)
+			{
+				claimBrief = claim.Brief;
+				break;
+			}
+		}
+
+		if (node.Kind == CampaignNodeKind.Warning && node.Offers.Count > 0)
+		{
+			var boss = BossEncounterCatalog.Get(node.Offers[0].BossEncounterId);
 			_detailBody.Text =
-				$"WARNING — {boss.BossName}\n{boss.Brief}\nDifficulty: {node.Difficulty}\n\nCommit to this path. No going back.";
+				$"{node.LocationDisplayName}\nWARNING — {boss.BossName}\n{boss.Brief}\n{claimBrief}";
 		}
 		else
 		{
-			var info = MissionCatalog.Get(node.MissionType);
 			_detailBody.Text =
-				$"{info.Title}\n{info.Brief}\nDifficulty: {node.Difficulty}\n\nCommit to this path. No going back.";
+				$"{node.LocationDisplayName}\n{claimBrief}\n\nPick a manufacturer contract. Completing one clears this location.";
 		}
+
+		var offerGroup = new ButtonGroup();
+		for (var i = 0; i < node.Offers.Count; i++)
+		{
+			var offer = node.Offers[i];
+			var index = i;
+			var mfg = GameCatalog.GetManufacturer(offer.ManufacturerId).DisplayName;
+			var rival = GameCatalog.GetManufacturer(offer.RivalManufacturerId).DisplayName;
+			var mission = MissionCatalog.Get(offer.MissionType);
+			var label =
+				$"{mfg} · {mission.Title} · {offer.Difficulty}  |  +{offer.RepGain} {mfg}  /  -{offer.RepLoss} {rival}";
+
+			var btn = new Button
+			{
+				Text = label,
+				CustomMinimumSize = new Vector2(0, 36),
+				SizeFlagsHorizontal = SizeFlags.ExpandFill,
+				ToggleMode = true,
+				ButtonGroup = offerGroup,
+				ButtonPressed = index == _pendingOfferIndex
+			};
+			btn.Pressed += () => SelectOffer(index);
+			_offerList.AddChild(btn);
+		}
+	}
+
+	private void SelectOffer(int index)
+	{
+		_pendingOfferIndex = index;
+	}
+
+	private string BuildStatusLine(GameSession? session)
+	{
+		var profile = session?.Profile;
+		var sb = new StringBuilder();
+		sb.Append("All locations visible. Deploy to an adjacent site, then pick a manufacturer contract.  ");
+		sb.Append("Claims secured ");
+		sb.Append(_run.ClaimsSecured);
+		if (profile != null)
+		{
+			sb.Append("  ·  Rep");
+			foreach (var id in GameCatalog.Manufacturers.Keys)
+			{
+				var m = GameCatalog.GetManufacturer(id);
+				sb.Append("  ");
+				sb.Append(ShortMfg(m.DisplayName));
+				sb.Append(' ');
+				sb.Append(profile.ReputationWith(id).ToString("+0;-0;0"));
+			}
+		}
+
+		return sb.ToString();
+	}
+
+	private static string ShortMfg(string displayName)
+	{
+		if (displayName.StartsWith("Lumina"))
+			return "Lumina";
+		return displayName;
 	}
 
 	private void ConfirmDeploy()
 	{
-		if (_pendingCommitId == null)
+		if (_pendingCommitId == null || _pendingOfferIndex < 0)
+		{
+			if (_status != null)
+				_status.Text = "Select a manufacturer contract first.";
 			return;
+		}
+
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		if (session == null)
 			return;
-		if (!session.DeployCampaignNode(_pendingCommitId))
+		if (!session.DeployCampaignNode(_pendingCommitId, _pendingOfferIndex))
 		{
-			_status!.Text = "Cannot deploy that node.";
+			_status!.Text = "Cannot deploy that location.";
 			return;
 		}
 

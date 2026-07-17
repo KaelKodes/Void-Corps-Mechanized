@@ -3,10 +3,8 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Per-claim arena presentation: spawns, cover, crates, atmosphere.
-/// One shared arena scene; layouts swap at load.
-/// Drop beacons are derived from PlayerSpawn / enemy spawn pads at runtime
-/// (player always; enemy only for mid-match viaDropBeacon arrivals).
+/// Per-claim arena presentation: size class, spawns, cover, crates, atmosphere.
+/// One shared arena scene; shell scales and layouts swap at load.
 /// </summary>
 public sealed class ClaimArenaLayout
 {
@@ -28,6 +26,8 @@ public sealed class ClaimArenaLayout
 	}
 
 	public string ClaimCode { get; init; } = "";
+	public ArenaSize Size { get; init; } = ArenaSize.Small;
+	public float MapVersion { get; init; } = 1.0f;
 	public Vector3 PlayerSpawn { get; init; }
 	public Vector3 EnemySpawnA { get; init; }
 	public Vector3 EnemySpawnB { get; init; }
@@ -42,6 +42,9 @@ public sealed class ClaimArenaLayout
 	public float SunEnergy { get; init; } = 1.15f;
 	public Vector3 SunRotationDegrees { get; init; } = new(-45f, -35f, 0f);
 
+	public float HalfExtent => ArenaSizeUtil.HalfExtent(Size);
+	public float PadLimit => ArenaSizeUtil.PadLimit(Size);
+
 	public static ClaimArenaLayout ForClaim(VoidCorpsIdentity.ClaimSite claim)
 	{
 		foreach (var layout in All)
@@ -55,10 +58,14 @@ public sealed class ClaimArenaLayout
 
 	public static readonly ClaimArenaLayout[] All =
 	[
+		// ===== Gen 1.0 / SMALL (80×80) =====
+
 		// Open disputed rock — jersey barriers, wrecked freight, sparse hard cover.
 		new ClaimArenaLayout
 		{
 			ClaimCode = "VC-CLAIM 7-ORBITAL",
+			Size = ArenaSize.Small,
+			MapVersion = 1.0f,
 			PlayerSpawn = new Vector3(32f, 0f, 32f),
 			EnemySpawnA = new Vector3(-32f, 0f, -32f),
 			EnemySpawnB = new Vector3(32f, 0f, -32f),
@@ -94,6 +101,8 @@ public sealed class ClaimArenaLayout
 		new ClaimArenaLayout
 		{
 			ClaimCode = "VC-CLAIM GRID-ASH",
+			Size = ArenaSize.Small,
+			MapVersion = 1.0f,
 			PlayerSpawn = new Vector3(34f, 0f, 28f),
 			EnemySpawnA = new Vector3(-34f, 0f, -28f),
 			EnemySpawnB = new Vector3(-32f, 0f, 26f),
@@ -132,6 +141,8 @@ public sealed class ClaimArenaLayout
 		new ClaimArenaLayout
 		{
 			ClaimCode = "VC-CLAIM BLACK-WHARF",
+			Size = ArenaSize.Small,
+			MapVersion = 1.0f,
 			PlayerSpawn = new Vector3(28f, 0f, 34f),
 			EnemySpawnA = new Vector3(-28f, 0f, -34f),
 			EnemySpawnB = new Vector3(30f, 0f, -30f),
@@ -148,7 +159,6 @@ public sealed class ClaimArenaLayout
 				new(CoverKind.SemiTrailer, new Vector3(0f, 0f, 0f), 45f, 0.9f),
 				new(CoverKind.Warehouse, new Vector3(-20f, 0f, -18f), 25f, 0.7f),
 				new(CoverKind.PipeRack, new Vector3(18f, 0f, 14f), -15f, 0.95f),
-				// Skyline — rim dressing, not midfield cover.
 				new(CoverKind.Skyscraper, new Vector3(-34f, 0f, 0f), 0f, 1.0f),
 				new(CoverKind.Skyscraper, new Vector3(-32f, 0f, 10f), 12f, 0.85f),
 				new(CoverKind.Skyscraper, new Vector3(34f, 0f, -4f), -8f, 1.1f),
@@ -172,6 +182,130 @@ public sealed class ClaimArenaLayout
 			SunColor = new Color(0.55f, 0.7f, 0.9f),
 			SunEnergy = 0.75f,
 			SunRotationDegrees = new Vector3(-30f, -80f, 0f)
+		},
+
+		// ===== Gen 2.0 / MEDIUM (96×96) — Slag Foundry =====
+		// Cross-shaped pour floor: pipe racks as lanes, furnace sheds on the arms,
+		// fuel farm in the SW pocket, freight staging NE.
+		new ClaimArenaLayout
+		{
+			ClaimCode = "VC-CLAIM SLAG-FOUNDRY",
+			Size = ArenaSize.Medium,
+			MapVersion = 2.0f,
+			PlayerSpawn = new Vector3(38f, 0f, 38f),
+			EnemySpawnA = new Vector3(-38f, 0f, -38f),
+			EnemySpawnB = new Vector3(36f, 0f, -34f),
+			Covers =
+			[
+				// Furnace spine — N/S pipe corridor
+				new(CoverKind.PipeRack, new Vector3(0f, 0f, -18f), 90f, 1.1f),
+				new(CoverKind.PipeRack, new Vector3(0f, 0f, 0f), 90f, 1.15f),
+				new(CoverKind.PipeRack, new Vector3(0f, 0f, 18f), 90f, 1.1f),
+				// E/W slag lanes
+				new(CoverKind.BarrierRow, new Vector3(-16f, 0f, 0f), 90f, 1.05f),
+				new(CoverKind.BarrierRow, new Vector3(16f, 0f, 0f), 90f, 1.05f),
+				new(CoverKind.ConcreteBarrier, new Vector3(-8f, 0f, 10f), 15f),
+				new(CoverKind.ConcreteBarrier, new Vector3(10f, 0f, -12f), -20f),
+				// Pour sheds
+				new(CoverKind.Warehouse, new Vector3(-28f, 0f, 8f), 0f, 0.85f),
+				new(CoverKind.IndustrialShed, new Vector3(26f, 0f, -10f), 90f, 1.0f),
+				new(CoverKind.IndustrialShed, new Vector3(-24f, 0f, -22f), -15f, 0.95f),
+				// Fuel + freight
+				new(CoverKind.OilTankCluster, new Vector3(-30f, 0f, 28f), 25f, 0.95f),
+				new(CoverKind.OilTank, new Vector3(30f, 0f, 24f), -10f, 1.0f),
+				new(CoverKind.ContainerStack, new Vector3(22f, 0f, 32f), 0f, 1.0f),
+				new(CoverKind.ShippingContainer, new Vector3(14f, 0f, 28f), 90f),
+				new(CoverKind.SemiTrailer, new Vector3(-18f, 0f, -32f), 40f, 1.0f),
+				new(CoverKind.SemiTrailer, new Vector3(32f, 0f, -28f), -70f, 0.95f),
+				new(CoverKind.ShippingContainer, new Vector3(-6f, 0f, -28f), 0f),
+				new(CoverKind.ContainerStack, new Vector3(8f, 0f, 16f), -90f, 0.9f)
+			],
+			CratePositions =
+			[
+				new Vector3(20f, 0f, -6f),
+				new Vector3(-22f, 0f, 4f),
+				new Vector3(6f, 0f, 30f),
+				new Vector3(-10f, 0f, -20f),
+				new Vector3(28f, 0f, 8f),
+				new Vector3(-32f, 0f, -8f)
+			],
+			FloorColor = new Color(0.22f, 0.16f, 0.12f),
+			WallColor = new Color(0.38f, 0.26f, 0.18f),
+			SkyColor = new Color(0.14f, 0.08f, 0.06f),
+			AmbientColor = new Color(0.75f, 0.42f, 0.28f),
+			AmbientEnergy = 0.62f,
+			SunColor = new Color(1f, 0.7f, 0.45f),
+			SunEnergy = 1.2f,
+			SunRotationDegrees = new Vector3(-48f, 25f, 0f)
+		},
+
+		// ===== Gen 2.0 / LARGE (112×112) — Spire-Null Plaza =====
+		// Open plaza core, monument cover midfield, dense skyscraper rim,
+		// freight pockets on the diagonals.
+		new ClaimArenaLayout
+		{
+			ClaimCode = "VC-CLAIM SPIRE-NULL",
+			Size = ArenaSize.Large,
+			MapVersion = 2.0f,
+			PlayerSpawn = new Vector3(46f, 0f, 44f),
+			EnemySpawnA = new Vector3(-46f, 0f, -44f),
+			EnemySpawnB = new Vector3(44f, 0f, -42f),
+			Covers =
+			[
+				// Plaza hardpoints
+				new(CoverKind.BarrierRow, new Vector3(0f, 0f, -14f), 0f, 1.1f),
+				new(CoverKind.BarrierRow, new Vector3(0f, 0f, 14f), 0f, 1.1f),
+				new(CoverKind.BarrierRow, new Vector3(-14f, 0f, 0f), 90f, 1.1f),
+				new(CoverKind.BarrierRow, new Vector3(14f, 0f, 0f), 90f, 1.1f),
+				new(CoverKind.ConcreteBarrier, new Vector3(-6f, 0f, -6f), 45f),
+				new(CoverKind.ConcreteBarrier, new Vector3(6f, 0f, 6f), 45f),
+				new(CoverKind.ContainerStack, new Vector3(0f, 0f, 0f), 0f, 1.05f),
+				// Diagonal freight pockets
+				new(CoverKind.Warehouse, new Vector3(-28f, 0f, 22f), 20f, 0.9f),
+				new(CoverKind.Warehouse, new Vector3(30f, 0f, -24f), -25f, 0.85f),
+				new(CoverKind.IndustrialShed, new Vector3(24f, 0f, 28f), 90f, 1.0f),
+				new(CoverKind.OilTankCluster, new Vector3(-32f, 0f, -26f), 15f, 1.0f),
+				new(CoverKind.OilTank, new Vector3(36f, 0f, 20f), -30f, 1.05f),
+				new(CoverKind.PipeRack, new Vector3(-20f, 0f, 36f), 0f, 1.1f),
+				new(CoverKind.SemiTrailer, new Vector3(18f, 0f, -36f), 55f, 1.0f),
+				new(CoverKind.SemiTrailer, new Vector3(-36f, 0f, 12f), -80f, 0.95f),
+				new(CoverKind.ShippingContainer, new Vector3(22f, 0f, 8f), 0f),
+				new(CoverKind.ShippingContainer, new Vector3(-24f, 0f, -8f), 90f),
+				new(CoverKind.ContainerStack, new Vector3(8f, 0f, -28f), -15f),
+				new(CoverKind.ContainerStack, new Vector3(-10f, 0f, 30f), 20f),
+				// Skyline rim — large footprint city wall
+				new(CoverKind.Skyscraper, new Vector3(-50f, 0f, -20f), 0f, 1.15f),
+				new(CoverKind.Skyscraper, new Vector3(-48f, 0f, 0f), 8f, 1.0f),
+				new(CoverKind.Skyscraper, new Vector3(-50f, 0f, 22f), -6f, 1.25f),
+				new(CoverKind.Skyscraper, new Vector3(50f, 0f, -16f), 12f, 1.1f),
+				new(CoverKind.Skyscraper, new Vector3(48f, 0f, 6f), -10f, 0.95f),
+				new(CoverKind.Skyscraper, new Vector3(50f, 0f, 28f), 5f, 1.2f),
+				new(CoverKind.Skyscraper, new Vector3(-18f, 0f, -50f), 90f, 1.05f),
+				new(CoverKind.Skyscraper, new Vector3(8f, 0f, -52f), 90f, 1.3f),
+				new(CoverKind.Skyscraper, new Vector3(28f, 0f, -50f), 90f, 0.9f),
+				new(CoverKind.Skyscraper, new Vector3(-24f, 0f, 50f), -90f, 1.1f),
+				new(CoverKind.Skyscraper, new Vector3(0f, 0f, 52f), -90f, 1.2f),
+				new(CoverKind.Skyscraper, new Vector3(26f, 0f, 50f), -90f, 1.0f)
+			],
+			CratePositions =
+			[
+				new Vector3(16f, 0f, -10f),
+				new Vector3(-18f, 0f, 12f),
+				new Vector3(30f, 0f, 14f),
+				new Vector3(-28f, 0f, -14f),
+				new Vector3(4f, 0f, 36f),
+				new Vector3(-6f, 0f, -34f),
+				new Vector3(40f, 0f, -8f),
+				new Vector3(-40f, 0f, 6f)
+			],
+			FloorColor = new Color(0.14f, 0.15f, 0.18f),
+			WallColor = new Color(0.22f, 0.26f, 0.32f),
+			SkyColor = new Color(0.05f, 0.07f, 0.11f),
+			AmbientColor = new Color(0.4f, 0.5f, 0.65f),
+			AmbientEnergy = 0.52f,
+			SunColor = new Color(0.7f, 0.82f, 1f),
+			SunEnergy = 0.9f,
+			SunRotationDegrees = new Vector3(-35f, -110f, 0f)
 		}
 	];
 }

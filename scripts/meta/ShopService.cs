@@ -19,12 +19,27 @@ public static class ShopService
 		Rng.Randomize();
 	}
 
-	public static List<ShopOffer> GenerateStock(PlayerProfile profile, int count = 5)
+	public static List<ShopOffer> GenerateStock(
+		PlayerProfile profile,
+		int count = 5,
+		string? manufacturerId = null)
 	{
 		GameCatalog.EnsureBuilt();
-		var candidates = GameCatalog.Parts.Values
+		var all = GameCatalog.Parts.Values
 			.Where(p => p.VisualKind != "empty")
 			.ToList();
+
+		List<PartData> candidates;
+		if (!string.IsNullOrEmpty(manufacturerId))
+		{
+			candidates = all.Where(p => p.ManufacturerId == manufacturerId).ToList();
+			if (candidates.Count == 0)
+				candidates = all;
+		}
+		else
+		{
+			candidates = all;
+		}
 
 		// Bias toward parts the player has few/no copies of.
 		var unseen = candidates.Where(p => profile.OwnedCount(p.Id) == 0).ToList();
@@ -43,6 +58,24 @@ public static class ShopService
 				PartId = part.Id,
 				Price = PriceFor(part)
 			});
+		}
+
+		// If manufacturer pool was thin, fill remaining slots from other brands.
+		if (stock.Count < count && !string.IsNullOrEmpty(manufacturerId))
+		{
+			var filler = all.Where(p => !used.Contains(p.Id)).ToList();
+			attempts = 0;
+			while (stock.Count < count && attempts++ < 40 && filler.Count > 0)
+			{
+				var part = filler[Rng.RandiRange(0, filler.Count - 1)];
+				if (!used.Add(part.Id))
+					continue;
+				stock.Add(new ShopOffer
+				{
+					PartId = part.Id,
+					Price = PriceFor(part)
+				});
+			}
 		}
 
 		return stock;

@@ -28,7 +28,7 @@ public partial class SupportUnit : CharacterBody3D
 		SupportCatalog.EnsureBuilt();
 		_data = SupportCatalog.Get(UnitId) ?? SupportCatalog.Get("light_tank");
 		CollisionLayer = 2;
-		CollisionMask = 1;
+		CollisionMask = 1 | 8;
 
 		EnsureCollision();
 		EnsureHealth();

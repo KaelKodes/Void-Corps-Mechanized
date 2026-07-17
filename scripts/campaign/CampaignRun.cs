@@ -2,7 +2,7 @@ using Godot;
 
 namespace Mechanize;
 
-/// <summary>Active roguelike campaign run across claim-sectors.</summary>
+/// <summary>Active campaign run across a sector of claim-locations.</summary>
 public sealed class CampaignRun
 {
 	public const string SavePath = "user://mechanize_campaign.json";
@@ -10,8 +10,10 @@ public sealed class CampaignRun
 	public int Seed { get; set; }
 	public int SectorIndex { get; set; }
 	public string CurrentNodeId { get; set; } = "";
-	public int ScoutRange { get; set; } = 1;
 	public bool Alive { get; set; } = true;
+	public CampaignPhase Phase { get; set; } = CampaignPhase.ActiveOperations;
+	public int ClaimsSecured { get; set; }
+	public int ManufacturerPayoutEarned { get; set; }
 	public SectorGraph Graph { get; set; } = null!;
 
 	public CampaignNode? CurrentNode => Graph?.Get(CurrentNodeId);
@@ -21,22 +23,18 @@ public sealed class CampaignRun
 		if (seed < 0)
 			seed = (int)Time.GetTicksMsec();
 
-		sectorIndex = Mathf.Clamp(sectorIndex, 0, VoidCorpsIdentity.ClaimSites.Length - 1);
-		var claim = VoidCorpsIdentity.ClaimSites[sectorIndex];
-		var boss = BossEncounterCatalog.ForSectorClaim(claim.Code);
 		var graph = SectorGraphGenerator.Generate(
-			claim.Code,
-			$"Sector {sectorIndex + 1} — {claim.DisplayName}",
-			seed ^ (sectorIndex * 7919),
-			boss);
+			"sector_claim_belt",
+			"Claim Belt — contested locations",
+			seed ^ (sectorIndex * 7919));
 
 		var run = new CampaignRun
 		{
 			Seed = seed,
 			SectorIndex = sectorIndex,
+			Phase = CampaignPhase.ActiveOperations,
 			Graph = graph,
 			CurrentNodeId = graph.StartNode.Id,
-			ScoutRange = 1,
 			Alive = true
 		};
 		run.Save();
@@ -57,12 +55,24 @@ public sealed class CampaignRun
 		return true;
 	}
 
-	public void MarkCurrentCleared()
+	public void MarkCurrentCleared(int completedOfferIndex = -1)
 	{
 		var node = CurrentNode;
 		if (node != null)
+		{
 			node.Cleared = true;
+			node.CompletedOfferIndex = completedOfferIndex;
+			if (node.Kind == CampaignNodeKind.Warning)
+				ClaimsSecured++;
+		}
+
 		Save();
+	}
+
+	public void AddManufacturerPayout(int scrap)
+	{
+		if (scrap > 0)
+			ManufacturerPayoutEarned += scrap;
 	}
 
 	public void EndRun()
@@ -71,35 +81,8 @@ public sealed class CampaignRun
 		Save();
 	}
 
-	public bool IsRevealed(CampaignNode node)
-	{
-		if (node.Id == CurrentNodeId || node.Cleared)
-			return true;
-		if (Graph == null)
-			return false;
-
-		// Scout range 1: adjacent forward from current.
-		if (ScoutRange <= 1)
-			return Graph.IsAdjacent(CurrentNodeId, node.Id);
-
-		// Reserved: deeper scout walks forward hops.
-		var frontier = new System.Collections.Generic.HashSet<string> { CurrentNodeId };
-		for (var hop = 0; hop < ScoutRange; hop++)
-		{
-			var next = new System.Collections.Generic.HashSet<string>();
-			foreach (var id in frontier)
-			{
-				foreach (var n in Graph.NeighborsForward(id))
-					next.Add(n.Id);
-			}
-
-			if (next.Contains(node.Id))
-				return true;
-			frontier = next;
-		}
-
-		return false;
-	}
+	/// <summary>Full map visibility — all locations are known for route planning.</summary>
+	public bool IsRevealed(CampaignNode node) => true;
 
 	public void Save()
 	{
@@ -108,8 +91,10 @@ public sealed class CampaignRun
 			["seed"] = Seed,
 			["sector"] = SectorIndex,
 			["node"] = CurrentNodeId,
-			["scout"] = ScoutRange,
 			["alive"] = Alive,
+			["phase"] = (int)Phase,
+			["claims_secured"] = ClaimsSecured,
+			["manufacturer_payout"] = ManufacturerPayoutEarned,
 			["graph"] = Graph.ToDict()
 		};
 		var json = Json.Stringify(dict, "\t");
@@ -131,14 +116,33 @@ public sealed class CampaignRun
 		if (!dict.ContainsKey("graph"))
 			return null;
 
+		var graph = SectorGraph.FromDict(dict["graph"].AsGodotDictionary());
+		// Old saves lack location offers — force a fresh sector board.
+		var needsMigrate = false;
+		foreach (var n in graph.Nodes)
+		{
+			if (n.Kind is CampaignNodeKind.Mission or CampaignNodeKind.Warning
+			    && (n.Offers.Count == 0 || string.IsNullOrEmpty(n.LocationClaimCode)))
+			{
+				needsMigrate = true;
+				break;
+			}
+		}
+
+		if (needsMigrate)
+			return StartNew(dict.ContainsKey("sector") ? dict["sector"].AsInt32() : 0,
+				dict.ContainsKey("seed") ? dict["seed"].AsInt32() : -1);
+
 		return new CampaignRun
 		{
 			Seed = dict["seed"].AsInt32(),
 			SectorIndex = dict["sector"].AsInt32(),
 			CurrentNodeId = dict["node"].AsString(),
-			ScoutRange = dict.ContainsKey("scout") ? dict["scout"].AsInt32() : 1,
 			Alive = !dict.ContainsKey("alive") || dict["alive"].AsBool(),
-			Graph = SectorGraph.FromDict(dict["graph"].AsGodotDictionary())
+			Phase = dict.ContainsKey("phase") ? (CampaignPhase)dict["phase"].AsInt32() : CampaignPhase.ActiveOperations,
+			ClaimsSecured = dict.ContainsKey("claims_secured") ? dict["claims_secured"].AsInt32() : 0,
+			ManufacturerPayoutEarned = dict.ContainsKey("manufacturer_payout") ? dict["manufacturer_payout"].AsInt32() : 0,
+			Graph = graph
 		};
 	}
 

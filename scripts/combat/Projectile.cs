@@ -136,6 +136,13 @@ public partial class Projectile : Area3D
 				GlobalPosition,
 				PreferredSlot,
 				TargetingMode == TargetingMode.AimedComponent);
+			if (TelemetryUtil.IsPlayerSource(Source))
+			{
+				var telemetry = TelemetryUtil.Match(this)?.Telemetry;
+				telemetry?.RecordHit(TelemetryTargetKind.Map, Name == "Missile");
+				if (mech.Integrity.IsCollapsed || mech.Health?.IsDead == true)
+					telemetry?.RecordKill(TelemetryTargetKind.Map);
+			}
 			SfxService.Play("weapon_hit", (float)GD.RandRange(0.9, 1.1), -2f);
 			QueueFree();
 			return true;
@@ -144,7 +151,15 @@ public partial class Projectile : Area3D
 		var damageable = FindDamageable(node);
 		if (damageable != null)
 		{
+			var kind = TelemetryUtil.Classify(node);
 			damageable.ApplyDamage(Damage);
+			if (TelemetryUtil.IsPlayerSource(Source))
+			{
+				var telemetry = TelemetryUtil.Match(this)?.Telemetry;
+				telemetry?.RecordHit(kind, Name == "Missile");
+				if (damageable.IsDead)
+					telemetry?.RecordKill(kind);
+			}
 			SfxService.Play("weapon_hit", (float)GD.RandRange(0.95, 1.15), -3f);
 			QueueFree();
 			return true;

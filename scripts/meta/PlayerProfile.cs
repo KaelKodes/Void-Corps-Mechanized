@@ -10,12 +10,18 @@ namespace Mechanize;
 /// </summary>
 public sealed class PlayerProfile
 {
+	public const int StartingManufacturerRep = -10;
+	public const int StartingAlignedRep = 20;
+
 	public int Scrap { get; set; }
 	public int LivesBank { get; set; } = 2;
 	public Dictionary<string, int> OwnedCounts { get; set; } = new();
 	public LoadoutData Loadout { get; set; } = null!;
 	public int SkirmishesPlayed { get; set; }
 	public int SkirmishesWon { get; set; }
+	public string MercCorpName { get; set; } = VoidCorpsIdentity.PlayerCorpCodename;
+	public string AffiliatedManufacturerId { get; set; } = "";
+	public Dictionary<string, int> ManufacturerReputation { get; set; } = new();
 
 	/// <summary>Distinct owned part types (for UI totals).</summary>
 	public int OwnedTypeCount => OwnedCounts.Count;
@@ -32,11 +38,54 @@ public sealed class PlayerProfile
 			Scrap = 0,
 			LivesBank = 2,
 			Loadout = loadout,
-			OwnedCounts = new Dictionary<string, int>()
+			OwnedCounts = new Dictionary<string, int>(),
+			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename,
+			AffiliatedManufacturerId = "",
+			ManufacturerReputation = new Dictionary<string, int>()
 		};
+		profile.EnsureManufacturerState();
 		profile.GrantLoadoutOwnership(loadout);
 		profile.GrantStarterPool();
 		return profile;
+	}
+
+	public void EnsureManufacturerState()
+	{
+		foreach (var id in GameCatalog.Manufacturers.Keys)
+		{
+			if (!ManufacturerReputation.ContainsKey(id))
+				ManufacturerReputation[id] = StartingManufacturerRep;
+		}
+
+		if (string.IsNullOrEmpty(MercCorpName))
+			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename;
+
+		if (!string.IsNullOrEmpty(AffiliatedManufacturerId)
+		    && ManufacturerReputation.ContainsKey(AffiliatedManufacturerId))
+		{
+			ManufacturerReputation[AffiliatedManufacturerId] =
+				Mathf.Max(ManufacturerReputation[AffiliatedManufacturerId], StartingAlignedRep);
+		}
+	}
+
+	public int ReputationWith(string manufacturerId)
+	{
+		EnsureManufacturerState();
+		return ManufacturerReputation.GetValueOrDefault(manufacturerId);
+	}
+
+	public void SetAffiliation(string manufacturerId)
+	{
+		AffiliatedManufacturerId = manufacturerId;
+		EnsureManufacturerState();
+	}
+
+	public void AddReputation(string manufacturerId, int amount)
+	{
+		if (string.IsNullOrEmpty(manufacturerId) || amount == 0)
+			return;
+		EnsureManufacturerState();
+		ManufacturerReputation[manufacturerId] = ReputationWith(manufacturerId) + amount;
 	}
 
 	public void GrantLoadoutOwnership(LoadoutData loadout)
@@ -216,6 +265,9 @@ public sealed class PlayerProfile
 		var owned = new Godot.Collections.Dictionary();
 		foreach (var (id, count) in OwnedCounts.OrderBy(kv => kv.Key))
 			owned[id] = count;
+		var rep = new Godot.Collections.Dictionary();
+		foreach (var (id, value) in ManufacturerReputation.OrderBy(kv => kv.Key))
+			rep[id] = value;
 
 		return new Dictionary<string, Variant>
 		{
@@ -223,6 +275,9 @@ public sealed class PlayerProfile
 			["lives"] = LivesBank,
 			["skirmishes_played"] = SkirmishesPlayed,
 			["skirmishes_won"] = SkirmishesWon,
+			["merc_corp_name"] = MercCorpName,
+			["affiliated_manufacturer"] = AffiliatedManufacturerId,
+			["manufacturer_rep"] = rep,
 			["owned_counts"] = owned,
 			["keybinds"] = InputBindings.ToDict(),
 			["loadout"] = LoadoutToDict(Loadout)
@@ -241,6 +296,10 @@ public sealed class PlayerProfile
 			profile.SkirmishesPlayed = dict["skirmishes_played"].AsInt32();
 		if (dict.ContainsKey("skirmishes_won"))
 			profile.SkirmishesWon = dict["skirmishes_won"].AsInt32();
+		if (dict.ContainsKey("merc_corp_name"))
+			profile.MercCorpName = dict["merc_corp_name"].AsString();
+		if (dict.ContainsKey("affiliated_manufacturer"))
+			profile.AffiliatedManufacturerId = dict["affiliated_manufacturer"].AsString();
 
 		profile.OwnedCounts.Clear();
 		if (dict.ContainsKey("owned_counts"))
@@ -253,6 +312,13 @@ public sealed class PlayerProfile
 			// Legacy save: unique IDs only — give one copy each.
 			foreach (var v in dict["owned"].AsGodotArray())
 				profile.Own(v.AsString());
+		}
+
+		profile.ManufacturerReputation.Clear();
+		if (dict.ContainsKey("manufacturer_rep"))
+		{
+			foreach (var (key, value) in dict["manufacturer_rep"].AsGodotDictionary())
+				profile.ManufacturerReputation[key.AsString()] = value.AsInt32();
 		}
 
 		if (dict.ContainsKey("loadout"))
@@ -268,6 +334,8 @@ public sealed class PlayerProfile
 
 		if (dict.ContainsKey("keybinds"))
 			InputBindings.ApplyFromDict(dict["keybinds"].AsGodotDictionary());
+
+		profile.EnsureManufacturerState();
 
 		return profile;
 	}

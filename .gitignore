@@ -17,3 +17,8 @@ dotnet/
 *.tmp
 *.dtmp
 .~*
+
+# Cursor — keep shared rules in repo; ignore local agent state
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**

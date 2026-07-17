@@ -1,0 +1,31 @@
+---
+description: Void Corps lore — manufacturers vs Corps, campaign vs MMO fantasy
+alwaysApply: true
+---
+
+# Void Corps: Mechanize — world framing
+
+## Hard distinctions
+
+- **Mechanize** = product title only.
+- **MAP** / **MAD** = chassis classes (manned pilot / unmanned drone).
+- **Manufacturers** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) license parts and frames. They are **not** Corps. Do not call them Corps in UI, briefs, or catalogue copy.
+- **Corps** = organizations from guild-scale to large businesses. Players join corps; corp success ↔ member success.
+- Rumors that the Big Four manufacturers secretly back some corps may exist, but that is **not public** at campaign start. Do not present manufacturer→corp backing as established fact in early-game copy.
+
+## Player fantasy (campaign)
+
+- Player joins an **upstart corp** and rises through its ranks.
+- Linear campaign with path choice (current sector-map style) is the near-term delivery.
+- Placeholder corp framing lives on `VoidCorpsIdentity.PlayerCorpCodename` / `PlayerCorpBlurb`.
+
+## Long-term pillars (do not build yet unless asked)
+
+- Grand fantasy: **territory control** via mechanized battles (Foxhole-like).
+- Later layer: persistent **MMO / seasonal wars** with player-run corps on a shared map — needs separate design passes; do not stub systems for it casually.
+
+## Copy checklist
+
+- Garage / shop / HUD: manufacturer names = kit brands; “corp” only for organizations.
+- Ability keys / modules are MAP gear, not “Corps abilities.”
+- Claim briefs: corps fight for claims; manufacturers may appear as site flavor (e.g. abandoned foundry) without being the fighting faction.

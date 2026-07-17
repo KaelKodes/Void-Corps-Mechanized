@@ -194,13 +194,19 @@ public partial class HealBeacon : Node3D
 			    && mech.Integrity?.IsCollapsed != true
 			    && Contains(mech.GlobalPosition))
 			{
-				mech.Integrity?.ApplyMend(budget);
+				var gained = mech.Integrity?.ApplyMend(budget) ?? 0f;
+				if (gained > 0.01f && TelemetryUtil.IsPlayerSource(Source))
+					TelemetryUtil.Match(this)?.Telemetry.RecordHeal(gained);
 			}
 			else if (child is SupportUnit support && support.IsAlive
 			         && support.Health != null
 			         && Contains(support.GlobalPosition))
 			{
+				var before = support.Health.CurrentHealth;
 				support.Health.ApplyHeal(budget);
+				var gained = support.Health.CurrentHealth - before;
+				if (gained > 0.01f && TelemetryUtil.IsPlayerSource(Source))
+					TelemetryUtil.Match(this)?.Telemetry.RecordHeal(gained);
 			}
 			else if (child is Node3D group && group.Name == "MissionRuntime")
 			{
@@ -209,11 +215,23 @@ public partial class HealBeacon : Node3D
 					if (nested is SupportUnit nestedSupport && nestedSupport.IsAlive
 					    && nestedSupport.Health != null
 					    && Contains(nestedSupport.GlobalPosition))
+					{
+						var before = nestedSupport.Health.CurrentHealth;
 						nestedSupport.Health.ApplyHeal(budget);
+						var gained = nestedSupport.Health.CurrentHealth - before;
+						if (gained > 0.01f && TelemetryUtil.IsPlayerSource(Source))
+							TelemetryUtil.Match(this)?.Telemetry.RecordHeal(gained);
+					}
 					else if (nested is EscortAsset escort && !escort.IsDestroyed
 					         && escort.GetNodeOrNull<Damageable>("Damageable") is { } dmg
 					         && Contains(escort.GlobalPosition))
+					{
+						var before = dmg.CurrentHealth;
 						dmg.ApplyHeal(budget);
+						var gained = dmg.CurrentHealth - before;
+						if (gained > 0.01f && TelemetryUtil.IsPlayerSource(Source))
+							TelemetryUtil.Match(this)?.Telemetry.RecordHeal(gained);
+					}
 				}
 			}
 		}

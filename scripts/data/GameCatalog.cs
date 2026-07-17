@@ -23,10 +23,10 @@ public static class GameCatalog
 		var manufacturers = new Dictionary<string, ManufacturerData>
 		{
 			["brimforge"] = CatalogBuilders.MakeManufacturer("brimforge", "Brimforge", new Color(0.72f, 0.38f, 0.18f),
-				"Void Corps heavy industry. Forge-slab armor, kinetic iron, and deny-the-asset doctrine.",
+				"Heavy industry house. Forge-slab armor, kinetic iron, and deny-the-asset doctrine. Ships kit to any corp that can pay.",
 				"Heavy armor / kinetic"),
 			["ourotech"] = CatalogBuilders.MakeManufacturer("ourotech", "OuroTech", new Color(0.25f, 0.55f, 0.78f),
-				"Precision license-house of the Corps. Servo gimbals, seekers, and surgical fire control.",
+				"Precision license-house. Servo gimbals, seekers, and surgical fire control — not a fighting corp.",
 				"Precision / targeting"),
 			["trinova"] = CatalogBuilders.MakeManufacturer("trinova", "Trinova", new Color(0.35f, 0.72f, 0.42f),
 				"Fleet-logistics manufacturer gone surface-side. Balanced frames, mend beacons, claim utility.",

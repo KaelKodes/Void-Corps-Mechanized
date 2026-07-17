@@ -10,25 +10,41 @@ public enum CampaignNodeKind
 	Warning
 }
 
+/// <summary>
+/// A node on the sector board. Mission/Warning nodes are locations (claim arenas)
+/// with up to three manufacturer mission offers.
+/// </summary>
 public sealed class CampaignNode
 {
 	public string Id { get; init; } = "";
 	public int Column { get; init; }
 	public int Row { get; init; }
 	public CampaignNodeKind Kind { get; init; }
-	public MissionType MissionType { get; set; } = MissionType.DestroyAllEnemies;
-	public PilotDifficulty Difficulty { get; set; } = PilotDifficulty.Easy;
-	public int Seed { get; set; }
-	public BossEncounterId BossEncounterId { get; set; } = BossEncounterId.None;
+	/// <summary>Claim site code for arena layout. Empty on Start.</summary>
+	public string LocationClaimCode { get; set; } = "";
+	public string LocationDisplayName { get; set; } = "";
+	public List<LocationMissionOffer> Offers { get; set; } = new();
+	/// <summary>Offer completed when this location was cleared; -1 if not cleared via offer.</summary>
+	public int CompletedOfferIndex { get; set; } = -1;
 	public bool Cleared { get; set; }
+
+	public LocationMissionOffer? GetOffer(int index)
+	{
+		if (index < 0 || index >= Offers.Count)
+			return null;
+		return Offers[index];
+	}
 }
 
 public sealed class SectorGraph
 {
-	public string SectorClaimCode { get; init; } = "";
+	public string SectorId { get; init; } = "";
 	public string SectorTitle { get; init; } = "";
 	public List<CampaignNode> Nodes { get; } = new();
 	public List<(string From, string To)> Edges { get; } = new();
+
+	/// <summary>Legacy save key alias.</summary>
+	public string SectorClaimCode => SectorId;
 
 	public CampaignNode? Get(string id)
 	{
@@ -72,16 +88,20 @@ public sealed class SectorGraph
 		var nodes = new Godot.Collections.Array();
 		foreach (var n in Nodes)
 		{
+			var offers = new Godot.Collections.Array();
+			foreach (var o in n.Offers)
+				offers.Add(o.ToDict());
+
 			nodes.Add(new Godot.Collections.Dictionary
 			{
 				["id"] = n.Id,
 				["col"] = n.Column,
 				["row"] = n.Row,
 				["kind"] = (int)n.Kind,
-				["mission"] = (int)n.MissionType,
-				["diff"] = (int)n.Difficulty,
-				["seed"] = n.Seed,
-				["boss"] = (int)n.BossEncounterId,
+				["location"] = n.LocationClaimCode,
+				["location_name"] = n.LocationDisplayName,
+				["offers"] = offers,
+				["completed_offer"] = n.CompletedOfferIndex,
 				["cleared"] = n.Cleared
 			});
 		}
@@ -92,7 +112,8 @@ public sealed class SectorGraph
 
 		return new Godot.Collections.Dictionary
 		{
-			["claim"] = SectorClaimCode,
+			["sector_id"] = SectorId,
+			["claim"] = SectorId,
 			["title"] = SectorTitle,
 			["nodes"] = nodes,
 			["edges"] = edges
@@ -103,7 +124,9 @@ public sealed class SectorGraph
 	{
 		var graph = new SectorGraph
 		{
-			SectorClaimCode = dict.ContainsKey("claim") ? dict["claim"].AsString() : "",
+			SectorId = dict.ContainsKey("sector_id")
+				? dict["sector_id"].AsString()
+				: dict.ContainsKey("claim") ? dict["claim"].AsString() : "",
 			SectorTitle = dict.ContainsKey("title") ? dict["title"].AsString() : ""
 		};
 
@@ -112,18 +135,44 @@ public sealed class SectorGraph
 			foreach (var v in dict["nodes"].AsGodotArray())
 			{
 				var d = v.AsGodotDictionary();
-				graph.Nodes.Add(new CampaignNode
+				var node = new CampaignNode
 				{
 					Id = d["id"].AsString(),
 					Column = d["col"].AsInt32(),
 					Row = d["row"].AsInt32(),
 					Kind = (CampaignNodeKind)d["kind"].AsInt32(),
-					MissionType = (MissionType)d["mission"].AsInt32(),
-					Difficulty = (PilotDifficulty)d["diff"].AsInt32(),
-					Seed = d["seed"].AsInt32(),
-					BossEncounterId = (BossEncounterId)d["boss"].AsInt32(),
+					LocationClaimCode = d.ContainsKey("location") ? d["location"].AsString() : "",
+					LocationDisplayName = d.ContainsKey("location_name") ? d["location_name"].AsString() : "",
+					CompletedOfferIndex = d.ContainsKey("completed_offer") ? d["completed_offer"].AsInt32() : -1,
 					Cleared = d.ContainsKey("cleared") && d["cleared"].AsBool()
-				});
+				};
+
+				if (d.ContainsKey("offers"))
+				{
+					foreach (var ov in d["offers"].AsGodotArray())
+						node.Offers.Add(LocationMissionOffer.FromDict(ov.AsGodotDictionary()));
+				}
+				else if (d.ContainsKey("mission"))
+				{
+					// Legacy save: single mission → one anonymous offer.
+					node.Offers.Add(new LocationMissionOffer
+					{
+						MissionType = (MissionType)d["mission"].AsInt32(),
+						Difficulty = d.ContainsKey("diff")
+							? (PilotDifficulty)d["diff"].AsInt32()
+							: PilotDifficulty.Easy,
+						Seed = d.ContainsKey("seed") ? d["seed"].AsInt32() : 0,
+						BossEncounterId = d.ContainsKey("boss")
+							? (BossEncounterId)d["boss"].AsInt32()
+							: BossEncounterId.None,
+						ManufacturerId = "trinova",
+						RivalManufacturerId = "brimforge",
+						RepGain = 3,
+						RepLoss = 2
+					});
+				}
+
+				graph.Nodes.Add(node);
 			}
 		}
 

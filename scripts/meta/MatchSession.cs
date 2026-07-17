@@ -27,6 +27,7 @@ public sealed class MatchSession
 	public List<string> RunPartDrops { get; } = new();
 	public MatchOutcome Outcome { get; set; } = MatchOutcome.InProgress;
 	public bool Active { get; set; }
+	public MatchTelemetry Telemetry { get; private set; } = new();
 
 	public int NextLifeCost => BaseLifeCost + LivesBoughtThisRun * LifeCostStep;
 
@@ -40,6 +41,7 @@ public sealed class MatchSession
 		RunPartDrops.Clear();
 		Outcome = MatchOutcome.InProgress;
 		Active = true;
+		Telemetry = new MatchTelemetry();
 	}
 
 	public void AddScrap(int amount)
@@ -80,6 +82,12 @@ public sealed class MatchSession
 	{
 		Outcome = outcome;
 		Active = false;
+	}
+
+	public void Tick(float dt)
+	{
+		if (Active)
+			Telemetry.Tick(dt);
 	}
 
 	/// <summary>Commit run rewards into the persistent profile.</summary>

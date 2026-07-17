@@ -434,7 +434,7 @@ public partial class MechHud : Control
 		AbilityId.MendPulse => "Paint → heal beacon",
 		AbilityId.PulseRepair => "Hold channel repair",
 		AbilityId.Shroud => "Cloak pulse",
-		_ => "Corps module"
+		_ => "Module"
 	};
 
 	private static string ShortBind(string action)
