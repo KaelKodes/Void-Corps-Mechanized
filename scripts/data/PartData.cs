@@ -8,6 +8,8 @@ public partial class PartData : Resource
 	[Export] public string Id { get; set; } = "";
 	[Export] public string DisplayName { get; set; } = "";
 	[Export] public string ManufacturerId { get; set; } = "";
+	/// <summary>1 = Field, 2 = Claim, 3 = Threat. Gates shop/loot by sector.</summary>
+	[Export] public int Tier { get; set; } = 1;
 	[Export] public PartSlot Slot { get; set; }
 	[Export] public AimMode AimMode { get; set; } = AimMode.Fixed;
 	[Export] public LegMode LegMode { get; set; } = LegMode.Locked;

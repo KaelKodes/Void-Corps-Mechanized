@@ -41,6 +41,7 @@ public static class GameCatalog
 		CatalogWeapons.Register(parts, manufacturers);
 		CatalogCoresSystems.Register(parts, manufacturers);
 		CatalogMounts.Register(parts, manufacturers);
+		CatalogTiers.Apply(parts);
 
 		Manufacturers = manufacturers;
 		Parts = parts;
@@ -90,6 +91,27 @@ public static class GameCatalog
 			ShoulderRId = "shoulder_none",
 			BackpackId = "backpack_tri_mend",
 			SystemsId = "systems_tri_coolant"
+		});
+	}
+
+	/// <summary>
+	/// Cadet loaner — strong, once-near-BIS training chassis. Returned after graduation.
+	/// </summary>
+	public static LoadoutData CreateCadetLoanerLoadout()
+	{
+		EnsureBuilt();
+		return SanitizeMounts(new LoadoutData
+		{
+			LegsId = "legs_brin_fortress",
+			TorsoId = "torso_brin_anvil",
+			HeadId = "head_brin_warface",
+			PowerCoreId = "core_brin_citadel",
+			WeaponLId = "wep_brin_maul",
+			WeaponRId = "wep_ouro_stitch",
+			ShoulderLId = "shoulder_brin_barrage",
+			ShoulderRId = "shoulder_ouro_tracker",
+			BackpackId = "backpack_tri_mend",
+			SystemsId = "systems_brin_vent"
 		});
 	}
 

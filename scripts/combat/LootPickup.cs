@@ -123,6 +123,8 @@ public partial class LootPickup : Area3D
 
 		Visible = false;
 		SetDeferred(Area3D.PropertyName.Monitoring, false);
-		CallDeferred(Node.MethodName.QueueFree);
+		CallDeferred(nameof(FreeSafe));
 	}
+
+	private void FreeSafe() => MeshMat.QueueFreeSafe(this);
 }

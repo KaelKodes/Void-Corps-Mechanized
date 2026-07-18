@@ -425,38 +425,29 @@ public static class CoverVisualFactory
 
 	private static void AddBox(Node3D parent, Material mat, Vector3 size, Vector3 position)
 	{
-		parent.AddChild(new MeshInstance3D
-		{
-			Mesh = new BoxMesh { Size = size },
-			Position = position,
-			MaterialOverride = mat
-		});
+		parent.AddChild(MeshMat.Make(new BoxMesh { Size = size }, mat, position));
 	}
 
 	private static void AddCylinder(Node3D parent, Material mat, float radius, float height, Vector3 position, Vector3? rotation = null)
 	{
-		parent.AddChild(new MeshInstance3D
-		{
-			Mesh = new CylinderMesh { TopRadius = radius, BottomRadius = radius, Height = height, RadialSegments = 16 },
-			Position = position,
-			Rotation = rotation ?? Vector3.Zero,
-			MaterialOverride = mat
-		});
+		parent.AddChild(MeshMat.Make(
+			new CylinderMesh { TopRadius = radius, BottomRadius = radius, Height = height, RadialSegments = 16 },
+			mat,
+			position,
+			rotation ?? Vector3.Zero));
 	}
 
 	private static void AddWheel(Node3D parent, Material mat, Vector3 position, float scale)
 	{
-		parent.AddChild(new MeshInstance3D
-		{
-			Mesh = new CylinderMesh
+		parent.AddChild(MeshMat.Make(
+			new CylinderMesh
 			{
 				TopRadius = 0.45f * scale,
 				BottomRadius = 0.45f * scale,
 				Height = 0.35f * scale
 			},
-			Position = position,
-			Rotation = Vector3.Forward * Mathf.Tau * 0.25f,
-			MaterialOverride = mat
-		});
+			mat,
+			position,
+			Vector3.Forward * Mathf.Tau * 0.25f));
 	}
 }

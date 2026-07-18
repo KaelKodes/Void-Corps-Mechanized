@@ -10,6 +10,9 @@ public partial class MechController : CharacterBody3D
 	[Export] public NodePath HealthPath { get; set; } = "Damageable";
 	[Export] public NodePath UpperBodyPath { get; set; } = "Sockets/UpperBody";
 
+	/// <summary>Multiplayer peer that pilots this MAP. 0 = AI / offline single-player.</summary>
+	public int OwningPeerId { get; set; }
+
 	private MechAssembler? _assembler;
 	private Damageable? _health;
 	private AbilityController? _abilities;
@@ -32,7 +35,134 @@ public partial class MechController : CharacterBody3D
 	private WeaponFamily _ghostLastFamily = WeaponFamily.None;
 	private float _ghostLastTime;
 
+	private float _netTurn;
+	private float _netThrottle;
+	private Vector2 _netMove;
+	private Vector3 _netAim;
+	private bool _netFirePrimary;
+	private bool _netFireSecondary;
+	private bool _netSprint;
+	private int _netAbilityIndex = -1;
+	private bool _hasNetInput;
+	private float _netInputAge;
+
 	public bool IsInvulnerable => _respawnInvuln > 0f;
+	public bool IsHumanPilot => OwningPeerId != 0 || IsPlayerControlled;
+	public bool IsLocalPilot
+	{
+		get
+		{
+			var net = GetNodeOrNull<NetSession>("/root/NetSession");
+			if (net is not { IsOnline: true })
+				return IsPlayerControlled;
+			return OwningPeerId != 0 && OwningPeerId == net.LocalPeerId;
+		}
+	}
+
+	public void ConfigureNetworkPilot(int peerId, bool human)
+	{
+		OwningPeerId = peerId;
+		IsPlayerControlled = human;
+		Team = TeamId.Player;
+		SetMultiplayerAuthority(1); // host-authoritative simulation
+		EnsureNetworkSync();
+		if (human && _missileDecal == null)
+		{
+			_missileDecal = new MissileLockDecal { Name = "MissileLockDecal" };
+			AddChild(_missileDecal);
+		}
+	}
+
+	public void AttachHostReplication()
+	{
+		SetMultiplayerAuthority(1);
+		EnsureNetworkSync();
+	}
+
+	/// <summary>Aim point replicated so clients can pose turrets / show locks for remote MAPs.</summary>
+	[Export]
+	public Vector3 ReplicatedAimPoint
+	{
+		get => _aimPoint;
+		set => _aimPoint = value;
+	}
+
+	private void EnsureNetworkSync()
+	{
+		if (GetNodeOrNull("NetSync") != null)
+			return;
+
+		var sync = new MultiplayerSynchronizer { Name = "NetSync" };
+		var cfg = new SceneReplicationConfig();
+		cfg.AddProperty(new NodePath(":global_position"));
+		cfg.AddProperty(new NodePath(":rotation"));
+		cfg.AddProperty(new NodePath(":ReplicatedAimPoint"));
+		cfg.AddProperty(new NodePath("Damageable:ReplicatedHealth"));
+		cfg.AddProperty(new NodePath("Damageable:MaxHealth"));
+		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedHeat"));
+		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedLoad"));
+		sync.ReplicationConfig = cfg;
+		AddChild(sync);
+	}
+
+	public override void _Process(double delta)
+	{
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is not { IsOnline: true } || Multiplayer.IsServer())
+			return;
+
+		// Clients: pose upper body / hardpoints from replicated aim; local pilot keeps mouse aim for HUD.
+		if (IsLocalPilot && _controlsEnabled)
+		{
+			UpdateAimFromMouse();
+			UpdateAimedComponent();
+			UpdateMissileDecal();
+		}
+
+		UpdateUpperBodyAim((float)delta);
+		AimHardpoints();
+	}
+
+	public void ApplyNetworkInput(
+		float turn,
+		float throttle,
+		Vector2 move,
+		Vector3 aim,
+		bool firePrimary,
+		bool fireSecondary,
+		bool sprint,
+		int abilityIndex)
+	{
+		_netTurn = turn;
+		_netThrottle = throttle;
+		_netMove = move;
+		_netAim = aim;
+		_netFirePrimary = firePrimary;
+		_netFireSecondary = fireSecondary;
+		_netSprint = sprint;
+		_netAbilityIndex = abilityIndex;
+		_hasNetInput = true;
+		_netInputAge = 0f;
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
+	private void RpcSubmitInput(
+		float turn,
+		float throttle,
+		Vector2 move,
+		Vector3 aim,
+		bool firePrimary,
+		bool fireSecondary,
+		bool sprint,
+		int abilityIndex)
+	{
+		if (!Multiplayer.IsServer())
+			return;
+		var sender = Multiplayer.GetRemoteSenderId();
+		if (sender != OwningPeerId)
+			return;
+		ApplyNetworkInput(turn, throttle, move, aim, firePrimary, fireSecondary, sprint, abilityIndex);
+	}
 
 	public void RespawnAt(Vector3 position, LoadoutData loadout)
 	{
@@ -146,6 +276,23 @@ public partial class MechController : CharacterBody3D
 		var dt = (float)delta;
 		if (_respawnInvuln > 0f)
 			_respawnInvuln = Mathf.Max(0f, _respawnInvuln - dt);
+		if (_hasNetInput)
+		{
+			_netInputAge += dt;
+			if (_netInputAge > 0.35f)
+				_hasNetInput = false;
+		}
+
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		var online = net is { IsOnline: true };
+
+		// Clients do not simulate host-auth mechs — replication drives their transforms.
+		if (online && !Multiplayer.IsServer())
+		{
+			if (IsLocalPilot && _controlsEnabled)
+				SubmitLocalInputToHost();
+			return;
+		}
 
 		if (!_controlsEnabled || (_health?.IsDead ?? false) || (_integrity?.IsCollapsed ?? false))
 		{
@@ -165,7 +312,39 @@ public partial class MechController : CharacterBody3D
 		var abilityIndex = -1;
 		var wantSprint = false;
 
-		if (IsPlayerControlled)
+		if (online && OwningPeerId != 0)
+		{
+			if (OwningPeerId == Multiplayer.GetUniqueId())
+			{
+				UpdateAimFromMouse();
+				UpdateAimedComponent();
+				ReadPlayerMove(out turn, out throttle, out move);
+				firePrimary = Input.IsActionPressed("fire_primary");
+				fireSecondary = Input.IsActionPressed("fire_secondary");
+				wantSprint = Input.IsActionPressed("sprint");
+				abilityIndex = ReadPlayerAbilityInput();
+			}
+			else if (_hasNetInput)
+			{
+				turn = _netTurn;
+				throttle = _netThrottle;
+				move = _netMove;
+				_aimPoint = _netAim;
+				firePrimary = _netFirePrimary;
+				fireSecondary = _netFireSecondary;
+				wantSprint = _netSprint;
+				abilityIndex = _netAbilityIndex;
+				_netAbilityIndex = -1;
+				UpdateAimedComponent();
+			}
+			else
+			{
+				ApplyGravity(dt);
+				MoveAndSlide();
+				return;
+			}
+		}
+		else if (IsPlayerControlled)
 		{
 			UpdateAimFromMouse();
 			UpdateAimedComponent();
@@ -229,7 +408,7 @@ public partial class MechController : CharacterBody3D
 		{
 			var aim = _aimPoint;
 			// AI drops mend beacons on their own pad; player paints via hold/release.
-			if (!IsPlayerControlled && _abilities?.IsMendBeaconAbility(abilityIndex) == true)
+			if (!IsHumanPilot && _abilities?.IsMendBeaconAbility(abilityIndex) == true)
 				aim = GlobalPosition;
 			_abilities?.TryActivate(abilityIndex, aim);
 		}
@@ -363,6 +542,27 @@ public partial class MechController : CharacterBody3D
 		if (_sprinting)
 			_powerHeat?.Release("sprint");
 		_sprinting = false;
+	}
+
+	private void SubmitLocalInputToHost()
+	{
+		UpdateAimFromMouse();
+		ReadPlayerMove(out var turn, out var throttle, out var move);
+		var firePrimary = Input.IsActionPressed("fire_primary");
+		var fireSecondary = Input.IsActionPressed("fire_secondary");
+		var wantSprint = Input.IsActionPressed("sprint");
+		var abilityIndex = ReadPlayerAbilityInput();
+		RpcId(
+			1,
+			MethodName.RpcSubmitInput,
+			turn,
+			throttle,
+			move,
+			_aimPoint,
+			firePrimary,
+			fireSecondary,
+			wantSprint,
+			abilityIndex);
 	}
 
 	private void ReadPlayerMove(out float turn, out float throttle, out Vector2 move)
@@ -684,7 +884,7 @@ public partial class MechController : CharacterBody3D
 			    out _,
 			    out var heat))
 		{
-			if (IsPlayerControlled)
+			if (IsHumanPilot)
 				TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
 			_powerHeat?.AddHeat(heat * heatOver * ghost);
 			NoteFamilyFire(part.WeaponFamily, slot);

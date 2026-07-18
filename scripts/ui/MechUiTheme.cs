@@ -19,6 +19,24 @@ public static class MechUiTheme
 	public static readonly Color ChipBg = new(0.07f, 0.09f, 0.11f, 0.96f);
 	public static readonly Color Text = new(0.88f, 0.9f, 0.92f);
 
+	// Holographic campaign map palette.
+	public static readonly Color MapVoid = new(0.015f, 0.025f, 0.04f, 1f);
+	public static readonly Color MapGrid = new(0.2f, 0.45f, 0.55f, 0.22f);
+	public static readonly Color MapGridMajor = new(0.35f, 0.65f, 0.75f, 0.35f);
+	public static readonly Color MapScan = new(0.45f, 0.85f, 0.95f, 0.12f);
+	public static readonly Color MapRoute = new(0.55f, 0.72f, 0.82f, 0.45f);
+	public static readonly Color MapRouteReachable = new(0.45f, 0.85f, 1f, 0.85f);
+	public static readonly Color MapRouteDone = new(0.4f, 0.7f, 0.5f, 0.55f);
+	public static readonly Color MapRouteLocked = new(0.35f, 0.4f, 0.45f, 0.28f);
+	public static readonly Color MapRouteWarning = new(0.95f, 0.4f, 0.3f, 0.75f);
+	public static readonly Color MapRouteHot = new(0.95f, 0.88f, 0.55f, 0.95f);
+	public static readonly Color MapNodeHere = AccentHot;
+	public static readonly Color MapNodeReachable = Cyan;
+	public static readonly Color MapNodeLocked = new(0.45f, 0.5f, 0.55f);
+	public static readonly Color MapNodeCleared = Success;
+	public static readonly Color MapNodeWarning = Danger;
+	public static readonly Color MapDossierBg = new(0.04f, 0.055f, 0.07f, 0.97f);
+
 	public static StyleBoxFlat MakePanelStyle(float margin = 14f, bool deep = false, Color? border = null)
 	{
 		var b = border ?? Border;
@@ -181,6 +199,62 @@ public static class MechUiTheme
 			ContentMarginTop = 6,
 			ContentMarginRight = 6,
 			ContentMarginBottom = 6,
+			CornerRadiusTopLeft = 2,
+			CornerRadiusTopRight = 2,
+			CornerRadiusBottomRight = 2,
+			CornerRadiusBottomLeft = 2
+		};
+	}
+
+	public static StyleBoxFlat MakeMapDossierStyle() => new()
+	{
+		BgColor = MapDossierBg,
+		BorderColor = Cyan.Darkened(0.25f),
+		BorderWidthLeft = 2,
+		BorderWidthTop = 2,
+		BorderWidthRight = 2,
+		BorderWidthBottom = 2,
+		ContentMarginLeft = 16,
+		ContentMarginTop = 14,
+		ContentMarginRight = 16,
+		ContentMarginBottom = 14,
+		CornerRadiusTopLeft = 2,
+		CornerRadiusTopRight = 2,
+		CornerRadiusBottomRight = 2,
+		CornerRadiusBottomLeft = 2,
+		ShadowColor = new Color(0f, 0f, 0f, 0.45f),
+		ShadowSize = 8,
+		ShadowOffset = new Vector2(-4, 0)
+	};
+
+	public static StyleBoxFlat MakeMapHeaderStyle() => new()
+	{
+		BgColor = new Color(0.03f, 0.045f, 0.06f, 0.92f),
+		BorderColor = BorderDim,
+		BorderWidthLeft = 0,
+		BorderWidthTop = 0,
+		BorderWidthRight = 0,
+		BorderWidthBottom = 2,
+		ContentMarginLeft = 20,
+		ContentMarginTop = 12,
+		ContentMarginRight = 20,
+		ContentMarginBottom = 12
+	};
+
+	public static StyleBoxFlat MakeOfferCardStyle(bool selected, Color accent)
+	{
+		return new StyleBoxFlat
+		{
+			BgColor = selected ? accent.Darkened(0.72f) with { A = 0.95f } : ChipBg,
+			BorderColor = selected ? accent : accent.Darkened(0.35f),
+			BorderWidthLeft = selected ? 4 : 2,
+			BorderWidthTop = 2,
+			BorderWidthRight = 2,
+			BorderWidthBottom = 2,
+			ContentMarginLeft = 12,
+			ContentMarginTop = 8,
+			ContentMarginRight = 12,
+			ContentMarginBottom = 8,
 			CornerRadiusTopLeft = 2,
 			CornerRadiusTopRight = 2,
 			CornerRadiusBottomRight = 2,

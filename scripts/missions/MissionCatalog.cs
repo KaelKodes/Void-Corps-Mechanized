@@ -9,7 +9,9 @@ public enum MissionType
 	DataRetrieval,
 	SwarmDefend,
 	Escort,
-	BossEncounter
+	BossEncounter,
+	/// <summary>MAP Cadet Program — scripted range (unfailable).</summary>
+	CadetRange
 }
 
 public static class MissionCatalog
@@ -42,10 +44,12 @@ public static class MissionCatalog
 			"Crack the archive, recover the data disk, and return it to the allied pad."),
 		new(MissionType.SwarmDefend, "Swarm Defend",
 			"Hold the pad against fodder waves, then surviving rival MAPs."),
-		new(MissionType.Escort, "Escort",
-			"Shepherd the salvage crawler to the extraction gate. Stay close — it only rolls with cover."),
+		new(MissionType.Escort, "Mining Escort",
+			"Escort the company mining rig to the vein, guard it while cargo fills, then bring the full load home to your drop beacon."),
 		new(MissionType.BossEncounter, "Warning — Boss",
-			"Sector Warning. A named MAP threat ends this claim path.")
+			"Sector Warning. A named MAP threat ends this claim path."),
+		new(MissionType.CadetRange, "Cadet Range",
+			"MAP Cadet Program certification range. Learn the sticks before live fire.")
 	];
 
 	public static MissionInfo Get(MissionType type)

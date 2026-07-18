@@ -9,7 +9,7 @@ public static class TelemetryUtil
 
 	public static bool IsPlayerSource(Node? node) => node switch
 	{
-		MechController mech => mech.IsPlayerControlled,
+		MechController mech => mech.IsHumanPilot,
 		EscortAsset => false,
 		SupportUnit unit => unit.Team == TeamId.Player,
 		HealBeacon beacon => beacon.Source != null && IsPlayerSource(beacon.Source),

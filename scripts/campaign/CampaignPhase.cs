@@ -1,8 +1,7 @@
 namespace Mechanize;
 
 /// <summary>
-/// Story milestone rather than mission type. Near-term playable slice starts in active operations,
-/// but the earlier cadet / convention beats should still be framed in UI.
+/// Story milestone rather than mission type. Cadet → convention gate → active ops.
 /// </summary>
 public enum CampaignPhase
 {

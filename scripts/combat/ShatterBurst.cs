@@ -60,11 +60,10 @@ public partial class ShatterBurst : Node3D
 				Roughness = 0.85f,
 				Metallic = 0.15f
 			};
-			var mesh = new MeshInstance3D
-			{
-				Mesh = new BoxMesh { Size = ((BoxShape3D)shape.Shape).Size },
-				MaterialOverride = mat
-			};
+			var mesh = MeshMat.Make(
+				new BoxMesh { Size = ((BoxShape3D)shape.Shape).Size },
+				mat,
+				castShadow: GeometryInstance3D.ShadowCastingSetting.Off);
 			body.AddChild(mesh);
 
 			AddChild(body);
@@ -96,7 +95,7 @@ public partial class ShatterBurst : Node3D
 		cleanup.Timeout += () =>
 		{
 			if (GodotObject.IsInstanceValid(this))
-				QueueFree();
+				MeshMat.QueueFreeSafe(this);
 		};
 	}
 }

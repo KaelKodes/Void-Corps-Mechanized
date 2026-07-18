@@ -320,20 +320,44 @@ public partial class Hardpoint : Node3D
 			}
 		}
 
-		var projectile = Projectile.Create();
-		projectile.Source = source;
-		projectile.SourceTeam = source is MechController mechSource ? mechSource.Team : TeamUtil.GetTeam(source);
-		projectile.Damage = EquippedPart.Damage;
-		projectile.Velocity = direction * EquippedPart.ProjectileSpeed;
-		projectile.Lifetime = EquippedPart.Range / Mathf.Max(1f, EquippedPart.ProjectileSpeed);
-		projectile.TargetingMode = EquippedPart.TargetingMode;
-		projectile.PreferredSlot = EquippedPart.TargetingMode == TargetingMode.AimedComponent
-			? aimedSlot
-			: null;
+		var speed = EquippedPart.ProjectileSpeed;
+		var velocity = direction * speed;
+		var lifetime = EquippedPart.Range / Mathf.Max(1f, speed);
+		var preferred = EquippedPart.TargetingMode == TargetingMode.AimedComponent && aimedSlot.HasValue
+			? (int)aimedSlot.Value
+			: -1;
+		var team = source is MechController mechSource ? mechSource.Team : TeamUtil.GetTeam(source);
 
-		parentForProjectile.AddChild(projectile);
-		projectile.GlobalPosition = muzzle;
-		projectile.LookAt(muzzle + direction, Vector3.Up);
+		var bus = NetCombatBus.Find(parentForProjectile);
+		if (bus != null && parentForProjectile.GetTree()?.GetMultiplayer().MultiplayerPeer != null)
+		{
+			bus.HostSpawnProjectile(
+				parentForProjectile,
+				source,
+				muzzle,
+				velocity,
+				EquippedPart.Damage,
+				lifetime,
+				team,
+				EquippedPart.TargetingMode,
+				preferred,
+				ballistic: false,
+				gravity: 0f);
+		}
+		else
+		{
+			var projectile = Projectile.Create();
+			projectile.Source = source;
+			projectile.SourceTeam = team;
+			projectile.Damage = EquippedPart.Damage;
+			projectile.Velocity = velocity;
+			projectile.Lifetime = lifetime;
+			projectile.TargetingMode = EquippedPart.TargetingMode;
+			projectile.PreferredSlot = preferred >= 0 ? (PartSlot)preferred : null;
+			parentForProjectile.AddChild(projectile);
+			projectile.GlobalPosition = muzzle;
+			projectile.LookAt(muzzle + direction, Vector3.Up);
+		}
 
 		SfxService.Play("weapon_fire", (float)GD.RandRange(0.92, 1.08), -3f);
 
@@ -350,7 +374,8 @@ public partial class Hardpoint : Node3D
 
 	private void RebuildVisual()
 	{
-		_visual?.QueueFree();
+		if (_visual != null)
+			MeshMat.QueueFreeSafe(_visual);
 		_visual = null;
 
 		if (EquippedPart == null || EquippedPart.VisualKind == "empty" || IsDestroyed)

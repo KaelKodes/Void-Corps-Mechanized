@@ -251,7 +251,7 @@ public partial class MechAssembler : Node
 	private void ClearHardpoints()
 	{
 		foreach (var hp in _hardpoints.Values)
-			hp.QueueFree();
+			MeshMat.QueueFreeSafe(hp);
 		_hardpoints.Clear();
 	}
 

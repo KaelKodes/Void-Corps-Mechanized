@@ -64,4 +64,34 @@ public partial class LoadoutData : Resource
 			SystemsId = SystemsId
 		};
 	}
+
+	public Godot.Collections.Dictionary ToDict() => new()
+	{
+		["legs"] = LegsId,
+		["torso"] = TorsoId,
+		["head"] = HeadId,
+		["core"] = PowerCoreId,
+		["weapon_l"] = WeaponLId,
+		["weapon_r"] = WeaponRId,
+		["shoulder_l"] = ShoulderLId,
+		["shoulder_r"] = ShoulderRId,
+		["backpack"] = BackpackId,
+		["systems"] = SystemsId
+	};
+
+	public static LoadoutData FromDict(Godot.Collections.Dictionary dict)
+	{
+		var loadout = new LoadoutData();
+		if (dict.ContainsKey("legs")) loadout.LegsId = dict["legs"].AsString();
+		if (dict.ContainsKey("torso")) loadout.TorsoId = dict["torso"].AsString();
+		if (dict.ContainsKey("head")) loadout.HeadId = dict["head"].AsString();
+		if (dict.ContainsKey("core")) loadout.PowerCoreId = dict["core"].AsString();
+		if (dict.ContainsKey("weapon_l")) loadout.WeaponLId = dict["weapon_l"].AsString();
+		if (dict.ContainsKey("weapon_r")) loadout.WeaponRId = dict["weapon_r"].AsString();
+		if (dict.ContainsKey("shoulder_l")) loadout.ShoulderLId = dict["shoulder_l"].AsString();
+		if (dict.ContainsKey("shoulder_r")) loadout.ShoulderRId = dict["shoulder_r"].AsString();
+		if (dict.ContainsKey("backpack")) loadout.BackpackId = dict["backpack"].AsString();
+		if (dict.ContainsKey("systems")) loadout.SystemsId = dict["systems"].AsString();
+		return GameCatalog.SanitizeMounts(loadout);
+	}
 }

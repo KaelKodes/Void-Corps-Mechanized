@@ -397,15 +397,36 @@ public partial class AbilityController : Node
 			var target = impact + new Vector3(spread * 1.2f, 0f, spread * 0.8f);
 			var spawn = origin + new Vector3(spread * 0.35f, 0.12f * i, 0f);
 
-			var missile = Projectile.Create(ballisticStyle: true);
-			missile.Source = _mech;
-			missile.SourceTeam = _mech.Team;
-			missile.Damage = part.Damage;
-			parent.AddChild(missile);
-			missile.LaunchLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+			var bus = NetCombatBus.Find(parent);
+			if (bus != null && _mech.GetTree()?.GetMultiplayer().MultiplayerPeer != null)
+			{
+				// Solve lob off-tree, then let the bus parent + place the real projectile.
+				var lob = Projectile.SolveLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+				bus.HostSpawnProjectile(
+					parent,
+					_mech,
+					spawn,
+					lob.Velocity,
+					part.Damage,
+					lob.Lifetime,
+					_mech.Team,
+					TargetingMode.Standard,
+					-1,
+					ballistic: true,
+					gravity: lob.Gravity);
+			}
+			else
+			{
+				var missile = Projectile.Create(ballisticStyle: true);
+				missile.Source = _mech;
+				missile.SourceTeam = _mech.Team;
+				missile.Damage = part.Damage;
+				parent.AddChild(missile);
+				missile.LaunchLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+			}
 		}
 
-		if (_mech.IsPlayerControlled)
+		if (_mech.IsHumanPilot)
 		{
 			var telemetry = TelemetryUtil.Match(_mech)?.Telemetry;
 			for (var i = 0; i < count; i++)

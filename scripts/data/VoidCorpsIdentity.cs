@@ -12,6 +12,8 @@ public static class VoidCorpsIdentity
 {
 	public const string ProductTitle = "Void Corps: Mechanize";
 	public const string ShortTitle = "MECHANIZE";
+	/// <summary>Player-facing build label (semver).</summary>
+	public const string GameVersion = "0.2.0";
 
 	/// <summary>Manned combat chassis — Mechanized Armor Pilot.</summary>
 	public const string MapAcronym = "MAP";

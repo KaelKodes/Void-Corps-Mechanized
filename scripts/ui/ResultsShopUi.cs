@@ -48,8 +48,29 @@ public partial class ResultsShopUi : Control
 			: "";
 		if (!_committed)
 		{
-			_match.ApplyToProfile(_profile);
-			session.SetLoadout(_profile.Loadout);
+			if (session.MatchFromAcademy || session.MatchFromConvention)
+			{
+				// Loaner/demo intact; scrap banks, part drops do not Own during academy/convention.
+				_profile.Scrap += _match.RunScrap;
+				if (_match.MissionType != MissionType.CadetRange)
+					_profile.LivesBank = Mathf.Max(0, _match.LivesRemaining);
+				_profile.SkirmishesPlayed++;
+				if (_match.Outcome == MatchOutcome.Victory)
+					_profile.SkirmishesWon++;
+			}
+			else
+			{
+				_match.ApplyToProfile(_profile);
+				session.SetLoadout(_profile.Loadout);
+			}
+
+			if (session.MatchFromCampaign
+			    && (_match.LivesRemaining <= 0 || _profile.LivesBank <= 0)
+			    && _match.Outcome != MatchOutcome.Victory)
+			{
+				session.WipeCampaignDeath();
+			}
+
 			session.SaveProfile();
 			_committed = true;
 		}
@@ -57,7 +78,11 @@ public partial class ResultsShopUi : Control
 		Visible = true;
 		MouseFilter = MouseFilterEnum.Stop;
 		SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		_stock = ShopService.GenerateStock(_profile, manufacturerId: _shopManufacturerId);
+		MusicService.Cue(MusicCue.Results);
+		_stock = ShopService.GenerateStock(
+			_profile,
+			manufacturerId: _shopManufacturerId,
+			maxTier: session.CurrentMaxLootTier());
 		_mode = ExchangeMode.Buy;
 		_selectedPartId = null;
 		_selectedOffer = null;
@@ -304,11 +329,25 @@ public partial class ResultsShopUi : Control
 		root.AddChild(navRow);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var academyGrad = session is { OpenAcademyGraduation: true };
+		var academyNext = session is { LaunchAcademyContinue: true };
+		var conventionContinue = session is { ReturnToConventionHall: true }
+			|| session is { InConvention: true, MatchFromConvention: true };
+		var campaignContinue = session is { InCampaign: true, ReturnToCampaignMap: true };
+		var runFinished = session is { MatchFromCampaign: true } && !campaignContinue;
 		var cont = new Button
 		{
-			Text = session is { InCampaign: true, ReturnToCampaignMap: true }
-				? "Continue Campaign"
-				: "Continue",
+			Text = academyGrad
+				? "Graduation"
+				: academyNext
+					? "Next Academy Beat"
+					: conventionContinue
+						? "Return to Convention"
+						: campaignContinue
+							? "Continue Campaign"
+							: runFinished
+								? "Finish Run"
+								: "Continue",
 			CustomMinimumSize = new Vector2(240, 46)
 		};
 		cont.AddThemeFontSizeOverride("font_size", 17);
@@ -318,21 +357,54 @@ public partial class ResultsShopUi : Control
 			SfxService.Confirm();
 			var s = GetNodeOrNull<GameSession>("/root/GameSession");
 			s?.SaveProfile();
+			if (s is { OpenAcademyGraduation: true })
+			{
+				s.OpenAcademyGraduation = false;
+				s.MatchFromAcademy = false;
+				GetTree().ChangeSceneToFile("res://scenes/academy_graduation.tscn");
+				return;
+			}
+
+			if (s is { LaunchAcademyContinue: true })
+			{
+				s.LaunchAcademyContinue = false;
+				if (s.Campaign?.AcademyStep == AcademyStep.LiveFire)
+					s.BeginAcademyLiveFire();
+				else
+					s.BeginAcademyRange();
+				GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+				return;
+			}
+
+			if (s is { ReturnToConventionHall: true } || s is { MatchFromConvention: true })
+			{
+				s.ReturnToConventionHall = false;
+				s.MatchFromConvention = false;
+				GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
+				return;
+			}
+
 			if (s is { InCampaign: true, ReturnToCampaignMap: true })
 			{
 				GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
 				return;
 			}
 
-			if (s is { MatchFromCampaign: true })
+			if (s != null)
 			{
-				s.MatchFromCampaign = false;
-				GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
-				return;
+				// Finale / failed campaign run — campaign already cleared; hangar menu is correct.
+				if (s.MatchFromCampaign)
+				{
+					s.MatchFromCampaign = false;
+					s.ReturnToCampaignMap = false;
+					s.OpenSkirmishSetupOnMenu = false;
+				}
+				else
+				{
+					s.OpenSkirmishSetupOnMenu = true;
+				}
 			}
 
-			if (s != null)
-				s.OpenSkirmishSetupOnMenu = true;
 			GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
 		};
 		navRow.AddChild(cont);
@@ -352,6 +424,11 @@ public partial class ResultsShopUi : Control
 			{
 				s.ReturnToCampaignMap = false;
 				s.MatchFromCampaign = false;
+				s.MatchFromAcademy = false;
+				s.MatchFromConvention = false;
+				s.ReturnToConventionHall = false;
+				s.LaunchAcademyContinue = false;
+				s.OpenAcademyGraduation = false;
 			}
 			GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
 		};
@@ -461,7 +538,8 @@ public partial class ResultsShopUi : Control
 			var selected = _selectedPartId == offer.PartId;
 			var card = MakePartCard(
 				part,
-				meta: $"{part.Slot}   ·   {offer.Price} scrap" + (copies > 0 ? $"   ·   owned ×{copies}" : ""),
+				meta: $"{CatalogTiers.ShortLabel(part.Tier)}   ·   {part.Slot}   ·   {offer.Price} scrap"
+				      + (copies > 0 ? $"   ·   owned ×{copies}" : ""),
 				selected: selected,
 				onSelect: () => SelectBuyOffer(offer));
 			_list.AddChild(card);
@@ -495,7 +573,7 @@ public partial class ResultsShopUi : Control
 			var selected = _selectedPartId == part.Id;
 			var card = MakePartCard(
 				part,
-				meta: $"{part.Slot}   ·   spare ×{spare}   ·   sell {value} scrap",
+				meta: $"{CatalogTiers.ShortLabel(part.Tier)}   ·   {part.Slot}   ·   spare ×{spare}   ·   sell {value} scrap",
 				selected: selected,
 				onSelect: () => SelectSellPart(part.Id));
 			_list.AddChild(card);
@@ -623,7 +701,7 @@ public partial class ResultsShopUi : Control
 		}
 
 		_detailsPortrait.Texture = PartPortrait.Get(part, 128);
-		_detailsTitle.Text = part.DisplayName;
+		_detailsTitle.Text = $"{part.DisplayName}  ·  {CatalogTiers.ShortLabel(part.Tier)}";
 		_detailsBody.Text = BuildPartBlurb(part);
 		_detailsBody.Modulate = MechUiTheme.Text;
 
@@ -652,7 +730,7 @@ public partial class ResultsShopUi : Control
 	{
 		var mfg = GameCatalog.GetManufacturer(part.ManufacturerId);
 		var sb = new StringBuilder();
-		sb.AppendLine($"{part.Slot}  ·  {mfg.DisplayName}");
+		sb.AppendLine($"{CatalogTiers.Label(part.Tier)}  ·  {part.Slot}  ·  {mfg.DisplayName}");
 		sb.AppendLine(mfg.Niche);
 		sb.AppendLine();
 		if (part.WeaponFamily != WeaponFamily.None)

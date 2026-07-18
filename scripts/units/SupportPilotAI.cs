@@ -19,6 +19,9 @@ public partial class SupportPilotAI : Node
 	private Node3D? _target;
 	private float _rethink;
 	private float _strafeSign = 1f;
+	private Vector3 _lastPos;
+	private float _stuckTimer;
+	private float _flankCommit;
 	private readonly RandomNumberGenerator _rng = new();
 
 	public override void _Ready()
@@ -27,6 +30,7 @@ public partial class SupportPilotAI : Node
 		_unit = GetParentOrNull<SupportUnit>();
 		_strafeSign = _rng.Randf() > 0.5f ? 1f : -1f;
 		_rethink = _rng.RandfRange(0.4f, 1.0f);
+		_lastPos = _unit?.GlobalPosition ?? Vector3.Zero;
 	}
 
 	public SupportPilotCommand BuildCommand(float dt)
@@ -42,6 +46,7 @@ public partial class SupportPilotAI : Node
 			return cmd;
 
 		_rethink -= dt;
+		_flankCommit = Mathf.Max(0f, _flankCommit - dt);
 		if (_rethink <= 0f || !TeamUtil.IsAliveCombatant(_target))
 		{
 			_target = AcquireTarget();
@@ -51,7 +56,11 @@ public partial class SupportPilotAI : Node
 		}
 
 		if (_target == null)
+		{
+			_stuckTimer = 0f;
+			_lastPos = _unit.GlobalPosition;
 			return cmd;
+		}
 
 		var myPos = _unit.GlobalPosition;
 		var theirPos = TeamUtil.GetAimPoint(_target);
@@ -69,11 +78,12 @@ public partial class SupportPilotAI : Node
 		}
 
 		var hasLos = HasLineOfSight(myPos + Vector3.Up * 1.0f, theirPos);
+		UpdateStuck(dt, myPos, hasLos);
 		var dir = distance > 0.1f ? to / distance : -_unit.GlobalTransform.Basis.Z;
 		var moveDir = dir;
 		Vector3? clearAim = null;
 
-		if (!hasLos)
+		if (!hasLos || _flankCommit > 0f)
 		{
 			clearAim = FindDestructibleBlockerAim(myPos + Vector3.Up * 1.0f, theirPos);
 			moveDir = FindFlankDirection(dir);
@@ -86,7 +96,7 @@ public partial class SupportPilotAI : Node
 			switch (data.Kind)
 			{
 				case SupportUnitKind.ScoutBuggy:
-					if (!hasLos || distance > data.Range * 0.75f)
+					if (!hasLos || _flankCommit > 0f || distance > data.Range * 0.75f)
 						cmd.Move = new Vector2(moveDir.X, moveDir.Z);
 					else
 					{
@@ -97,7 +107,7 @@ public partial class SupportPilotAI : Node
 					break;
 
 				default: // light tank
-					if (!hasLos || distance > data.Range * 0.85f)
+					if (!hasLos || _flankCommit > 0f || distance > data.Range * 0.85f)
 						cmd.Move = new Vector2(moveDir.X, moveDir.Z);
 					else if (distance < data.Range * 0.45f)
 						cmd.Move = new Vector2(-dir.X, -dir.Z) * 0.6f;
@@ -115,6 +125,28 @@ public partial class SupportPilotAI : Node
 			cmd.Fire = true;
 
 		return cmd;
+	}
+
+	private void UpdateStuck(float dt, Vector3 myPos, bool hasLos)
+	{
+		if (_unit == null || _unit.IsStaticUnit)
+			return;
+
+		var moved = myPos.DistanceTo(_lastPos);
+		_lastPos = myPos;
+		var speed = moved / Mathf.Max(dt, 0.001f);
+		// Moving units that barely progress are stuck on cover / each other.
+		if (speed < 0.45f)
+			_stuckTimer += dt;
+		else
+			_stuckTimer = Mathf.Max(0f, _stuckTimer - dt * 0.55f);
+
+		if (_stuckTimer < 0.9f)
+			return;
+
+		_stuckTimer = 0f;
+		_strafeSign *= -1f;
+		_flankCommit = _rng.RandfRange(1.4f, 2.4f);
 	}
 
 	private Vector3? FindDestructibleBlockerAim(Vector3 from, Vector3 to)
@@ -176,7 +208,30 @@ public partial class SupportPilotAI : Node
 		var right = preferred.Cross(Vector3.Up);
 		if (right.LengthSquared() < 0.001f)
 			right = Vector3.Right;
-		return (right.Normalized() * _strafeSign + preferred * 0.25f).Normalized();
+		right = right.Normalized();
+
+		Vector3 best = right * _strafeSign;
+		var bestScore = float.MinValue;
+		for (var i = 0; i < 12; i++)
+		{
+			var ang = i * Mathf.Tau / 12f;
+			var dir = new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang));
+			var query = PhysicsRayQueryParameters3D.Create(origin, origin + dir * 12f);
+			query.CollisionMask = 1;
+			query.Exclude = new Godot.Collections.Array<Rid> { _unit.GetRid() };
+			var hit = space.IntersectRay(query);
+			var clear = hit.Count == 0 ? 12f : origin.DistanceTo(hit["position"].AsVector3());
+			var flankBias = dir.Dot(right * _strafeSign);
+			var towardBias = dir.Dot(preferred);
+			var score = clear * 1.4f + flankBias * 4.5f + towardBias * 1.2f;
+			if (score > bestScore)
+			{
+				bestScore = score;
+				best = dir;
+			}
+		}
+
+		return best.LengthSquared() > 0.01f ? best.Normalized() : (right * _strafeSign + preferred * 0.25f).Normalized();
 	}
 
 	private Node3D? AcquireTarget()

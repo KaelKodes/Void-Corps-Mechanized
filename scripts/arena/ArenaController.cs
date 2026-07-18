@@ -68,12 +68,18 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	private bool _playerDropStarted;
 
+	private NetCombatBus? _netCombat;
+	private float _matchHudSyncTimer;
+
 	public override void _Ready()
 	{
 		_mech = GetNodeOrNull<MechController>(MechPath);
 		_garage = GetNodeOrNull<GarageUi>(GaragePath);
 		_hud = GetNodeOrNull<Label>(HudPath);
 		_hint = GetNodeOrNull<Label>("UI/Hint");
+
+		_netCombat = new NetCombatBus();
+		_netCombat.EnsureUnder(this);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		_claim = session?.CurrentClaim ?? VoidCorpsIdentity.PickClaimSite();
@@ -87,13 +93,20 @@ public partial class ArenaController : Node3D, IMissionHost
 		EnsurePauseMenu();
 		EnsureMissionHud();
 		EnsureMechHud();
+		SetupCoopWings();
 		PlaceCombatants();
-		HookPlayerDeath();
+		if (IsCoopMatch)
+			HookAllWingDeaths();
+		else
+			HookPlayerDeath();
 
 		if (_garage != null)
 		{
 			_garage.ConfigurePrepMode(true);
-			_garage.LoadoutApplied += OnReadyPressed;
+			if (IsCoopMatch)
+				_garage.LoadoutApplied += OnCoopReadyPressed;
+			else
+				_garage.LoadoutApplied += OnReadyPressed;
 			_garage.Visible = true;
 			_garage.MoveToFront();
 			_garage.RefreshFromSession();
@@ -102,6 +115,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		SetCombatActive(false);
 		_phase = MatchPhase.Prep;
 		SetCombatHudVisible(false);
+		MusicService.Cue(MusicCue.Hangar);
 		UpdateHud();
 	}
 
@@ -400,12 +414,13 @@ public partial class ArenaController : Node3D, IMissionHost
 		var floorMesh = GetNodeOrNull<MeshInstance3D>("World/Floor/Mesh");
 		if (floorMesh != null)
 		{
-			floorMesh.MaterialOverride = new StandardMaterial3D
+			var floorMat = new StandardMaterial3D
 			{
 				AlbedoColor = floorColor,
 				Roughness = 0.92f,
 				Metallic = 0.08f
 			};
+			MeshMat.Bind(floorMesh, floorMat);
 		}
 
 		var wallMat = new StandardMaterial3D
@@ -419,7 +434,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			var mesh = GetNodeOrNull<MeshInstance3D>($"World/{name}/Mesh");
 			if (mesh != null)
-				mesh.MaterialOverride = wallMat;
+				MeshMat.Bind(mesh, wallMat);
 		}
 	}
 
@@ -494,7 +509,6 @@ public partial class ArenaController : Node3D, IMissionHost
 					if (!GodotObject.IsInstanceValid(capturedBody))
 						return;
 					capturedBody.CollisionLayer = 0;
-					capturedBody.Visible = false;
 					var parent = capturedBody.GetTree()?.CurrentScene ?? capturedBody.GetParent();
 					if (parent != null)
 					{
@@ -502,6 +516,8 @@ public partial class ArenaController : Node3D, IMissionHost
 						ShatterBurst.Spawn(parent, origin, shatterColor, capturedSize, 18);
 						LootService.SpawnWorldDrops(parent, origin, LootService.ScrapForCover());
 					}
+
+					MeshMat.QueueFreeSafe(capturedBody);
 				};
 			}
 		}
@@ -559,7 +575,11 @@ public partial class ArenaController : Node3D, IMissionHost
 	{
 		EnsurePlayerDropBeacon();
 
-		if (_mech != null)
+		if (IsCoopMatch && _wingByPeer.Count > 0)
+		{
+			PlaceWingMechsAtSpawn();
+		}
+		else if (_mech != null)
 		{
 			_mech.Team = TeamId.Player;
 			_mech.Visible = true;
@@ -570,7 +590,30 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_mission == null)
 			CreateMission();
 		_mission!.SetupBattlefield();
+		SpawnConventionDemoCradleIfNeeded();
 		HookMissionTelemetry();
+	}
+
+	private void SpawnConventionDemoCradleIfNeeded()
+	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session is not { MatchFromConvention: true })
+			return;
+
+		var mfgId = session.Campaign?.Convention.ActiveTrialManufacturerId
+			?? session.LastMissionManufacturerId;
+		if (string.IsNullOrEmpty(mfgId))
+			return;
+
+		var root = GetNodeOrNull<Node3D>("MissionRuntime") ?? this;
+		var cradle = new DemoCradle
+		{
+			ManufacturerId = mfgId,
+			MaxHealth = 120f
+		};
+		root.AddChild(cradle);
+		// Offset from player spawn — visible spite target, not on the critical path.
+		cradle.GlobalPosition = _playerSpawn + new Vector3(12f, 0f, 10f);
 	}
 
 	private void EnsurePlayerDropBeacon()
@@ -708,6 +751,8 @@ public partial class ArenaController : Node3D, IMissionHost
 			existing.Visible = true;
 			existing.ProcessMode = ProcessModeEnum.Inherit;
 			FaceToward(existing, Vector3.Zero);
+			if (GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true })
+				existing.AttachHostReplication();
 			return;
 		}
 
@@ -716,6 +761,8 @@ public partial class ArenaController : Node3D, IMissionHost
 		unit.Configure(unitId, team);
 		unit.GlobalPosition = position;
 		FaceToward(unit, Vector3.Zero);
+		if (GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true })
+			unit.AttachHostReplication();
 	}
 
 	private void DespawnSupport(string name)
@@ -759,6 +806,10 @@ public partial class ArenaController : Node3D, IMissionHost
 		FaceToward(enemy, Vector3.Zero);
 		HookEnemyDeath(enemy);
 
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true })
+			enemy.AttachHostReplication();
+
 		var pilot = enemy.GetNodeOrNull<MechPilotAI>("MechPilotAI");
 		if (pilot != null)
 		{
@@ -767,7 +818,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (EnemyDifficulty == PilotDifficulty.Hard)
 				pilot.Aggression = variant == 0 ? 0.75f : 0.9f;
 			if (_mech != null)
-				pilot.SetTarget(_mech);
+				pilot.SetTarget(PickAiTarget());
 		}
 
 		if (viaDropBeacon)
@@ -781,6 +832,26 @@ public partial class ArenaController : Node3D, IMissionHost
 		}
 
 		return enemy;
+	}
+
+	private MechController? PickAiTarget()
+	{
+		MechController? best = null;
+		var bestDist = float.MaxValue;
+		foreach (var mech in _wingByPeer.Values)
+		{
+			if (!TeamUtil.IsAliveCombatant(mech))
+				continue;
+			var d = mech.GlobalPosition.LengthSquared();
+			// Prefer nearest to origin / map center as a stable default; callers can refine later.
+			if (d < bestDist)
+			{
+				bestDist = d;
+				best = mech;
+			}
+		}
+
+		return best ?? _mech;
 	}
 
 	private const float PlayerDropHeight = 28f;
@@ -908,7 +979,7 @@ public partial class ArenaController : Node3D, IMissionHost
 					seq.Beacon.SetOpenAmount(0f);
 				}
 
-				SfxService.Confirm();
+				SfxService.Play("drop_impact", 1f, -2f);
 				continue;
 			}
 
@@ -934,8 +1005,8 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (seq.EnableAiWhenDone && !seq.Mech.IsPlayerControlled && _phase == MatchPhase.Fighting)
 			{
 				var pilot = seq.Mech.GetNodeOrNull<MechPilotAI>("MechPilotAI");
-				if (pilot != null && _mech != null)
-					pilot.SetTarget(_mech);
+				if (pilot != null)
+					pilot.SetTarget(PickAiTarget());
 			}
 
 			_dropIns.RemoveAt(i);
@@ -996,6 +1067,8 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (amount <= 0.01f || !playerOwned)
 				return;
 			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Telemetry.RecordDamageTaken(amount, kind);
+			if (kind == TelemetryTargetKind.Map)
+				SfxService.PlayDamageSustained();
 		};
 	}
 
@@ -1025,6 +1098,10 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_matchResolved || _phase != MatchPhase.Fighting)
 			return;
 
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true } && !Multiplayer.IsServer())
+			return;
+
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		if (session == null)
 		{
@@ -1032,12 +1109,45 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 		}
 
-		if (session.Match.TrySpendLifeForRespawn() && _mech != null)
+		MechController? downed = null;
+		foreach (var mech in _wingByPeer.Values)
 		{
-			_mech.RespawnAt(_playerSpawn, session.CurrentLoadout);
-			FaceToward(_mech, Vector3.Zero);
+			if (mech.Health?.IsDead == true || mech.Integrity?.IsCollapsed == true)
+			{
+				downed = mech;
+				break;
+			}
+		}
+
+		downed ??= _mech;
+		if (downed == null)
+		{
+			ResolveMatch(MatchOutcome.Defeat);
+			return;
+		}
+
+		if (session.Match.TrySpendLifeForRespawn())
+		{
+			var loadout = _wingLoadouts.GetValueOrDefault(downed.OwningPeerId)
+			              ?? (downed.OwningPeerId == (net?.LocalPeerId ?? 0)
+				              ? session.CurrentLoadout
+				              : GameCatalog.CreateStarterLoadout());
+			var pad = downed.GlobalPosition with { Y = 0f };
+			if (pad.LengthSquared() < 0.01f)
+				pad = _playerSpawn;
+			downed.RespawnAt(pad, loadout);
+			FaceToward(downed, Vector3.Zero);
 			SetCombatActive(true);
-			GD.Print($"Pilot remount. Lives remaining: {session.Match.LivesRemaining}");
+			GD.Print($"Pilot remount (peer {downed.OwningPeerId}). Lives remaining: {session.Match.LivesRemaining}");
+			return;
+		}
+
+		// Cadet range cannot fail — free remount forever.
+		if (session is { MatchFromAcademy: true, PendingMission: MissionType.CadetRange })
+		{
+			downed.RespawnAt(_playerSpawn, session.CurrentLoadout);
+			FaceToward(downed, Vector3.Zero);
+			SetCombatActive(true);
 			return;
 		}
 
@@ -1056,11 +1166,12 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			_enemyLoadouts.TryGetValue(enemy.Name, out var loadout);
 			var parent = (Node)this;
+			var maxTier = session.CurrentMaxLootTier();
 			LootService.SpawnWorldDrops(
 				parent,
 				enemy.GlobalPosition,
 				LootService.ScrapForEnemyMech(),
-				LootService.RollEnemyMechPartDrop(loadout));
+				LootService.RollEnemyMechPartDrop(loadout, maxTier));
 		}
 
 		enemy.Visible = false;
@@ -1093,6 +1204,9 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_matchResolved)
 			return;
 
+		if (Multiplayer.MultiplayerPeer != null && !Multiplayer.IsServer())
+			return;
+
 		_matchResolved = true;
 		_phase = MatchPhase.Fighting;
 		_dropIns.Clear();
@@ -1103,10 +1217,17 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		session?.Match.End(outcome);
-		session?.OnCampaignNodeResolved(outcome);
+		if (session is { MatchFromAcademy: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
+			session.OnAcademyMissionResolved(outcome);
+		else if (session is { MatchFromConvention: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
+			session.OnConventionTrialResolved(outcome);
+		else if (session is { MatchFromCampaign: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
+			session.OnCampaignNodeResolved(outcome);
 		SfxService.Play(outcome == MatchOutcome.Victory ? "victory" : "defeat", 1f, -2f);
 
-		if (_results != null && session != null)
+		if (Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer())
+			_netCombat?.HostShowResults((int)outcome);
+		else if (_results != null && session != null)
 		{
 			_results.MouseFilter = Control.MouseFilterEnum.Stop;
 			_results.Open(session);
@@ -1173,7 +1294,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			_garage.Visible = !_garage.Visible;
 			_garage.ConfigurePrepMode(false);
-			SetCombatActive(!_garage.Visible);
+			SetLocalWingControls(!_garage.Visible);
 			SetCombatHudVisible(!_garage.Visible);
 			if (_garage.Visible)
 			{
@@ -1184,20 +1305,41 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		if (!_matchResolved && _phase == MatchPhase.Fighting)
 		{
-			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Tick(dt);
+			var session = GetNodeOrNull<GameSession>("/root/GameSession");
+			var isAuthority = Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer();
+			if (isAuthority)
+				session?.Match.Tick(dt);
+
+			_matchHudSyncTimer += dt;
+			if (_matchHudSyncTimer >= 0.35f && Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer())
+			{
+				_matchHudSyncTimer = 0f;
+				if (session?.Match != null)
+				{
+					_netCombat?.HostSyncMatchHud(
+						session.Match.LivesRemaining,
+						session.Match.RunScrap,
+						session.Match.NextLifeCost);
+				}
+			}
+
 			var buyPressed = Input.IsActionPressed("buy_life");
 			if (buyPressed && !_buyLifeLatch)
 			{
 				_buyLifeLatch = true;
-				TryBuyLifeWithScrap();
+				if (isAuthority)
+					TryBuyLifeWithScrap();
 			}
 			else if (!buyPressed)
 			{
 				_buyLifeLatch = false;
 			}
 
-			TickExtraction(dt);
-			_mission?.Tick(dt);
+			if (isAuthority)
+			{
+				TickExtraction(dt);
+				_mission?.Tick(dt);
+			}
 		}
 
 		UpdateHud();
@@ -1207,13 +1349,15 @@ public partial class ArenaController : Node3D, IMissionHost
 	{
 		if (_phase != MatchPhase.Prep)
 		{
-			// Mid-fight garage apply: just rebuild and resume.
+			// Mid-fight garage apply: only this peer's MAP + profile.
 			var session = GetNodeOrNull<GameSession>("/root/GameSession");
 			session?.SetLoadout(loadout);
 			_mech?.RebuildFromLoadout(loadout);
+			if (IsCoopMatch && Multiplayer.MultiplayerPeer != null && _mech != null)
+				Rpc(MethodName.RpcApplyWingLoadout, Multiplayer.GetUniqueId(), loadout.ToDict());
 			if (_garage != null)
 				_garage.Visible = false;
-			SetCombatActive(true);
+			SetLocalWingControls(true);
 			SetCombatHudVisible(true);
 			return;
 		}
@@ -1245,6 +1389,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		_countdownRemaining = 5.25f;
 		_lastCountdownSecond = -1;
 		_playerDropStarted = false;
+		MusicService.Cue(MusicCue.Combat);
 		if (_countdownLabel != null)
 		{
 			_countdownLabel.Visible = true;
@@ -1261,12 +1406,14 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (!_playerDropStarted && second <= 1 && _countdownRemaining > 0f && _mech != null)
 		{
 			_playerDropStarted = true;
-			// Leave time after touchdown for the hatch to open before FIGHT.
 			var fallTime = Mathf.Clamp(
 				_countdownRemaining - VesselOpenDuration - 0.05f,
 				0.4f,
 				1.1f);
-			BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false, fallTime);
+			if (IsCoopMatch && _wingByPeer.Count > 0)
+				DropAllWings(fallTime);
+			else
+				BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false, fallTime);
 		}
 
 		if (_countdownRemaining <= 0f)
@@ -1357,6 +1504,50 @@ public partial class ArenaController : Node3D, IMissionHost
 		}
 	}
 
+	/// <summary>Enable/disable only the local pilot's MAP — never the whole wing or enemy AI.</summary>
+	private void SetLocalWingControls(bool enabled)
+	{
+		if (_mech == null)
+			return;
+		var dropping = false;
+		foreach (var seq in _dropIns)
+		{
+			if (seq.Mech == _mech)
+			{
+				dropping = true;
+				break;
+			}
+		}
+
+		_mech.SetControlsEnabled(enabled && !dropping && _phase == MatchPhase.Fighting);
+		if (!enabled)
+			_mech.Velocity = Vector3.Zero;
+	}
+
+	public void ClientPresentResults(MatchOutcome outcome)
+	{
+		_matchResolved = true;
+		_phase = MatchPhase.Fighting;
+		SetLocalWingControls(false);
+		if (_garage != null)
+			_garage.Visible = false;
+		SetCombatHudVisible(false);
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return;
+
+		if (session.Match.Outcome == MatchOutcome.InProgress)
+			session.Match.End(outcome);
+
+		if (_results == null || _results.Visible)
+			return;
+
+		_results.MouseFilter = Control.MouseFilterEnum.Stop;
+		_results.Open(session);
+		_results.MoveToFront();
+	}
+
 	private void UpdateHud()
 	{
 		if (_mech?.Health == null)
@@ -1393,7 +1584,17 @@ public partial class ArenaController : Node3D, IMissionHost
 		}
 
 		if (_missionHud != null)
-			_missionHud.Text = _mission?.GetHudLine() ?? "";
+		{
+			var line = _mission?.GetHudLine() ?? "";
+			var sessionHud = GetNodeOrNull<GameSession>("/root/GameSession");
+			if (sessionHud is { MatchFromConvention: true }
+			    && sessionHud.Campaign?.Convention.ActiveTrialSabotaged != true)
+			{
+				line += "  |  Floor model nearby — expensive if it shatters";
+			}
+
+			_missionHud.Text = line;
+		}
 
 		if (_hint != null && _garage != null)
 		{

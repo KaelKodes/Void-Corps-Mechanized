@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Void Corps: Mechanize"
+config/version="0.2.0"
 run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
@@ -18,7 +19,9 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameSession="*res://scripts/GameSession.cs"
+NetSession="*res://scripts/net/NetSession.cs"
 SfxService="*res://scripts/audio/SfxService.cs"
+MusicService="*res://scripts/audio/MusicService.cs"
 
 [display]
 

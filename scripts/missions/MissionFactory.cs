@@ -15,6 +15,7 @@ public static class MissionFactory
 				BossEncounterCatalog.Get(bossEncounter == BossEncounterId.None
 					? BossEncounterId.OrbitalDuelist
 					: bossEncounter)),
+			MissionType.CadetRange => new CadetRangeMission(),
 			_ => new EliminateMission()
 		};
 }

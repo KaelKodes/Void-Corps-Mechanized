@@ -12,6 +12,8 @@ public partial class Projectile : Area3D
 	public TeamId SourceTeam { get; set; } = TeamId.Neutral;
 	public TargetingMode TargetingMode { get; set; } = TargetingMode.Standard;
 	public PartSlot? PreferredSlot { get; set; }
+	/// <summary>False on client replicas — they show the shot but never apply damage.</summary>
+	public bool DealsDamage { get; set; } = true;
 
 	private float _age;
 
@@ -40,18 +42,43 @@ public partial class Projectile : Area3D
 
 		_age += dt;
 		if (_age >= Lifetime)
-			QueueFree();
+			MeshMat.QueueFreeSafe(this);
 	}
 
 	/// <summary>
 	/// Artillery-style lob: rises then falls onto the target. Still collides with cover mid-flight.
 	/// Flight time is stretched for arc height; impact is solved to land on <paramref name="to"/>.
+	/// Call after parenting into the scene tree (or use <see cref="SolveLob"/> for off-tree probes).
 	/// </summary>
 	public void LaunchLob(Vector3 from, Vector3 to, float preferredSpeed, float gravity = 26f)
 	{
-		GravityAccel = gravity;
-		GlobalPosition = from;
+		var solved = SolveLob(from, to, preferredSpeed, gravity);
+		GravityAccel = solved.Gravity;
+		Velocity = solved.Velocity;
+		Lifetime = solved.Lifetime;
 
+		if (IsInsideTree())
+		{
+			GlobalPosition = from;
+			if (Velocity.LengthSquared() > 0.01f)
+				LookAt(from + Velocity, Vector3.Up);
+		}
+		else
+		{
+			// Off-tree probe (e.g. net sync solving velocity without spawning yet).
+			Position = from;
+			if (Velocity.LengthSquared() > 0.01f)
+				LookAtFromPosition(from, from + Velocity, Vector3.Up);
+		}
+	}
+
+	/// <summary>Ballistic solve used by <see cref="LaunchLob"/> and host net probes.</summary>
+	public static (Vector3 Velocity, float Lifetime, float Gravity) SolveLob(
+		Vector3 from,
+		Vector3 to,
+		float preferredSpeed,
+		float gravity = 26f)
+	{
 		var delta = to - from;
 		var heightDelta = delta.Y;
 		var flat = new Vector3(delta.X, 0f, delta.Z);
@@ -67,11 +94,8 @@ public partial class Projectile : Area3D
 			? flat.Normalized() * (horizontal / flightTime)
 			: Vector3.Zero;
 
-		Velocity = new Vector3(horizontalVelocity.X, vy, horizontalVelocity.Z);
-		Lifetime = flightTime + 0.4f;
-
-		if (Velocity.LengthSquared() > 0.01f)
-			LookAt(GlobalPosition + Velocity, Vector3.Up);
+		var velocity = new Vector3(horizontalVelocity.X, vy, horizontalVelocity.Z);
+		return (velocity, flightTime + 0.4f, gravity);
 	}
 
 	private bool TrySweep(Vector3 from, Vector3 to)
@@ -131,37 +155,45 @@ public partial class Projectile : Area3D
 		var mech = FindMech(node);
 		if (mech?.Integrity != null)
 		{
-			mech.Integrity.ReceiveHit(
-				Damage,
-				GlobalPosition,
-				PreferredSlot,
-				TargetingMode == TargetingMode.AimedComponent);
-			if (TelemetryUtil.IsPlayerSource(Source))
+			if (DealsDamage)
 			{
-				var telemetry = TelemetryUtil.Match(this)?.Telemetry;
-				telemetry?.RecordHit(TelemetryTargetKind.Map, Name == "Missile");
-				if (mech.Integrity.IsCollapsed || mech.Health?.IsDead == true)
-					telemetry?.RecordKill(TelemetryTargetKind.Map);
+				mech.Integrity.ReceiveHit(
+					Damage,
+					GlobalPosition,
+					PreferredSlot,
+					TargetingMode == TargetingMode.AimedComponent);
+				if (TelemetryUtil.IsPlayerSource(Source))
+				{
+					var telemetry = TelemetryUtil.Match(this)?.Telemetry;
+					telemetry?.RecordHit(TelemetryTargetKind.Map, Name == "Missile");
+					if (mech.Integrity.IsCollapsed || mech.Health?.IsDead == true)
+						telemetry?.RecordKill(TelemetryTargetKind.Map);
+				}
 			}
+
 			SfxService.Play("weapon_hit", (float)GD.RandRange(0.9, 1.1), -2f);
-			QueueFree();
+			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
 
 		var damageable = FindDamageable(node);
 		if (damageable != null)
 		{
-			var kind = TelemetryUtil.Classify(node);
-			damageable.ApplyDamage(Damage);
-			if (TelemetryUtil.IsPlayerSource(Source))
+			if (DealsDamage)
 			{
-				var telemetry = TelemetryUtil.Match(this)?.Telemetry;
-				telemetry?.RecordHit(kind, Name == "Missile");
-				if (damageable.IsDead)
-					telemetry?.RecordKill(kind);
+				var kind = TelemetryUtil.Classify(node);
+				damageable.ApplyDamage(Damage);
+				if (TelemetryUtil.IsPlayerSource(Source))
+				{
+					var telemetry = TelemetryUtil.Match(this)?.Telemetry;
+					telemetry?.RecordHit(kind, Name == "Missile");
+					if (damageable.IsDead)
+						telemetry?.RecordKill(kind);
+				}
 			}
+
 			SfxService.Play("weapon_hit", (float)GD.RandRange(0.95, 1.15), -3f);
-			QueueFree();
+			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
 
@@ -169,7 +201,7 @@ public partial class Projectile : Area3D
 		if (hitTeam == TeamId.Neutral)
 		{
 			SfxService.Play("weapon_hit", 0.8f, -8f);
-			QueueFree();
+			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
 
@@ -229,7 +261,8 @@ public partial class Projectile : Area3D
 		{
 			Mesh = ballisticStyle
 				? new CapsuleMesh { Radius = 0.12f, Height = 0.55f }
-				: new SphereMesh { Radius = radius, Height = radius * 2f }
+				: new SphereMesh { Radius = radius, Height = radius * 2f },
+			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
 		};
 		var mat = new StandardMaterial3D
 		{
@@ -238,6 +271,7 @@ public partial class Projectile : Area3D
 			Emission = ballisticStyle ? new Color(1f, 0.35f, 0.1f) : new Color(1f, 0.7f, 0.2f),
 			EmissionEnergyMultiplier = 2.2f
 		};
+		mesh.Mesh.SurfaceSetMaterial(0, mat);
 		mesh.MaterialOverride = mat;
 		if (ballisticStyle)
 			mesh.Rotation = new Vector3(Mathf.Tau * 0.25f, 0f, 0f);

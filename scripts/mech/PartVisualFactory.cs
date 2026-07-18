@@ -196,35 +196,23 @@ public static class PartVisualFactory
 
 	private static void AddBox(Node3D parent, Material mat, Vector3 size, Vector3 position)
 	{
-		var mi = new MeshInstance3D
-		{
-			Mesh = new BoxMesh { Size = size },
-			Position = position,
-			MaterialOverride = mat
-		};
-		parent.AddChild(mi);
+		parent.AddChild(MeshMat.Make(new BoxMesh { Size = size }, mat, position));
 	}
 
 	private static void AddCylinder(Node3D parent, Material mat, float radius, float height, Vector3 position, Vector3 rotation)
 	{
-		var mi = new MeshInstance3D
-		{
-			Mesh = new CylinderMesh { TopRadius = radius, BottomRadius = radius, Height = height },
-			Position = position,
-			Rotation = rotation,
-			MaterialOverride = mat
-		};
-		parent.AddChild(mi);
+		parent.AddChild(MeshMat.Make(
+			new CylinderMesh { TopRadius = radius, BottomRadius = radius, Height = height },
+			mat,
+			position,
+			rotation));
 	}
 
 	private static void AddSphere(Node3D parent, Material mat, float radius, Vector3 position)
 	{
-		var mi = new MeshInstance3D
-		{
-			Mesh = new SphereMesh { Radius = radius, Height = radius * 2f },
-			Position = position,
-			MaterialOverride = mat
-		};
-		parent.AddChild(mi);
+		parent.AddChild(MeshMat.Make(
+			new SphereMesh { Radius = radius, Height = radius * 2f },
+			mat,
+			position));
 	}
 }

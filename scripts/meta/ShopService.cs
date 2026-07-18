@@ -22,11 +22,18 @@ public static class ShopService
 	public static List<ShopOffer> GenerateStock(
 		PlayerProfile profile,
 		int count = 5,
-		string? manufacturerId = null)
+		string? manufacturerId = null,
+		int maxTier = CatalogTiers.MaxTier)
 	{
 		GameCatalog.EnsureBuilt();
+		// Sector 1 is Field-capped, with a rare Claim tease.
+		var effectiveMax = maxTier;
+		if (maxTier <= 1 && Rng.Randf() < 0.22f)
+			effectiveMax = 2;
+
 		var all = GameCatalog.Parts.Values
 			.Where(p => p.VisualKind != "empty")
+			.Where(p => p.Tier <= effectiveMax)
 			.ToList();
 
 		List<PartData> candidates;
@@ -60,7 +67,7 @@ public static class ShopService
 			});
 		}
 
-		// If manufacturer pool was thin, fill remaining slots from other brands.
+		// If manufacturer pool was thin, fill remaining slots from other brands (still tier-gated).
 		if (stock.Count < count && !string.IsNullOrEmpty(manufacturerId))
 		{
 			var filler = all.Where(p => !used.Contains(p.Id)).ToList();
@@ -89,9 +96,10 @@ public static class ShopService
 		basePrice += Mathf.RoundToInt(part.PowerCapacity * 0.15f);
 		basePrice += part.PowerCoreClass * 20;
 		basePrice += Mathf.RoundToInt(part.VisionRange * 0.3f);
+		basePrice += (part.Tier - 1) * 18;
 		if (part.GrantsActiveAbility)
 			basePrice += 35;
-		return Mathf.Clamp(basePrice, 20, 200);
+		return Mathf.Clamp(basePrice, 20, 220);
 	}
 
 	public static int SellValue(PartData part) => Mathf.Max(8, PriceFor(part) / 2);

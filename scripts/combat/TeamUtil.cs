@@ -37,7 +37,7 @@ public static class TeamUtil
 		if (node is SupportUnit support)
 			return support.IsAlive;
 		if (node is EscortAsset escort)
-			return !escort.IsDestroyed && !escort.HasArrived;
+			return !escort.IsDestroyed;
 		return false;
 	}
 

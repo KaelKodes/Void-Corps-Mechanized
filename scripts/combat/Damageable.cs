@@ -12,6 +12,20 @@ public partial class Damageable : Node
 	public float CurrentHealth { get; private set; }
 	public bool IsDead => CurrentHealth <= 0f;
 
+	/// <summary>Host→client replication surface for MultiplayerSynchronizer.</summary>
+	[Export]
+	public float ReplicatedHealth
+	{
+		get => CurrentHealth;
+		set
+		{
+			var wasDead = IsDead;
+			CurrentHealth = Mathf.Clamp(value, 0f, MaxHealth > 0f ? MaxHealth : value);
+			if (!wasDead && IsDead)
+				EmitSignal(SignalName.Died);
+		}
+	}
+
 	public override void _Ready()
 	{
 		CurrentHealth = MaxHealth;

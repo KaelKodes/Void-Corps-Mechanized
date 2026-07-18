@@ -5,16 +5,22 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Persistent player state shared by Skirmish and (later) Campaign.
+/// Persistent player meta + active run kit (shared by campaign and skirmish for now).
 /// Part ownership is quantity-based — one purchase = one equippable copy.
+/// Implements <see cref="IPartInventory"/> so per-character bags can swap in later.
 /// </summary>
-public sealed class PlayerProfile
+public sealed class PlayerProfile : IPartInventory
 {
 	public const int StartingManufacturerRep = -10;
 	public const int StartingAlignedRep = 20;
+	public const int StartingLives = 2;
+	public const string DefaultInventoryId = "pilot";
+
+	/// <summary>Active bag id. Single-pilot for now; trade/characters will multiply this.</summary>
+	public string InventoryId { get; set; } = DefaultInventoryId;
 
 	public int Scrap { get; set; }
-	public int LivesBank { get; set; } = 2;
+	public int LivesBank { get; set; } = StartingLives;
 	public Dictionary<string, int> OwnedCounts { get; set; } = new();
 	public LoadoutData Loadout { get; set; } = null!;
 	public int SkirmishesPlayed { get; set; }
@@ -32,21 +38,37 @@ public sealed class PlayerProfile
 	public static PlayerProfile CreateNew()
 	{
 		GameCatalog.EnsureBuilt();
-		var loadout = GameCatalog.CreateStarterLoadout();
 		var profile = new PlayerProfile
 		{
+			InventoryId = DefaultInventoryId,
 			Scrap = 0,
-			LivesBank = 2,
-			Loadout = loadout,
+			LivesBank = StartingLives,
+			Loadout = GameCatalog.CreateStarterLoadout(),
 			OwnedCounts = new Dictionary<string, int>(),
 			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename,
 			AffiliatedManufacturerId = "",
-			ManufacturerReputation = new Dictionary<string, int>()
+			ManufacturerReputation = new Dictionary<string, int>(),
+			SkirmishesPlayed = 0,
+			SkirmishesWon = 0
 		};
 		profile.EnsureManufacturerState();
-		profile.GrantLoadoutOwnership(loadout);
-		profile.GrantStarterPool();
+		profile.GrantLoadoutOwnership(profile.Loadout);
 		return profile;
+	}
+
+	/// <summary>
+	/// Wipe scrap/parts/loadout/affiliation/lives for a new campaign or total life loss.
+	/// Soft meta (W/L, corp name, manufacturer rep) is kept.
+	/// </summary>
+	public void WipeRunInventory()
+	{
+		GameCatalog.EnsureBuilt();
+		Scrap = 0;
+		LivesBank = StartingLives;
+		OwnedCounts.Clear();
+		AffiliatedManufacturerId = "";
+		Loadout = GameCatalog.CreateStarterLoadout();
+		GrantLoadoutOwnership(Loadout);
 	}
 
 	public void EnsureManufacturerState()
@@ -139,29 +161,6 @@ public sealed class PlayerProfile
 					break;
 			}
 		}
-	}
-
-	public void GrantStarterPool()
-	{
-		// Extras beyond the equipped kit so the first garage has some choices.
-		Own("legs_tri_biped");
-		Own("legs_ouro_hex");
-		Own("torso_tri_frame");
-		Own("torso_tri_fleet");
-		Own("head_tri_optic");
-		Own("head_ouro_scope");
-		Own("core_tri_cell");
-		Own("wep_brin_slug");
-		Own("wep_ouro_rifle");
-		Own("wep_tri_burst");
-		Own("wep_lum_arc");
-		Own("shoulder_tri_patrol");
-		Own("shoulder_brin_pods");
-		Own("systems_ouro_heatsink");
-		Own("systems_tri_coolant");
-		Own("backpack_tri_mend");
-		Own("backpack_ouro_pulse");
-		EnsureEmptyMounts();
 	}
 
 	/// <summary>Empty bays are unlimited placeholders, not loot.</summary>
@@ -271,6 +270,7 @@ public sealed class PlayerProfile
 
 		return new Dictionary<string, Variant>
 		{
+			["inventory_id"] = InventoryId,
 			["scrap"] = Scrap,
 			["lives"] = LivesBank,
 			["skirmishes_played"] = SkirmishesPlayed,
@@ -288,6 +288,8 @@ public sealed class PlayerProfile
 	{
 		GameCatalog.EnsureBuilt();
 		var profile = CreateNew();
+		if (dict.ContainsKey("inventory_id"))
+			profile.InventoryId = dict["inventory_id"].AsString();
 		if (dict.ContainsKey("scrap"))
 			profile.Scrap = dict["scrap"].AsInt32();
 		if (dict.ContainsKey("lives"))
@@ -327,15 +329,11 @@ public sealed class PlayerProfile
 			profile.Loadout = GameCatalog.CreateStarterLoadout();
 
 		profile.GrantLoadoutOwnership(profile.Loadout);
-		if (profile.OwnedCounts.Count == 0)
-			profile.GrantStarterPool();
-		else
-			profile.EnsureEmptyMounts();
+		profile.EnsureEmptyMounts();
+		profile.EnsureManufacturerState();
 
 		if (dict.ContainsKey("keybinds"))
 			InputBindings.ApplyFromDict(dict["keybinds"].AsGodotDictionary());
-
-		profile.EnsureManufacturerState();
 
 		return profile;
 	}

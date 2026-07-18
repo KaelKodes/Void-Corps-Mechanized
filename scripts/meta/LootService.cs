@@ -24,16 +24,16 @@ public static class LootService
 
 	public static int ScrapForEnemyMech() => Rng.RandiRange(40, 60);
 
-	public static string? RollSupportPartDrop()
+	public static string? RollSupportPartDrop(int maxTier = 1)
 	{
 		if (Rng.Randf() > 0.04f)
 			return null;
-		return RollRandomPart(lowTier: true);
+		return RollRandomPart(maxTier, lowTierSlotsOnly: true);
 	}
 
-	public static string? RollEnemyMechPartDrop(LoadoutData? loadout)
+	public static string? RollEnemyMechPartDrop(LoadoutData? loadout, int maxTier = CatalogTiers.MaxTier)
 	{
-		if (Rng.Randf() > 0.18f)
+		if (Rng.Randf() > 0.10f)
 			return null;
 
 		if (loadout != null && Rng.Randf() < 0.65f)
@@ -47,27 +47,34 @@ public static class LootService
 				var part = GameCatalog.GetPart(id);
 				if (part == null || part.VisualKind == "empty")
 					continue;
+				if (part.Tier > maxTier)
+					continue;
 				ids.Add(id);
 			}
 			if (ids.Count > 0)
 				return ids[Rng.RandiRange(0, ids.Count - 1)];
 		}
 
-		return RollRandomPart(lowTier: false);
+		return RollRandomPart(maxTier, lowTierSlotsOnly: false);
 	}
 
-	public static string? RollRandomPart(bool lowTier)
+	public static string? RollRandomPart(int maxTier, bool lowTierSlotsOnly)
 	{
 		GameCatalog.EnsureBuilt();
 		var pool = GameCatalog.Parts.Values
 			.Where(p => p.VisualKind != "empty")
-			.Where(p => !lowTier || p.Slot is PartSlot.Systems or PartSlot.Backpack or PartSlot.Head or PartSlot.ShoulderL or PartSlot.ShoulderR)
+			.Where(p => p.Tier <= maxTier)
+			.Where(p => !lowTierSlotsOnly || p.Slot is PartSlot.Systems or PartSlot.Backpack or PartSlot.Head or PartSlot.ShoulderL or PartSlot.ShoulderR)
 			.Select(p => p.Id)
 			.ToList();
 		if (pool.Count == 0)
 			return null;
 		return pool[Rng.RandiRange(0, pool.Count - 1)];
 	}
+
+	/// <summary>Legacy helper — prefers field-tier mount drops.</summary>
+	public static string? RollRandomPart(bool lowTier) =>
+		RollRandomPart(lowTier ? 1 : CatalogTiers.MaxTier, lowTierSlotsOnly: lowTier);
 
 	/// <summary>Spawn ground loot the player must drive over. No auto-bank.</summary>
 	public static void SpawnWorldDrops(Node parent, Vector3 origin, int scrap, string? partId = null)

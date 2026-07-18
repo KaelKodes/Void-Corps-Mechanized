@@ -22,6 +22,21 @@ public partial class MechPowerHeat : Node
 	public float HeatRatio => Stats.HeatCap <= 0.01f ? 0f : CurrentHeat / Stats.HeatCap;
 	public float LoadRatio => Stats.PowerCapacity <= 0.01f ? 0f : CurrentLoad / Stats.PowerCapacity;
 
+	/// <summary>Host→client replication for HUD meters.</summary>
+	[Export]
+	public float ReplicatedHeat
+	{
+		get => CurrentHeat;
+		set => CurrentHeat = Mathf.Max(0f, value);
+	}
+
+	[Export]
+	public float ReplicatedLoad
+	{
+		get => CurrentLoad;
+		set => CurrentLoad = Mathf.Max(0f, value);
+	}
+
 	public void Bind(MechAssembler assembler)
 	{
 		_assembler = assembler;

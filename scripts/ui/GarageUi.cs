@@ -573,7 +573,9 @@ public partial class GarageUi : Control
 			_detailsPortrait.Texture = PartPortrait.Get(part, 192);
 
 		if (_detailsTitle != null)
-			_detailsTitle.Text = part?.DisplayName ?? $"Empty {SlotLabel(slot)}";
+			_detailsTitle.Text = part == null
+				? $"Empty {SlotLabel(slot)}"
+				: $"{part.DisplayName}  ·  {CatalogTiers.ShortLabel(part.Tier)}";
 
 		if (_detailsBody == null)
 			return;
@@ -589,7 +591,7 @@ public partial class GarageUi : Control
 		var sb = new StringBuilder();
 		sb.AppendLine(SlotLabel(slot));
 		sb.AppendLine();
-		sb.AppendLine($"{mfg.DisplayName}");
+		sb.AppendLine($"{CatalogTiers.Label(part.Tier)}  ·  {mfg.DisplayName}");
 		sb.AppendLine(mfg.Niche);
 		sb.AppendLine();
 		sb.AppendLine(mfg.Blurb);

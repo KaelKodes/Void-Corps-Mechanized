@@ -63,8 +63,30 @@ public partial class SupportUnit : CharacterBody3D
 
 	public Vector3 GetAimPoint() => GlobalPosition + Vector3.Up * (IsStaticUnit ? 1.6f : 0.9f);
 
+	public void AttachHostReplication()
+	{
+		SetMultiplayerAuthority(1);
+		if (GetNodeOrNull("NetSync") != null)
+			return;
+		var sync = new MultiplayerSynchronizer { Name = "NetSync" };
+		var cfg = new SceneReplicationConfig();
+		cfg.AddProperty(new NodePath(":global_position"));
+		cfg.AddProperty(new NodePath(":rotation"));
+		if (_health != null || GetNodeOrNull("Damageable") != null)
+		{
+			cfg.AddProperty(new NodePath("Damageable:ReplicatedHealth"));
+			cfg.AddProperty(new NodePath("Damageable:MaxHealth"));
+		}
+
+		sync.ReplicationConfig = cfg;
+		AddChild(sync);
+	}
+
 	public override void _PhysicsProcess(double delta)
 	{
+		if (Multiplayer.MultiplayerPeer != null && !Multiplayer.IsServer())
+			return;
+
 		if (!IsAlive || _data == null)
 		{
 			Velocity = Vector3.Zero;
@@ -148,6 +170,8 @@ public partial class SupportUnit : CharacterBody3D
 	{
 		if (_fireCooldown > 0f || _data == null)
 			return;
+		if (Multiplayer.MultiplayerPeer != null && !Multiplayer.IsServer())
+			return;
 
 		_fireCooldown = 1f / Mathf.Max(0.2f, _data.FireRate);
 		var muzzle = GetAimPoint();
@@ -161,15 +185,38 @@ public partial class SupportUnit : CharacterBody3D
 		if (parent == null)
 			return;
 
-		var projectile = Projectile.Create();
-		projectile.Source = this;
-		projectile.SourceTeam = Team;
-		projectile.Damage = _data.Damage;
-		projectile.Velocity = dir * _data.ProjectileSpeed;
-		projectile.Lifetime = _data.Range / Mathf.Max(1f, _data.ProjectileSpeed);
-		parent.AddChild(projectile);
-		projectile.GlobalPosition = muzzle + dir * 0.8f;
-		projectile.LookAt(projectile.GlobalPosition + dir, Vector3.Up);
+		var muzzlePos = muzzle + dir * 0.8f;
+		var velocity = dir * _data.ProjectileSpeed;
+		var lifetime = _data.Range / Mathf.Max(1f, _data.ProjectileSpeed);
+		var bus = NetCombatBus.Find(parent);
+		if (bus != null && GetTree()?.GetMultiplayer().MultiplayerPeer != null)
+		{
+			bus.HostSpawnProjectile(
+				parent,
+				this,
+				muzzlePos,
+				velocity,
+				_data.Damage,
+				lifetime,
+				Team,
+				TargetingMode.Standard,
+				-1,
+				ballistic: false,
+				gravity: 0f);
+		}
+		else
+		{
+			var projectile = Projectile.Create();
+			projectile.Source = this;
+			projectile.SourceTeam = Team;
+			projectile.Damage = _data.Damage;
+			projectile.Velocity = velocity;
+			projectile.Lifetime = lifetime;
+			parent.AddChild(projectile);
+			projectile.GlobalPosition = muzzlePos;
+			projectile.LookAt(projectile.GlobalPosition + dir, Vector3.Up);
+		}
+
 		SfxService.Play("weapon_fire", (float)GD.RandRange(1.05, 1.25), -6f);
 	}
 
@@ -218,8 +265,10 @@ public partial class SupportUnit : CharacterBody3D
 
 	private void BuildVisual()
 	{
-		_visual?.QueueFree();
-		_turret?.QueueFree();
+		if (_visual != null)
+			MeshMat.QueueFreeSafe(_visual);
+		if (_turret != null)
+			MeshMat.QueueFreeSafe(_turret);
 		_visual = null;
 		_turret = null;
 		if (_data == null)
@@ -327,25 +376,16 @@ public partial class SupportUnit : CharacterBody3D
 
 	private static void AddBox(Node3D parent, Material mat, Vector3 size, Vector3 position)
 	{
-		var mi = new MeshInstance3D
-		{
-			Mesh = new BoxMesh { Size = size },
-			Position = position,
-			MaterialOverride = mat
-		};
-		parent.AddChild(mi);
+		parent.AddChild(MeshMat.Make(new BoxMesh { Size = size }, mat, position));
 	}
 
 	private static void AddWheel(Node3D parent, Material mat, Vector3 position)
 	{
-		var mi = new MeshInstance3D
-		{
-			Mesh = new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.2f, Height = 0.18f },
-			Position = position,
-			Rotation = Vector3.Forward * Mathf.Tau * 0.25f,
-			MaterialOverride = mat
-		};
-		parent.AddChild(mi);
+		parent.AddChild(MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.2f, Height = 0.18f },
+			mat,
+			position,
+			Vector3.Forward * Mathf.Tau * 0.25f));
 	}
 
 	private void OnDied()
@@ -360,11 +400,13 @@ public partial class SupportUnit : CharacterBody3D
 			var parent = GetTree()?.CurrentScene ?? GetParent();
 			if (parent != null)
 			{
+				var session = GetNodeOrNull<GameSession>("/root/GameSession");
+				var maxTier = session?.CurrentMaxLootTier() ?? 1;
 				LootService.SpawnWorldDrops(
 					parent,
 					GlobalPosition,
 					LootService.ScrapForSupport(_data.Kind),
-					LootService.RollSupportPartDrop());
+					LootService.RollSupportPartDrop(maxTier));
 			}
 		}
 

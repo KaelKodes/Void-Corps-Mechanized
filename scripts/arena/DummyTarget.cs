@@ -30,7 +30,8 @@ public partial class DummyTarget : StaticBody3D
 	{
 		// Replace flat box with a small shipping-crate silhouette.
 		var oldMesh = GetNodeOrNull<MeshInstance3D>("Mesh");
-		oldMesh?.QueueFree();
+		if (oldMesh != null)
+			MeshMat.QueueFreeSafe(oldMesh);
 
 		_visualRoot = GetNodeOrNull<Node3D>("CrateVisual");
 		if (_visualRoot == null)
@@ -105,12 +106,7 @@ public partial class DummyTarget : StaticBody3D
 
 	private static void AddBox(Node3D parent, Material mat, Vector3 size, Vector3 position)
 	{
-		parent.AddChild(new MeshInstance3D
-		{
-			Mesh = new BoxMesh { Size = size },
-			Position = position,
-			MaterialOverride = mat
-		});
+		parent.AddChild(MeshMat.Make(new BoxMesh { Size = size }, mat, position));
 	}
 
 	private void EnsureHealth()
@@ -170,7 +166,7 @@ public partial class DummyTarget : StaticBody3D
 			_label.Visible = false;
 
 		GD.Print($"{Name} shattered.");
-		QueueFree();
+		MeshMat.QueueFreeSafe(this);
 	}
 
 	private void UpdateLabel()

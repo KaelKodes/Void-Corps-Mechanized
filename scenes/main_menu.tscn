@@ -1,12 +1,185 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=14 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/MainMenuUi.cs" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/ui/MainMenuHangar.cs" id="1_hangar"]
+[ext_resource type="Script" path="res://scripts/ui/MainMenuUi.cs" id="2_menu"]
 
-[node name="MainMenu" type="Control"]
+[sub_resource type="Environment" id="Environment_hangar"]
+background_mode = 1
+background_color = Color(0.01, 0.012, 0.016, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.12, 0.14, 0.16, 1)
+ambient_light_energy = 0.06
+fog_enabled = true
+fog_light_color = Color(0.18, 0.2, 0.22, 1)
+fog_density = 0.045
+fog_aerial_perspective = 0.4
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.035
+volumetric_fog_albedo = Color(0.55, 0.58, 0.62, 1)
+volumetric_fog_emission = Color(0.02, 0.025, 0.03, 1)
+volumetric_fog_anisotropy = 0.35
+tonemap_mode = 2
+tonemap_exposure = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(28, 0.4, 22)
+
+[sub_resource type="StandardMaterial3D" id="Mat_floor"]
+albedo_color = Color(0.12, 0.14, 0.16, 1)
+roughness = 0.9
+metallic = 0.15
+
+[sub_resource type="BoxMesh" id="BoxMesh_pad"]
+size = Vector3(4.2, 0.08, 3.6)
+
+[sub_resource type="StandardMaterial3D" id="Mat_pad"]
+albedo_color = Color(0.16, 0.17, 0.2, 1)
+roughness = 0.7
+metallic = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall"]
+size = Vector3(28, 10, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="Mat_wall"]
+albedo_color = Color(0.18, 0.2, 0.24, 1)
+roughness = 0.88
+metallic = 0.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_pillar"]
+size = Vector3(0.7, 8, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="Mat_pillar"]
+albedo_color = Color(0.22, 0.24, 0.28, 1)
+roughness = 0.75
+metallic = 0.35
+
+[sub_resource type="BoxMesh" id="BoxMesh_beam"]
+size = Vector3(26, 0.4, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="Mat_beam"]
+albedo_color = Color(0.28, 0.26, 0.2, 1)
+roughness = 0.7
+metallic = 0.45
+
+[node name="MainMenuHangar" type="Node3D"]
+script = ExtResource("1_hangar")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_hangar")
+
+[node name="FillLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.25, 0.433, 0, 0.866, 0.5, -0.5, -0.433, 0.75, 0, 12, 0)
+light_color = Color(0.55, 0.62, 0.7, 1)
+light_energy = 0.0
+visible = false
+shadow_enabled = false
+
+[node name="BaySpot" type="SpotLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.342, 0.94, 0, -0.94, 0.342, 0, 7.5, 4)
+light_color = Color(1, 0.82, 0.55, 1)
+light_energy = 0.0
+visible = false
+spot_range = 16.0
+spot_angle = 42.0
+shadow_enabled = false
+
+[node name="RimLight" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.2, -7)
+light_color = Color(0.35, 0.55, 0.75, 1)
+light_energy = 0.0
+visible = false
+omni_range = 14.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.9997, 0.0049, 0.0374, 0, 0.9914, -0.1308, -0.0377, 0.1306, 0.9907, 0.2, 0.85, 6.4)
+current = true
+fov = 40.0
+near = 0.1
+far = 80.0
+
+[node name="World" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2, -2)
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("Mat_floor")
+
+[node name="BackWall" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.8, -12)
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="SideWallL" type="MeshInstance3D" parent="World"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -13.5, 4.8, -2)
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="SideWallR" type="MeshInstance3D" parent="World"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 13.5, 4.8, -2)
+mesh = SubResource("BoxMesh_wall")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="PillarL1" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.5, 3.8, -8)
+mesh = SubResource("BoxMesh_pillar")
+surface_material_override/0 = SubResource("Mat_pillar")
+
+[node name="PillarR1" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 3.8, -8)
+mesh = SubResource("BoxMesh_pillar")
+surface_material_override/0 = SubResource("Mat_pillar")
+
+[node name="PillarL2" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.2, 3.8, 1.5)
+mesh = SubResource("BoxMesh_pillar")
+surface_material_override/0 = SubResource("Mat_pillar")
+
+[node name="PillarR2" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.2, 3.8, 1.5)
+mesh = SubResource("BoxMesh_pillar")
+surface_material_override/0 = SubResource("Mat_pillar")
+
+[node name="CeilingBeam" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.6, -4)
+mesh = SubResource("BoxMesh_beam")
+surface_material_override/0 = SubResource("Mat_beam")
+
+[node name="BayPad" type="MeshInstance3D" parent="World"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, 1.2)
+mesh = SubResource("BoxMesh_pad")
+surface_material_override/0 = SubResource("Mat_pad")
+
+[node name="Bays" type="Node3D" parent="."]
+
+[node name="BayFront" type="Marker3D" parent="Bays"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.2)
+
+[node name="BayLeft" type="Marker3D" parent="Bays"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.2, 0, -4.8)
+
+[node name="BayRight" type="Marker3D" parent="Bays"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.2, 0, -4.8)
+
+[node name="Vfx" type="Node3D" parent="."]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="BootVeil" type="ColorRect" parent="UI"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_menu")
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="MainMenuUi" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_menu")

@@ -24,6 +24,51 @@ public static class SectorGraphGenerator
 	/// <summary>Start, two location columns, warning. Five claim sites fill the location slots.</summary>
 	private static readonly int[] ColumnHeights = [1, 2, 2, 1];
 
+	/// <summary>Post-graduation board: only the Big Four convention is reachable.</summary>
+	public static SectorGraph GenerateConventionGate(int seed)
+	{
+		var graph = new SectorGraph
+		{
+			SectorId = "convention_gate",
+			SectorTitle = "Orbital Convention Circuit"
+		};
+
+		var start = new CampaignNode
+		{
+			Id = "n_0_0",
+			Column = 0,
+			Row = 0,
+			Kind = CampaignNodeKind.Start,
+			LocationDisplayName = "Wings staging"
+		};
+		var convention = new CampaignNode
+		{
+			Id = "n_1_0",
+			Column = 1,
+			Row = 0,
+			Kind = CampaignNodeKind.Mission,
+			LocationClaimCode = "VC-CONVENTION",
+			LocationDisplayName = "Big Four Convention",
+			Offers =
+			[
+				new LocationMissionOffer
+				{
+					ManufacturerId = "trinova",
+					RivalManufacturerId = "brimforge",
+					MissionType = MissionType.DestroyAllEnemies,
+					Difficulty = PilotDifficulty.Easy,
+					RepGain = 0,
+					RepLoss = 0,
+					Seed = seed
+				}
+			]
+		};
+		graph.Nodes.Add(start);
+		graph.Nodes.Add(convention);
+		graph.Edges.Add((start.Id, convention.Id));
+		return graph;
+	}
+
 	public static SectorGraph Generate(string sectorId, string sectorTitle, int seed)
 	{
 		var rng = new RandomNumberGenerator();

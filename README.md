@@ -1,6 +1,6 @@
 # Void Corps: Mechanize
 
-Surface warfare in the Void Corps universe.
+**Version 0.2.0** — Surface warfare in the Void Corps universe.
 
 **Corps** are organizations — guild-scale to large businesses — fighting for territory. You join an upstart corp, rise with it, and share in its wins.
 

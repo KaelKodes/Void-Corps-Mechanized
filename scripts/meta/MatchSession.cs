@@ -78,6 +78,18 @@ public sealed class MatchSession
 		return true;
 	}
 
+	public void ApplyHostSnapshot(int lives, int scrap, int nextLifeCostHint = -1)
+	{
+		LivesRemaining = Mathf.Max(0, lives);
+		RunScrap = Mathf.Max(0, scrap);
+		if (nextLifeCostHint >= 0 && BaseLifeCost > 0)
+		{
+			// Reconstruct buys so NextLifeCost matches host HUD.
+			var steps = Mathf.Max(0, (nextLifeCostHint - BaseLifeCost) / LifeCostStep);
+			LivesBoughtThisRun = steps;
+		}
+	}
+
 	public void End(MatchOutcome outcome)
 	{
 		Outcome = outcome;

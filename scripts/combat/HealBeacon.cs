@@ -164,7 +164,7 @@ public partial class HealBeacon : Node3D
 
 		if (Remaining <= 0f)
 		{
-			QueueFree();
+			MeshMat.QueueFreeSafe(this);
 			return;
 		}
 
