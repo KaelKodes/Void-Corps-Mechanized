@@ -7,5 +7,6 @@ public enum WeaponFamily
 	Ballistic,
 	Energy,
 	Missile,
-	Support
+	Support,
+	Melee
 }

@@ -6,8 +6,10 @@ namespace Mechanize;
 public sealed class CaptureMission : MissionBase
 {
 	private readonly int _zoneCount;
+	private readonly float _captureTime;
 	private readonly List<ZoneState> _zones = new();
-	private const float CaptureTime = 30f;
+	private const float SingleCaptureTime = 30f;
+	private const float MultiCaptureTime = 22f;
 	private float _captureSfxCooldown;
 
 	private sealed class ZoneState
@@ -21,6 +23,7 @@ public sealed class CaptureMission : MissionBase
 		: base(zoneCount <= 1 ? MissionType.CaptureArea : MissionType.CaptureMultipleAreas)
 	{
 		_zoneCount = Mathf.Clamp(zoneCount, 1, 3);
+		_captureTime = _zoneCount <= 1 ? SingleCaptureTime : MultiCaptureTime;
 	}
 
 	public override void SetupBattlefield()
@@ -81,11 +84,11 @@ public sealed class CaptureMission : MissionBase
 
 			if (playerIn && !contested)
 			{
-				state.Progress = Mathf.Min(CaptureTime, state.Progress + dt);
+				state.Progress = Mathf.Min(_captureTime, state.Progress + dt);
 				state.Zone.SetColor(new Color(0.45f, 0.85f, 0.55f));
-				state.Zone.SetLabel($"CAPTURING {state.Progress / CaptureTime * 100f:0}%");
+				state.Zone.SetLabel($"CAPTURING {state.Progress / _captureTime * 100f:0}%");
 				anyCapturing = true;
-				if (state.Progress >= CaptureTime)
+				if (state.Progress >= _captureTime)
 				{
 					state.Captured = true;
 					state.Zone.SetLabel("SECURED");

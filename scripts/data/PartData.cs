@@ -15,6 +15,7 @@ public partial class PartData : Resource
 	[Export] public LegMode LegMode { get; set; } = LegMode.Locked;
 	[Export] public LegType LegType { get; set; } = LegType.Bipedal;
 
+	/// <summary>Permanent local mitigation for this component; does not deplete.</summary>
 	[Export] public float Armor { get; set; }
 	[Export] public float MaxSpeed { get; set; }
 	[Export] public float TurnRateDegrees { get; set; }
@@ -22,8 +23,8 @@ public partial class PartData : Resource
 	[Export] public float FireRate { get; set; } = 2f;
 	[Export] public float Range { get; set; } = 40f;
 	[Export] public float ProjectileSpeed { get; set; } = 45f;
-	[Export] public float ComponentMaxHp { get; set; }
-	[Export] public float ComponentArmor { get; set; }
+	/// <summary>Structural health for this component. For legs, this is health per limb.</summary>
+	[Export] public float StructureHp { get; set; }
 	[Export] public TargetingMode TargetingMode { get; set; } = TargetingMode.Standard;
 
 	[Export] public AbilityKind AbilityKind { get; set; } = AbilityKind.None;
@@ -41,13 +42,15 @@ public partial class PartData : Resource
 	// --- Torso mounts / housing ---
 	[Export] public int ShoulderMountCount { get; set; }
 	[Export] public int BackpackMountCount { get; set; }
-	[Export] public float HullBonus { get; set; }
 	[Export] public int PowerCoreHousing { get; set; }
 
 	// --- Power core ---
 	[Export] public int PowerCoreClass { get; set; }
 	[Export] public float PowerCapacity { get; set; }
+	/// <summary>Power generated per second into the operational pool.</summary>
 	[Export] public float PowerOutput { get; set; }
+	/// <summary>Permanent standby reservation against core capacity. Cores use 0.</summary>
+	[Export] public float PowerRequirement { get; set; }
 
 	// --- Heat ---
 	[Export] public float HeatCapBonus { get; set; }
@@ -55,10 +58,19 @@ public partial class PartData : Resource
 	[Export] public float IdleHeatPerSec { get; set; }
 	[Export] public float MoveHeatPerSec { get; set; }
 	[Export] public float HeatPerShot { get; set; }
-	[Export] public float PowerLoadWhileFiring { get; set; }
+	/// <summary>Operational power spent once per successful weapon shot.</summary>
+	[Export] public float PowerPerShot { get; set; }
+	/// <summary>Burst spend on ability activate, or per-second drain while channelling pulse repair.</summary>
 	[Export] public float AbilityPowerLoad { get; set; }
 	[Export] public float AbilityHeatBurst { get; set; }
 	[Export] public WeaponFamily WeaponFamily { get; set; } = WeaponFamily.None;
+
+	/// <summary>Arm-slot held shield. Hold fire bind to raise; does not shoot.</summary>
+	[Export] public bool IsHeldShield { get; set; }
+	[Export] public float ShieldArcDegrees { get; set; } = 120f;
+	[Export] public float ShieldPowerPerSec { get; set; } = 14f;
+	/// <summary>Heat gained per point of damage absorbed while raised.</summary>
+	[Export] public float ShieldHeatPerDamage { get; set; } = 0.5f;
 
 	// --- Head sensors ---
 	[Export] public float VisionRange { get; set; }
@@ -66,6 +78,11 @@ public partial class PartData : Resource
 	[Export] public float CloseTargeting { get; set; }
 	[Export] public float ScannerRange { get; set; }
 	[Export] public float ScannerResolution { get; set; }
+
+	/// <summary>Mass units. Soft mobility constraint vs leg LoadRating.</summary>
+	[Export] public float Weight { get; set; }
+	/// <summary>Legs only: total assembled weight this package is rated to carry.</summary>
+	[Export] public float LoadRating { get; set; }
 
 	// --- Legs / sprint ---
 	[Export] public bool CanSprint { get; set; }

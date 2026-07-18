@@ -263,13 +263,13 @@ public partial class ArenaController
 			{
 				mech.Health.Died -= OnPlayerDown;
 				mech.Health.Died += OnPlayerDown;
-				HookDamageTelemetry(mech.Health, TelemetryTargetKind.Map, playerOwned: true);
 			}
 
 			if (mech.Integrity != null)
 			{
 				mech.Integrity.MechCollapsed -= OnPlayerDown;
 				mech.Integrity.MechCollapsed += OnPlayerDown;
+				HookIntegrityTelemetry(mech.Integrity, playerOwned: true);
 			}
 		}
 

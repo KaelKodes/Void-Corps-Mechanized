@@ -18,6 +18,8 @@ public partial class GameSession : Node
 	public PilotDifficulty PendingDifficulty { get; set; } = PilotDifficulty.Easy;
 	public MissionType PendingMission { get; set; } = MissionType.DestroyAllEnemies;
 	public BossEncounterId PendingBossEncounter { get; set; } = BossEncounterId.None;
+	public string PendingRivalPilotId { get; set; } = "";
+	public string PendingRivalCorpId { get; set; } = "";
 	public int PendingOfferIndex { get; set; } = -1;
 	/// <summary>Manufacturer that offered the last campaign mission (drives post-mission shop).</summary>
 	public string LastMissionManufacturerId { get; set; } = "";
@@ -94,6 +96,9 @@ public partial class GameSession : Node
 
 	public void ApplyLaunchPayload(Godot.Collections.Dictionary payload)
 	{
+		if (!EnsureDeployableLoadout("net launch"))
+			return;
+
 		var claimCode = payload.ContainsKey("claim") ? payload["claim"].AsString() : "";
 		foreach (var claim in VoidCorpsIdentity.ClaimSites)
 		{
@@ -113,6 +118,8 @@ public partial class GameSession : Node
 		PendingBossEncounter = payload.ContainsKey("boss")
 			? (BossEncounterId)payload["boss"].AsInt32()
 			: BossEncounterId.None;
+		PendingRivalPilotId = payload.ContainsKey("rival_pilot") ? payload["rival_pilot"].AsString() : "";
+		PendingRivalCorpId = payload.ContainsKey("rival_corp") ? payload["rival_corp"].AsString() : "";
 		LastMissionManufacturerId = payload.ContainsKey("mfg") ? payload["mfg"].AsString() : "";
 		MatchFromCampaign = payload.ContainsKey("from_campaign") && payload["from_campaign"].AsBool();
 		CoopMatch = true;
@@ -131,6 +138,8 @@ public partial class GameSession : Node
 			["mission"] = (int)PendingMission,
 			["diff"] = (int)PendingDifficulty,
 			["boss"] = (int)PendingBossEncounter,
+			["rival_pilot"] = PendingRivalPilotId,
+			["rival_corp"] = PendingRivalCorpId,
 			["mfg"] = LastMissionManufacturerId,
 			["from_campaign"] = fromCampaign
 		};
@@ -138,10 +147,15 @@ public partial class GameSession : Node
 
 	public void BeginSkirmish()
 	{
+		if (!EnsureDeployableLoadout("skirmish"))
+			return;
+
 		ReturnToCampaignMap = false;
 		MatchFromCampaign = false;
 		CoopMatch = false;
 		PendingBossEncounter = BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
 		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
@@ -150,10 +164,15 @@ public partial class GameSession : Node
 
 	public void BeginCoopSkirmish()
 	{
+		if (!EnsureDeployableLoadout("coop skirmish"))
+			return;
+
 		ReturnToCampaignMap = false;
 		MatchFromCampaign = false;
 		CoopMatch = true;
 		PendingBossEncounter = BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
 		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
@@ -162,24 +181,48 @@ public partial class GameSession : Node
 
 	public void SyncLoadoutFromProfile()
 	{
-		Profile.Loadout = GameCatalog.SanitizeMounts(Profile.Loadout.Clone());
+		Profile.Loadout = GameCatalog.SanitizeLoadout(Profile.Loadout.Clone());
+	}
+
+	/// <summary>
+	/// Sanitize active loadout and refuse deploy when still power-illegal.
+	/// Weight overload never blocks deploy.
+	/// </summary>
+	private bool EnsureDeployableLoadout(string context)
+	{
+		GameCatalog.EnsureBuilt();
+		if (ConventionDemoLoaner != null)
+			ConventionDemoLoaner = GameCatalog.SanitizeLoadout(ConventionDemoLoaner.Clone());
+		else if (CadetLoaner != null)
+			CadetLoaner = GameCatalog.SanitizeLoadout(CadetLoaner.Clone());
+		else
+			Profile.Loadout = GameCatalog.SanitizeLoadout(Profile.Loadout.Clone());
+
+		var loadout = CurrentLoadout;
+		if (GameCatalog.IsPowerLegal(loadout))
+			return true;
+
+		GD.PushError(
+			$"GameSession: refused {context} — power overbudget " +
+			$"({GameCatalog.SumPowerRequirements(loadout):0}/{GameCatalog.GetCoreCapacity(loadout):0}).");
+		return false;
 	}
 
 	public void SetLoadout(LoadoutData loadout)
 	{
 		if (ConventionDemoLoaner != null)
 		{
-			ConventionDemoLoaner = GameCatalog.SanitizeMounts(loadout.Clone());
+			ConventionDemoLoaner = GameCatalog.SanitizeLoadout(loadout.Clone());
 			return;
 		}
 
 		if (CadetLoaner != null)
 		{
-			CadetLoaner = GameCatalog.SanitizeMounts(loadout.Clone());
+			CadetLoaner = GameCatalog.SanitizeLoadout(loadout.Clone());
 			return;
 		}
 
-		Profile.Loadout = GameCatalog.SanitizeMounts(loadout.Clone());
+		Profile.Loadout = GameCatalog.SanitizeLoadout(loadout.Clone());
 		Profile.GrantLoadoutOwnership(Profile.Loadout);
 	}
 
@@ -199,6 +242,9 @@ public partial class GameSession : Node
 		MatchFromCampaign = false;
 		MatchFromAcademy = false;
 		MatchFromConvention = false;
+		PendingBossEncounter = BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
 		ApplyLocationClaim(Campaign.CurrentNode);
@@ -219,6 +265,8 @@ public partial class GameSession : Node
 		LaunchAcademyContinue = false;
 		OpenAcademyGraduation = false;
 		PendingBossEncounter = BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
 		CurrentClaim = VoidCorpsIdentity.ClaimSites[0];
@@ -244,6 +292,8 @@ public partial class GameSession : Node
 		LaunchAcademyContinue = false;
 		OpenAcademyGraduation = false;
 		PendingBossEncounter = BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
 		CurrentClaim = VoidCorpsIdentity.ClaimSites[0];
@@ -538,6 +588,8 @@ public partial class GameSession : Node
 			return false;
 		if (Campaign.Phase == CampaignPhase.ManufacturerConvention)
 			return false; // Use EnterConventionHallFromMap / hall UI instead.
+		if (!EnsureDeployableLoadout("campaign deploy"))
+			return false;
 		if (!Campaign.TryAdvanceTo(nodeId))
 			return false;
 
@@ -554,6 +606,8 @@ public partial class GameSession : Node
 		PendingMission = offer.MissionType;
 		PendingDifficulty = offer.Difficulty;
 		PendingBossEncounter = offer.BossEncounterId;
+		PendingRivalPilotId = offer.RivalPilotId;
+		PendingRivalCorpId = offer.RivalCorpId;
 		LastMissionManufacturerId = offer.ManufacturerId;
 		ReturnToCampaignMap = true;
 		ReturnToConventionHall = false;
@@ -626,9 +680,13 @@ public partial class GameSession : Node
 		var offer = Campaign.CurrentNode.GetOffer(PendingOfferIndex);
 		if (offer == null)
 			return;
+		if (offer.MissionType == MissionType.BossEncounter)
+			return;
 
-		Profile.AddReputation(offer.ManufacturerId, offer.RepGain);
-		Profile.AddReputation(offer.RivalManufacturerId, -offer.RepLoss);
+		if (!string.IsNullOrEmpty(offer.ManufacturerId) && offer.RepGain != 0)
+			Profile.AddReputation(offer.ManufacturerId, offer.RepGain);
+		if (!string.IsNullOrEmpty(offer.RivalManufacturerId) && offer.RepLoss != 0)
+			Profile.AddReputation(offer.RivalManufacturerId, -offer.RepLoss);
 	}
 
 	private void ApplyCampaignClaimReward()
@@ -636,12 +694,10 @@ public partial class GameSession : Node
 		if (Campaign == null)
 			return;
 
+		// Warning / Titan fights are rival-corp claim contests, not manufacturer contracts.
 		var stipend = 20 + Mathf.Max(0, Match.RunScrap / 4);
 		Profile.Scrap += stipend;
 		Campaign.AddManufacturerPayout(stipend);
-
-		if (!string.IsNullOrEmpty(LastMissionManufacturerId))
-			Profile.AddReputation(LastMissionManufacturerId, 2);
 	}
 
 	private void ApplyLocationClaim(CampaignNode? node)
@@ -651,11 +707,14 @@ public partial class GameSession : Node
 
 		foreach (var claim in VoidCorpsIdentity.ClaimSites)
 		{
-			if (claim.Code == node.LocationClaimCode)
-			{
-				CurrentClaim = claim;
-				return;
-			}
+			if (claim.Code != node.LocationClaimCode)
+				continue;
+
+			// Sabotage corridor is mission-forced in ArenaController; never park it on a normal claim node.
+			CurrentClaim = claim.SabotageOnly
+				? VoidCorpsIdentity.PickClaimSite()
+				: claim;
+			return;
 		}
 	}
 

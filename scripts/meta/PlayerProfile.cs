@@ -53,6 +53,7 @@ public sealed class PlayerProfile : IPartInventory
 		};
 		profile.EnsureManufacturerState();
 		profile.GrantLoadoutOwnership(profile.Loadout);
+		profile.OwnCombatSliceParts();
 		return profile;
 	}
 
@@ -69,6 +70,14 @@ public sealed class PlayerProfile : IPartInventory
 		AffiliatedManufacturerId = "";
 		Loadout = GameCatalog.CreateStarterLoadout();
 		GrantLoadoutOwnership(Loadout);
+		OwnCombatSliceParts();
+	}
+
+	/// <summary>Field-kit melee + held shield for garage playtests.</summary>
+	public void OwnCombatSliceParts()
+	{
+		Own("wep_brin_cleaver");
+		Own("wep_tri_bulwark");
 	}
 
 	public void EnsureManufacturerState()
@@ -329,6 +338,7 @@ public sealed class PlayerProfile : IPartInventory
 			profile.Loadout = GameCatalog.CreateStarterLoadout();
 
 		profile.GrantLoadoutOwnership(profile.Loadout);
+		profile.OwnCombatSliceParts();
 		profile.EnsureEmptyMounts();
 		profile.EnsureManufacturerState();
 
@@ -367,6 +377,6 @@ public sealed class PlayerProfile : IPartInventory
 			BackpackId = d.ContainsKey("back") ? d["back"].AsString() : "backpack_none",
 			SystemsId = d.ContainsKey("sys") ? d["sys"].AsString() : "systems_none"
 		};
-		return GameCatalog.SanitizeMounts(loadout);
+		return GameCatalog.SanitizeLoadout(loadout);
 	}
 }

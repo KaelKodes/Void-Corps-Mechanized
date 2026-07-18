@@ -172,24 +172,27 @@ public sealed class BossMission : MissionBase
 
 	public override string GetHudLine()
 	{
+		var pilot = _encounter.Pilot;
+		var corp = _encounter.Corp;
+		var titan = $"{MechChassisClassUtil.ShortLabel(_encounter.ChassisClass)} {pilot.Callsign.ToUpperInvariant()} · {corp.ShortName}";
 		if (ObjectivesComplete)
-			return $"WARNING CLEARED — {_encounter.BossName} down" + ExtractHudHint();
+			return $"TITAN DOWN — {titan}" + ExtractHudHint();
 
 		return _encounter.Template switch
 		{
 			BossEncounterTemplate.Showdown =>
-				$"WARNING  Showdown — eliminate {_encounter.BossName}",
+				$"TITAN CONTEST — eliminate {titan}",
 			BossEncounterTemplate.HiddenBoss when !_bossSpawned =>
 				_building == null || _building.IsDestroyed
-					? $"WARNING  Structure breached…"
-					: $"WARNING  Destroy structure  ({_building.HealthRatio * 100f:0}%) — something waits inside",
+					? "TITAN CRADLE BREACHED"
+					: $"BREACH TITAN CRADLE  ({_building.HealthRatio * 100f:0}%)",
 			BossEncounterTemplate.HiddenBoss =>
-				$"WARNING  {_encounter.BossName} revealed — destroy it",
+				$"TITAN DEPLOYED — eliminate {titan}",
 			BossEncounterTemplate.SwarmToBoss when _calmTimer >= 0f =>
-				$"WARNING  Silence… {_encounter.BossName} inbound",
+				$"TITAN DROP INBOUND — {titan}",
 			BossEncounterTemplate.SwarmToBoss when !_bossSpawned =>
-				$"WARNING  Swarm hold  wave {Mathf.Min(_waveIndex + 1, 3)}/3",
-			_ => $"WARNING  {_encounter.BossName} — destroy the MAP"
+				$"BREAK {corp.ShortName.ToUpperInvariant()} PERIMETER  wave {Mathf.Min(_waveIndex + 1, 3)}/3",
+			_ => $"TITAN CONTEST — eliminate {titan}"
 		};
 	}
 

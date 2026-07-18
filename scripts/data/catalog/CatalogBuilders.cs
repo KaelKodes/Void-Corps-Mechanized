@@ -30,12 +30,12 @@ public static class CatalogBuilders
 	};
 
 	public static PartData Torso(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
-		float armor, int housing, float hull, int shoulders, int backs, Vector3? scale = null,
+		float armor, int housing, float structureHp, int shoulders, int backs, Vector3? scale = null,
 		float heatCap = 10f, float idleHeat = 1f) => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Torso,
 		Armor = armor, Tint = m[mfg].AccentColor, VisualKind = "torso",
-		VisualScale = scale ?? Vector3.One, PowerCoreHousing = housing, HullBonus = hull,
+		VisualScale = scale ?? Vector3.One, PowerCoreHousing = housing, StructureHp = structureHp,
 		ShoulderMountCount = shoulders, BackpackMountCount = backs,
 		HeatCapBonus = heatCap, IdleHeatPerSec = idleHeat
 	};
@@ -71,8 +71,32 @@ public static class CatalogBuilders
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
 		Tint = m[mfg].AccentColor, Damage = damage, FireRate = fireRate, Range = range,
 		ProjectileSpeed = proj, AimMode = aim, TargetingMode = targeting,
-		HeatPerShot = heatShot, PowerLoadWhileFiring = powerLoad, IdleHeatPerSec = 0.2f,
+		HeatPerShot = heatShot, PowerPerShot = powerLoad, IdleHeatPerSec = 0.2f,
 		WeaponFamily = family
+	};
+
+	public static PartData MeleeWeapon(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		PartSlot slot, string kind, float damage, float fireRate, float range,
+		float heatShot, float powerLoad, float armor = 0f, float structureHp = 0f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
+		Tint = m[mfg].AccentColor, Damage = damage, FireRate = fireRate, Range = range,
+		ProjectileSpeed = 0f, AimMode = AimMode.Gimbaled, TargetingMode = TargetingMode.AimedComponent,
+		HeatPerShot = heatShot, PowerPerShot = powerLoad, IdleHeatPerSec = 0.25f,
+		WeaponFamily = WeaponFamily.Melee,
+		Armor = armor, StructureHp = structureHp
+	};
+
+	public static PartData HeldShield(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		PartSlot slot, string kind, float arcDegrees, float raisePowerPerSec, float heatPerDamage,
+		float armor, float structureHp, float powerReq = 9f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
+		Tint = m[mfg].AccentColor, Damage = 0f, FireRate = 0f, Range = 0f,
+		AimMode = AimMode.Fixed, IsHeldShield = true,
+		ShieldArcDegrees = arcDegrees, ShieldPowerPerSec = raisePowerPerSec,
+		ShieldHeatPerDamage = heatPerDamage, Armor = armor, StructureHp = structureHp,
+		PowerRequirement = powerReq, IdleHeatPerSec = 0.15f, WeaponFamily = WeaponFamily.None
 	};
 
 	public static PartData AbilityPart(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,

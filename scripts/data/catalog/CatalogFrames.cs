@@ -79,40 +79,40 @@ public static class CatalogFrames
 	private static void RegisterTorsos(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)
 	{
 		parts["torso_brin_slab"] = CatalogBuilders.Torso("torso_brin_slab", "Slab Chassis", "brimforge", m,
-			80, housing: 3, hull: 90, shoulders: 2, backs: 1,
+			80, housing: 3, structureHp: 85, shoulders: 2, backs: 1,
 			scale: new Vector3(1.2f, 1.1f, 1.15f), heatCap: 25, idleHeat: 1.5f);
 		parts["torso_brin_anvil"] = CatalogBuilders.Torso("torso_brin_anvil", "Anvil Ribcage", "brimforge", m,
-			95, housing: 3, hull: 110, shoulders: 2, backs: 1,
+			95, housing: 3, structureHp: 100, shoulders: 2, backs: 1,
 			scale: new Vector3(1.28f, 1.15f, 1.2f), heatCap: 35, idleHeat: 1.9f);
 		parts["torso_brin_citadel"] = CatalogBuilders.Torso("torso_brin_citadel", "Citadel Hull", "brimforge", m,
-			110, housing: 3, hull: 130, shoulders: 2, backs: 0,
+			110, housing: 3, structureHp: 110, shoulders: 2, backs: 0,
 			scale: new Vector3(1.35f, 1.2f, 1.25f), heatCap: 40, idleHeat: 2.2f);
 
 		parts["torso_tri_frame"] = CatalogBuilders.Torso("torso_tri_frame", "Frame Lattice", "trinova", m,
-			50, housing: 2, hull: 55, shoulders: 1, backs: 1, heatCap: 15, idleHeat: 1f);
+			50, housing: 2, structureHp: 65, shoulders: 1, backs: 1, heatCap: 15, idleHeat: 1f);
 		parts["torso_tri_cargo"] = CatalogBuilders.Torso("torso_tri_cargo", "Cargo Lattice", "trinova", m,
-			48, housing: 2, hull: 60, shoulders: 1, backs: 1,
+			48, housing: 2, structureHp: 68, shoulders: 1, backs: 1,
 			scale: new Vector3(1.1f, 1.05f, 1.15f), heatCap: 18, idleHeat: 1.1f);
 		parts["torso_tri_fleet"] = CatalogBuilders.Torso("torso_tri_fleet", "Fleet Intermediate", "trinova", m,
-			55, housing: 2, hull: 70, shoulders: 2, backs: 1, heatCap: 20, idleHeat: 1.15f);
+			55, housing: 2, structureHp: 75, shoulders: 2, backs: 1, heatCap: 20, idleHeat: 1.15f);
 
 		parts["torso_ouro_thin"] = CatalogBuilders.Torso("torso_ouro_thin", "Thinspine Chassis", "ourotech", m,
-			32, housing: 2, hull: 38, shoulders: 2, backs: 1,
+			32, housing: 2, structureHp: 55, shoulders: 2, backs: 1,
 			scale: new Vector3(0.92f, 1.05f, 0.95f), heatCap: 12, idleHeat: 0.7f);
 		parts["torso_ouro_caliper"] = CatalogBuilders.Torso("torso_ouro_caliper", "Caliper Frame", "ourotech", m,
-			38, housing: 2, hull: 45, shoulders: 2, backs: 0,
+			38, housing: 2, structureHp: 60, shoulders: 2, backs: 0,
 			scale: new Vector3(0.9f, 1.08f, 0.92f), heatCap: 14, idleHeat: 0.65f);
 		parts["torso_ouro_apex"] = CatalogBuilders.Torso("torso_ouro_apex", "Apex Gimbal Cage", "ourotech", m,
-			42, housing: 3, hull: 50, shoulders: 2, backs: 1, heatCap: 16, idleHeat: 0.85f);
+			42, housing: 3, structureHp: 70, shoulders: 2, backs: 1, heatCap: 16, idleHeat: 0.85f);
 
 		parts["torso_lum_shell"] = CatalogBuilders.Torso("torso_lum_shell", "Vault Shell", "lumina", m,
-			35, housing: 2, hull: 40, shoulders: 0, backs: 1,
+			35, housing: 2, structureHp: 55, shoulders: 0, backs: 1,
 			scale: new Vector3(0.95f, 1.05f, 0.95f), heatCap: 10, idleHeat: 0.8f);
 		parts["torso_lum_prism"] = CatalogBuilders.Torso("torso_lum_prism", "Prism Carapace", "lumina", m,
-			30, housing: 2, hull: 36, shoulders: 1, backs: 1,
+			30, housing: 2, structureHp: 58, shoulders: 1, backs: 1,
 			scale: new Vector3(0.93f, 1.1f, 0.93f), heatCap: 8, idleHeat: 0.95f);
 		parts["torso_lum_oracle"] = CatalogBuilders.Torso("torso_lum_oracle", "Oracle Hull", "lumina", m,
-			40, housing: 3, hull: 48, shoulders: 1, backs: 1, heatCap: 12, idleHeat: 1.05f);
+			40, housing: 3, structureHp: 68, shoulders: 1, backs: 1, heatCap: 12, idleHeat: 1.05f);
 	}
 
 	private static void RegisterHeads(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)

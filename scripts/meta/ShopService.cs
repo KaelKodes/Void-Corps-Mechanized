@@ -92,6 +92,9 @@ public static class ShopService
 	{
 		var basePrice = 25;
 		basePrice += Mathf.RoundToInt(part.Armor * 0.4f);
+		basePrice += Mathf.RoundToInt(part.StructureHp * 0.15f);
+		basePrice += Mathf.RoundToInt(part.PowerRequirement * 0.25f);
+		basePrice += Mathf.RoundToInt(part.PowerPerShot * 0.5f);
 		basePrice += Mathf.RoundToInt(part.Damage * 2f);
 		basePrice += Mathf.RoundToInt(part.PowerCapacity * 0.15f);
 		basePrice += part.PowerCoreClass * 20;
@@ -99,6 +102,10 @@ public static class ShopService
 		basePrice += (part.Tier - 1) * 18;
 		if (part.GrantsActiveAbility)
 			basePrice += 35;
+		if (part.IsHeldShield)
+			basePrice += 28;
+		if (part.WeaponFamily == WeaponFamily.Melee)
+			basePrice += 18;
 		return Mathf.Clamp(basePrice, 20, 220);
 	}
 

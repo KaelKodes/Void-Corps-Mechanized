@@ -61,7 +61,19 @@ public partial class AbilityController : Node
 		if (_pulseActive)
 			return false;
 		var powerHeat = _mech.PowerHeat;
-		return powerHeat == null || powerHeat.CanUseAbilities;
+		if (powerHeat != null && !powerHeat.CanUseAbilities)
+			return false;
+
+		var part = _boundAbilities[index];
+		var load = part.AbilityPowerLoad;
+		if (powerHeat == null || load <= 0.01f)
+			return true;
+
+		// Pulse is a sustained drain — need pool headroom, not the full burst amount.
+		if (part.AbilityId == AbilityId.PulseRepair)
+			return powerHeat.CurrentPower > 0.5f;
+
+		return powerHeat.CanSpend(load);
 	}
 
 	public void Bind(MechController mech, MechAssembler assembler, Damageable? health)
@@ -74,18 +86,61 @@ public partial class AbilityController : Node
 
 	public void RebuildBindings()
 	{
+		var previousCooldownById = new Dictionary<string, float>();
+		for (var i = 0; i < _boundAbilities.Count && i < MaxAbilitySlots; i++)
+		{
+			var id = _boundAbilities[i].Id;
+			if (string.IsNullOrEmpty(id))
+				continue;
+			previousCooldownById[id] = _cooldowns[i];
+		}
+
+		var pulsePartId = _pulseActive && _pulseSlot >= 0 && _pulseSlot < _boundAbilities.Count
+			? _boundAbilities[_pulseSlot].Id
+			: null;
+		var hadShroud = _shroudActive;
+
 		_boundAbilities.Clear();
 		for (var i = 0; i < MaxAbilitySlots; i++)
 			_cooldowns[i] = 0f;
 
 		if (_assembler == null)
+		{
+			EndPulseRepair(applyCooldown: false);
+			EndShroud();
 			return;
+		}
 
 		foreach (var part in _assembler.GetActiveAbilityParts().Take(MaxAbilitySlots))
 			_boundAbilities.Add(part);
 
-		EndPulseRepair(applyCooldown: false);
-		EndShroud();
+		for (var i = 0; i < _boundAbilities.Count && i < MaxAbilitySlots; i++)
+		{
+			if (previousCooldownById.TryGetValue(_boundAbilities[i].Id, out var cd))
+				_cooldowns[i] = cd;
+		}
+
+		// Only cancel channelled / shroud states if their part was actually lost.
+		if (_pulseActive)
+		{
+			var pulseStillBound = !string.IsNullOrEmpty(pulsePartId)
+				&& _boundAbilities.Exists(p => p.Id == pulsePartId);
+			if (!pulseStillBound)
+				EndPulseRepair(applyCooldown: false);
+			else
+			{
+				_pulseSlot = _boundAbilities.FindIndex(p => p.Id == pulsePartId);
+				if (_pulseSlot < 0)
+					EndPulseRepair(applyCooldown: false);
+			}
+		}
+
+		if (hadShroud)
+		{
+			var shroudStillBound = _boundAbilities.Exists(p => p.AbilityId == AbilityId.Shroud);
+			if (!shroudStillBound)
+				EndShroud();
+		}
 	}
 
 	public float GetCooldownRemaining(int index)
@@ -135,8 +190,7 @@ public partial class AbilityController : Node
 			return BeginPulseRepair(index, aiAutoSeconds: _mech.IsPlayerControlled ? 0f : 2.2f);
 
 		var load = part.AbilityPowerLoad;
-		const string drawKey = "ability";
-		if (powerHeat != null && load > 0.01f && !powerHeat.TryDraw(drawKey, load))
+		if (powerHeat != null && load > 0.01f && !powerHeat.CanSpend(load))
 			return false;
 
 		var used = part.AbilityId switch
@@ -147,10 +201,9 @@ public partial class AbilityController : Node
 			_ => false
 		};
 
-		powerHeat?.Release(drawKey);
-
 		if (used)
 		{
+			powerHeat?.TrySpend(load);
 			_cooldowns[index] = part.AbilityCooldown;
 			powerHeat?.AddHeat(part.AbilityHeatBurst);
 			if (_mech.IsPlayerControlled)
@@ -211,6 +264,12 @@ public partial class AbilityController : Node
 		{
 			EndPulseRepair(applyCooldown: true);
 			SfxService.Play("alarm", 1.1f, -5f);
+			return;
+		}
+
+		if (powerHeat != null && powerHeat.CurrentPower <= 0.01f)
+		{
+			EndPulseRepair(applyCooldown: true);
 			return;
 		}
 
@@ -384,6 +443,7 @@ public partial class AbilityController : Node
 	{
 		var count = Mathf.Max(1, Mathf.RoundToInt(part.AbilityPower));
 		var origin = _mech!.GlobalPosition + Vector3.Up * 2.4f;
+		origin.Y -= _mech.CarrierCombatLift;
 		var parent = _mech.GetTree().CurrentScene ?? _mech.GetParent();
 		if (parent == null)
 			return false;

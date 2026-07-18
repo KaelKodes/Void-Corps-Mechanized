@@ -1,0 +1,72 @@
+---
+description: Manufacturer liaison character voices and dialogue constraints for Void Corps: Mechanize
+alwaysApply: false
+globs:
+  - scripts/campaign/ConventionCatalog.cs
+  - scripts/ui/ConventionHallUi.cs
+  - scripts/ui/DeepSpaceDepartureUi.cs
+  - scripts/ui/VoiceOscilloscopeStyle.cs
+---
+
+# Manufacturer liaisons — writing bible
+
+These four people represent **manufacturers**, not corps. They hire pilots into deniable merc arrangements. Keep manufacturer vs corp language clean per void-corps-lore.
+
+- **Corp** means a mercenary company: the player's guild/clan-scale organization.
+- **Merc / pilot** means an individual member.
+- **Detachment / squad** means the field unit deployed on a job.
+- Use “corp” for organizational actions such as filing claims, maintaining accounts, hiring members, or receiving company-wide supply. Do not use it as a loose synonym for one pilot or one squad.
+
+## Shared craft rules
+
+- Speak like a competent adult with a job, not a brand mascot.
+- Prefer facts, observations, and practical asks over metaphor.
+- Dry humor only when the situation earns it.
+- No slogan templates (“we don’t X, we Y”), no anthropomorphized gear, no fortune-cookie omens.
+- No constant em-dash punchlines or antithesis couplets.
+- Preserve mechanics (trial type, three attempts, signing package) in plain language.
+- Lines stay short enough for text-to-voice, but use normal sentence rhythm.
+
+## Garrick Holt — Brimforge
+
+- **Title:** Field Contracts
+- **History:** Former surface-maintenance lead; now evaluates expensive demo chassis and pilot contracts.
+- **Wants:** Pilots who can hold ground without wrecking loaned kit or getting people killed for show.
+- **Private view of Brimforge:** Respects the hardware; distrusts anyone who treats pilots as disposable.
+- **Manner:** Plainspoken, dry, observant. Measures people by how they treat equipment and risk.
+- **Avoid:** Iron poetry, survivor slogans, macho challenge talk.
+
+## Selene Vey — OuroTech
+
+- **Title:** Licensing Desk
+- **History:** Combat telemetry analyst moved into business development; still reads the recordings herself.
+- **Wants:** Pilots who can prioritize a target and finish cleanly under budget.
+- **Private view of OuroTech:** Loyal to the standards; impatient with theater and wasted ammunition.
+- **Manner:** Polished, curious, capable of pressure without sounding like a policy document.
+- **Avoid:** “Calipers,” “spray and pray,” robotic legalese as personality, condescending wit for its own sake.
+
+## Mara Keel — Trinova
+
+- **Title:** Logistics Desk
+- **History:** Frontier resupply coordinator; has closed more failed routes than she likes to admit.
+- **Wants:** Pilots who keep cargo moving and crews alive when the schedule goes wrong.
+- **Private view of Trinova:** Believes the company is right about logistics; tired of hero narratives that ignore invoices.
+- **Manner:** Practical, approachable, unsentimental. Explains tradeoffs instead of moralizing.
+- **Avoid:** “Heroes make obituaries / logistics make payroll” slogans, maternal coaching, soft pep talks.
+
+## Ilyra Senn — Lumina Vaultworks
+
+- **Title:** Special Projects
+- **History:** Special-projects liaison with real technical literacy and hard disclosure limits.
+- **Wants:** Pilots who can retrieve sealed work without improvising into classified material.
+- **Private view of Lumina:** Protective of the work; does not enjoy the mystique theater other people project onto her.
+- **Manner:** Guarded, precise, occasionally awkward. Withholds information because she must, not to be cryptic.
+- **Avoid:** “We curate,” vault-door metaphors, riddle speech, “Curator” as a theatrical title, ominous non sequiturs.
+
+## Supporting voices (later)
+
+- **Nia Calder** — academy instructor
+- **Jax Rook** — player corp operations
+- **MICA** — MAP interface
+
+Do not flatten those into manufacturer voices.

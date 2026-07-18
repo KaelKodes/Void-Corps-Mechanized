@@ -19,6 +19,15 @@ public static class PartPortrait
 		if (Cache.TryGetValue(key, out var cached))
 			return cached;
 
+		var image = BuildImage(part, size);
+		var texture = ImageTexture.CreateFromImage(image);
+		Cache[key] = texture;
+		return texture;
+	}
+
+	/// <summary>Fresh procedural plate image (backdrop + silhouette + frame). Caller owns it.</summary>
+	public static Image BuildImage(PartData part, int size)
+	{
 		var image = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
 		FillBackdrop(image);
 
@@ -120,6 +129,18 @@ public static class PartPortrait
 				FillOval(image, 0.78f, 0.44f, 0.12f, 0.12f, glow);
 				FillOval(image, 0.78f, 0.44f, 0.05f, 0.05f, Colors.White);
 				break;
+			case "cleaver":
+				FillRect(image, 0.16f, 0.36f, 0.22f, 0.28f, accent);
+				FillRect(image, 0.36f, 0.3f, 0.12f, 0.42f, mid);
+				FillRect(image, 0.46f, 0.22f, 0.1f, 0.56f, light);
+				FillRect(image, 0.52f, 0.28f, 0.06f, 0.44f, glow);
+				break;
+			case "held_shield":
+				FillRect(image, 0.28f, 0.14f, 0.44f, 0.72f, accent);
+				FillRect(image, 0.34f, 0.2f, 0.32f, 0.6f, mid);
+				FillRect(image, 0.38f, 0.26f, 0.24f, 0.08f, light);
+				FillRect(image, 0.4f, 0.62f, 0.2f, 0.06f, glow);
+				break;
 			case "missile":
 				FillRect(image, 0.18f, 0.2f, 0.28f, 0.58f, accent);
 				FillRect(image, 0.54f, 0.2f, 0.28f, 0.58f, accent);
@@ -167,10 +188,19 @@ public static class PartPortrait
 		}
 
 		DrawFrame(image, new Color(0.28f, 0.32f, 0.38f));
-		var texture = ImageTexture.CreateFromImage(image);
-		Cache[key] = texture;
-		return texture;
+		return image;
 	}
+
+	/// <summary>Plate backdrop only (no frame) for compositing a rendered 3D model on top.</summary>
+	public static Image CreateBackdrop(int size)
+	{
+		var image = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+		FillBackdrop(image);
+		return image;
+	}
+
+	/// <summary>Standard catalogue plate frame + corner ticks.</summary>
+	public static void DrawPlateFrame(Image image) => DrawFrame(image, new Color(0.28f, 0.32f, 0.38f));
 
 	public static Texture2D GetEmpty(int size = 128)
 	{

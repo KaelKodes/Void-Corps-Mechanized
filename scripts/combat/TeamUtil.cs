@@ -13,6 +13,8 @@ public static class TeamUtil
 				return mech.Team;
 			if (current is SupportUnit support)
 				return support.Team;
+			if (current is HellfireTurret turret)
+				return turret.Team;
 			if (current is EscortAsset)
 				return TeamId.Player;
 			current = current.GetParent();
@@ -36,6 +38,8 @@ public static class TeamUtil
 			return mech.Integrity?.IsCollapsed != true && mech.Health?.IsDead != true;
 		if (node is SupportUnit support)
 			return support.IsAlive;
+		if (node is HellfireTurret turret)
+			return turret.IsAlive;
 		if (node is EscortAsset escort)
 			return !escort.IsDestroyed;
 		return false;
@@ -45,6 +49,8 @@ public static class TeamUtil
 	{
 		if (node is SupportUnit support)
 			return support.GetAimPoint();
+		if (node is HellfireTurret turret)
+			return turret.GetMuzzleWorld();
 		if (node is EscortAsset)
 			return node.GlobalPosition + Vector3.Up * 1.1f;
 		return node.GlobalPosition + Vector3.Up * 1.3f;

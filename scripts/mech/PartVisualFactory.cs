@@ -4,8 +4,11 @@ namespace Mechanize;
 
 public static class PartVisualFactory
 {
-	public static Node3D Create(PartData part)
+	public static Node3D Create(PartData part, MechChassisClass chassisClass = MechChassisClass.Standard)
 	{
+		if (chassisClass == MechChassisClass.Titan)
+			return TitanPartVisualFactory.Create(part);
+
 		var root = new Node3D { Name = $"Visual_{part.Id}" };
 		var mat = MakeMat(part.Tint, metallic: 0.38f, roughness: 0.52f);
 		var dark = MakeMat(part.Tint.Darkened(0.32f), metallic: 0.45f, roughness: 0.48f);
@@ -104,6 +107,21 @@ public static class PartVisualFactory
 				AddBox(root, dark, new Vector3(0.2f, 0.14f, 0.3f), new Vector3(0f, 0.16f, 0.1f));
 				AddCylinder(root, light, 0.1f, 0.35f, new Vector3(0f, 0f, -0.55f), Vector3.Right * Mathf.Tau * 0.25f);
 				AddSphere(root, glow, 0.18f, new Vector3(0f, 0f, -0.82f));
+				break;
+
+			case "cleaver":
+				AddBox(root, mat, new Vector3(0.22f, 0.28f, 0.55f), new Vector3(0f, 0f, 0.05f));
+				AddBox(root, dark, new Vector3(0.12f, 0.18f, 0.35f), new Vector3(0f, 0.08f, 0.2f));
+				// Forge Cleaver blade: 15% longer, extending forward from the same guard.
+				AddBox(root, light, new Vector3(0.08f, 0.55f, 1.2075f), new Vector3(0.02f, 0.05f, -0.62875f));
+				AddBox(root, glow, new Vector3(0.04f, 0.42f, 1.035f), new Vector3(0.06f, 0.05f, -0.6675f));
+				break;
+
+			case "held_shield":
+				AddBox(root, mat, new Vector3(0.95f, 1.15f, 0.12f), new Vector3(0f, 0.15f, -0.35f));
+				AddBox(root, dark, new Vector3(0.78f, 0.95f, 0.06f), new Vector3(0f, 0.15f, -0.42f));
+				AddBox(root, light, new Vector3(0.55f, 0.1f, 0.05f), new Vector3(0f, 0.55f, -0.46f));
+				AddBox(root, glow, new Vector3(0.35f, 0.08f, 0.04f), new Vector3(0f, -0.15f, -0.46f));
 				break;
 
 			case "missile":

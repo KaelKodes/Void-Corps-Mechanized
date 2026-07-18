@@ -296,7 +296,9 @@ public partial class PauseMenuUi : Control
 				? "Left"
 				: GameSettings.HudOffsetX > 0.95f
 					? "Right"
-					: $"{Mathf.RoundToInt(GameSettings.HudOffsetX * 100f)}%"));
+					: Mathf.Abs(GameSettings.HudOffsetX - 0.5f) < 0.03f
+						? "Center"
+						: $"{Mathf.RoundToInt(GameSettings.HudOffsetX * 100f)}%"));
 		_content.AddChild(MakeSliderRow(
 			"Vertical",
 			GameSettings.HudOffsetY,
@@ -306,6 +308,17 @@ public partial class PauseMenuUi : Control
 			() => GameSettings.HudOffsetY < 0.05f
 				? "Bottom"
 				: $"{Mathf.RoundToInt(GameSettings.HudOffsetY * 100f)}% lift"));
+
+		_content.AddChild(MakeButton(
+			GameSettings.MetersBesideMech
+				? "PWR / HEAT: Beside MAP"
+				: "PWR / HEAT: Corner HUD",
+			() =>
+			{
+				SfxService.Click();
+				GameSettings.SetMetersBesideMech(!GameSettings.MetersBesideMech);
+				Rebuild();
+			}));
 
 		_content.AddChild(MakeButton("Reset HUD layout", () =>
 		{

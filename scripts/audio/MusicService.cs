@@ -36,6 +36,25 @@ public partial class MusicService : Node
 
 	public static MusicService? Instance { get; private set; }
 
+	/// <summary>Absolute playback seconds on the active (incoming) player.</summary>
+	public static float GetPlaybackPosition()
+	{
+		var player = Instance?.ActivePlayer();
+		return player?.Playing == true ? player.GetPlaybackPosition() : 0f;
+	}
+
+	public static bool IsPlaying => Instance?.IsAnythingPlaying() ?? false;
+
+	public static string CurrentPath => Instance?._currentPath ?? "";
+
+	public static bool IsPlayingPath(string path)
+	{
+		if (Instance == null || string.IsNullOrEmpty(path))
+			return false;
+		return Instance.IsAnythingPlaying()
+		       && string.Equals(Instance._currentPath, path, System.StringComparison.OrdinalIgnoreCase);
+	}
+
 	public override void _Ready()
 	{
 		Instance = this;
@@ -91,6 +110,10 @@ public partial class MusicService : Node
 	/// <summary>Play a specific soundtrack file (by name, e.g. "Derelict Vessel.mp3"), bypassing random cue selection.</summary>
 	public static void CueTrack(string fileName) => Instance?.CueTrackInternal(fileName);
 
+	/// <summary>Play any res:// audio path (bullet-hell tracks, one-shots, etc.).</summary>
+	public static void CueAbsolute(string resPath, bool loop = true) =>
+		Instance?.CueAbsoluteInternal(resPath, loop);
+
 	public static void Stop(float fadeSeconds = 0.8f) => Instance?.StopInternal(fadeSeconds);
 
 	private void CueInternal(MusicCue cue)
@@ -104,21 +127,35 @@ public partial class MusicService : Node
 
 		_currentCue = cue;
 		var path = PickPathForCue(cue, avoid: _currentPath);
-		CrossfadeTo(path);
+		CrossfadeTo(path, loop: true);
 	}
 
 	private void CueTrackInternal(string fileName)
 	{
-		var path = fileName.StartsWith(SoundtrackDir, System.StringComparison.OrdinalIgnoreCase)
+		var path = fileName.StartsWith("res://", System.StringComparison.OrdinalIgnoreCase)
 			? fileName
-			: $"{SoundtrackDir}/{fileName}";
+			: fileName.StartsWith(SoundtrackDir, System.StringComparison.OrdinalIgnoreCase)
+				? fileName
+				: $"{SoundtrackDir}/{fileName}";
 
 		if (_currentPath == path && IsAnythingPlaying())
 			return;
 
 		// Explicit track choice: clear the surface cue so the next Cue() still crossfades.
 		_currentCue = MusicCue.None;
-		CrossfadeTo(path);
+		CrossfadeTo(path, loop: true);
+	}
+
+	private void CueAbsoluteInternal(string resPath, bool loop)
+	{
+		if (string.IsNullOrWhiteSpace(resPath))
+			return;
+
+		if (_currentPath == resPath && IsAnythingPlaying())
+			return;
+
+		_currentCue = MusicCue.None;
+		CrossfadeTo(resPath, loop);
 	}
 
 	private string PickPathForCue(MusicCue cue, string avoid)
@@ -156,6 +193,15 @@ public partial class MusicService : Node
 	private bool IsAnythingPlaying() =>
 		(_a?.Playing ?? false) || (_b?.Playing ?? false);
 
+	private AudioStreamPlayer? ActivePlayer()
+	{
+		var incoming = _usingA ? _a : _b;
+		if (incoming?.Playing == true)
+			return incoming;
+		var other = _usingA ? _b : _a;
+		return other?.Playing == true ? other : incoming;
+	}
+
 	private string PickRandomPath(string avoid)
 	{
 		if (_tracks.Count == 1)
@@ -172,9 +218,9 @@ public partial class MusicService : Node
 		return pick;
 	}
 
-	private void CrossfadeTo(string path)
+	private void CrossfadeTo(string path, bool loop)
 	{
-		var stream = LoadStream(path);
+		var stream = LoadStream(path, loop);
 		if (stream == null)
 			return;
 
@@ -209,7 +255,7 @@ public partial class MusicService : Node
 		}
 	}
 
-	private static AudioStream? LoadStream(string path)
+	private static AudioStream? LoadStream(string path, bool loop)
 	{
 		// Prefer imported resource when Godot has generated one.
 		if (ResourceLoader.Exists(path))
@@ -217,7 +263,7 @@ public partial class MusicService : Node
 			var res = ResourceLoader.Load<AudioStream>(path);
 			if (res != null)
 			{
-				ApplyLoop(res);
+				ApplyLoop(res, loop);
 				return res;
 			}
 		}
@@ -234,32 +280,96 @@ public partial class MusicService : Node
 
 		if (path.EndsWith(".mp3", System.StringComparison.OrdinalIgnoreCase))
 		{
-			var mp3 = new AudioStreamMP3 { Data = bytes, Loop = true };
+			var mp3 = new AudioStreamMP3 { Data = bytes, Loop = loop };
 			return mp3;
 		}
 
 		if (path.EndsWith(".ogg", System.StringComparison.OrdinalIgnoreCase))
 		{
-			var ogg = new AudioStreamOggVorbis();
-			// OGG typically needs import; fall through if unavailable.
-			return ResourceLoader.Load<AudioStream>(path);
+			var ogg = ResourceLoader.Load<AudioStream>(path);
+			if (ogg != null)
+				ApplyLoop(ogg, loop);
+			return ogg;
+		}
+
+		if (path.EndsWith(".wav", System.StringComparison.OrdinalIgnoreCase))
+		{
+			var wav = LoadWavFromBytes(bytes, loop);
+			if (wav != null)
+				return wav;
 		}
 
 		return null;
 	}
 
-	private static void ApplyLoop(AudioStream stream)
+	private static AudioStreamWav? LoadWavFromBytes(byte[] bytes, bool loop)
+	{
+		try
+		{
+			if (bytes.Length < 44)
+				return null;
+
+			var channels = System.BitConverter.ToInt16(bytes, 22);
+			var sampleRate = System.BitConverter.ToInt32(bytes, 24);
+			var bits = System.BitConverter.ToInt16(bytes, 34);
+			if (bits != 16)
+				return null;
+
+			var pos = 12;
+			var dataOffset = -1;
+			var dataSize = 0;
+			while (pos + 8 <= bytes.Length)
+			{
+				var id = System.Text.Encoding.ASCII.GetString(bytes, pos, 4);
+				var size = System.BitConverter.ToInt32(bytes, pos + 4);
+				var chunk = pos + 8;
+				if (id == "data")
+				{
+					dataOffset = chunk;
+					dataSize = size;
+					break;
+				}
+
+				pos = chunk + size + (size & 1);
+			}
+
+			if (dataOffset < 0 || dataSize <= 0 || dataOffset + dataSize > bytes.Length)
+				return null;
+
+			var pcm = new byte[dataSize];
+			System.Buffer.BlockCopy(bytes, dataOffset, pcm, 0, dataSize);
+
+			var wav = new AudioStreamWav
+			{
+				Data = pcm,
+				Format = AudioStreamWav.FormatEnum.Format16Bits,
+				MixRate = sampleRate,
+				Stereo = channels > 1,
+				LoopMode = loop ? AudioStreamWav.LoopModeEnum.Forward : AudioStreamWav.LoopModeEnum.Disabled
+			};
+			return wav;
+		}
+		catch (System.Exception ex)
+		{
+			GD.PushWarning($"MusicService: WAV load failed ({ex.Message})");
+			return null;
+		}
+	}
+
+	private static void ApplyLoop(AudioStream stream, bool loop)
 	{
 		switch (stream)
 		{
 			case AudioStreamMP3 mp3:
-				mp3.Loop = true;
+				mp3.Loop = loop;
 				break;
 			case AudioStreamOggVorbis ogg:
-				ogg.Loop = true;
+				ogg.Loop = loop;
 				break;
 			case AudioStreamWav wav:
-				wav.LoopMode = AudioStreamWav.LoopModeEnum.Forward;
+				wav.LoopMode = loop
+					? AudioStreamWav.LoopModeEnum.Forward
+					: AudioStreamWav.LoopModeEnum.Disabled;
 				break;
 		}
 	}

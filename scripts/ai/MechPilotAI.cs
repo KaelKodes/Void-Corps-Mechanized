@@ -468,14 +468,14 @@ public partial class MechPilotAI : Node
 			targetPoint += TeamUtil.GetVelocity(_target) * travel * LeadFactor;
 		}
 
-		// Prefer a crippling system when sharpshooting inside vision.
+		// Sharpshooter aims by tactical priority. Under torso-death, finishing the
+		// cockpit is the default kill path; disablement only comes first when useful.
 		if (UseSharpshooter && HasSharpshooter()
 			&& _target is MechController targetMech
 			&& targetMech.Assembler != null
 			&& _mech.CanCombatId(targetMech.GlobalPosition))
 		{
-			var priority = new[] { PartSlot.Legs, PartSlot.Head, PartSlot.WeaponL, PartSlot.WeaponR, PartSlot.Torso, PartSlot.Systems };
-			foreach (var slot in priority)
+			foreach (var slot in SharpshooterPriority(targetMech))
 			{
 				if (targetMech.Assembler.Hardpoints.TryGetValue(slot, out var hp) && hp.CanTakeDamage)
 				{
@@ -502,13 +502,57 @@ public partial class MechPilotAI : Node
 			|| targetMech.Assembler == null || !HasSharpshooter())
 			return null;
 
-		foreach (var slot in new[] { PartSlot.Legs, PartSlot.Head, PartSlot.WeaponL, PartSlot.WeaponR, PartSlot.ShoulderL, PartSlot.Torso })
+		foreach (var slot in SharpshooterPriority(targetMech))
 		{
 			if (targetMech.Assembler.Hardpoints.TryGetValue(slot, out var hp) && hp.CanTakeDamage)
 				return slot;
 		}
 
 		return null;
+	}
+
+	/// <summary>
+	/// Torso is the only defeat location. Prefer it once the target is soft, already
+	/// impaired, or when this pilot is playing aggressively. Otherwise strip mobility
+	/// / weapons first so Medium AI still feels tactical.
+	/// </summary>
+	private PartSlot[] SharpshooterPriority(MechController target)
+	{
+		var torsoRatio = 1f;
+		if (target.Health != null && target.Health.MaxHealth > 0.01f)
+			torsoRatio = target.Health.CurrentHealth / target.Health.MaxHealth;
+
+		var mobility = target.Integrity?.LegMobilityFactor ?? 1f;
+		var canShoot = false;
+		if (target.Assembler != null)
+		{
+			foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+			{
+				if (target.Assembler.Hardpoints.TryGetValue(slot, out var hp) && hp.CanFire)
+				{
+					canShoot = true;
+					break;
+				}
+			}
+		}
+
+		var finishNow = UseAbilitiesAggressively
+			|| Aggression >= 0.7f
+			|| torsoRatio <= 0.55f
+			|| mobility < 0.45f
+			|| !canShoot;
+
+		return finishNow
+			? new[]
+			{
+				PartSlot.Torso, PartSlot.Legs, PartSlot.WeaponL, PartSlot.WeaponR,
+				PartSlot.Head, PartSlot.ShoulderL, PartSlot.ShoulderR, PartSlot.Systems
+			}
+			: new[]
+			{
+				PartSlot.Legs, PartSlot.WeaponL, PartSlot.WeaponR, PartSlot.Head,
+				PartSlot.Torso, PartSlot.ShoulderL, PartSlot.ShoulderR, PartSlot.Systems
+			};
 	}
 
 	private void DriveMovement(ref MechPilotCommand cmd, Vector3 dirToTarget, float distance, bool hasLos)

@@ -32,6 +32,12 @@ public abstract class MissionBase
 
 	public virtual string GetHudLine() => Title;
 
+	/// <summary>Optional absolute res:// combat track. Null = default Combat cue.</summary>
+	public virtual string? PreferredCombatTrack => null;
+
+	/// <summary>Optional extract pad (e.g. Sabotage Exfil Uplink). Null = player drop beacon.</summary>
+	public virtual DropBeacon? ExtractBeaconOverride => null;
+
 	/// <summary>Objectives done — player must extract at drop beacon. Does not end the match.</summary>
 	protected void MarkObjectivesComplete()
 	{
@@ -45,7 +51,9 @@ public abstract class MissionBase
 	{
 		if (!ObjectivesComplete || Completed)
 			return "";
-		return "  |  EXTRACT — hold E at drop beacon";
+		return ExtractBeaconOverride != null
+			? "  |  EXTRACT — hold E at Exfil Uplink"
+			: "  |  EXTRACT — hold E at drop beacon";
 	}
 
 	/// <summary>Immediate victory (used after successful extract by host, or rare mission shortcuts).</summary>

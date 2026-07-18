@@ -13,7 +13,6 @@ namespace Mechanize;
 public partial class DeepSpaceDepartureUi : Control
 {
 	private const string DepartureTrack = "Derelict Vessel.mp3";
-	private const string OuroTechEmblemPath = "res://art/ui/ourotech_ouroboros.png";
 	private const int StarCount = 190;
 	private const float EmblemSize = 220f;
 
@@ -52,8 +51,6 @@ public partial class DeepSpaceDepartureUi : Control
 	private ColorRect? _wash;
 	private ColorRect? _veil;
 	private Control? _emblemRoot;
-	private TextureRect? _ouroEmblem;
-	private ManufacturerMarkDrawer? _proceduralMark;
 
 	private bool _advance;
 	private bool _skipAll;
@@ -138,30 +135,18 @@ public partial class DeepSpaceDepartureUi : Control
 		_emblemRoot.OffsetBottom = EmblemSize * 0.5f - 210f;
 		AddChild(_emblemRoot);
 
-		if (_mfgId == "ourotech" && ResourceLoader.Exists(OuroTechEmblemPath))
+		var houseEmblem = ManufacturerBrand.MakeEmblemOrFallback(_mfgId, _accent, EmblemSize, alpha: 0.92f);
+		houseEmblem.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		if (houseEmblem is TextureRect tex)
 		{
-			_ouroEmblem = new TextureRect
-			{
-				Texture = GD.Load<Texture2D>(OuroTechEmblemPath),
-				ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-				StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-				MouseFilter = MouseFilterEnum.Ignore,
-				Modulate = new Color(1.05f, 1.1f, 1.2f, 0.92f)
-			};
-			_ouroEmblem.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-			_emblemRoot.AddChild(_ouroEmblem);
+			tex.ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize;
+			tex.StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered;
+			// Slight cool lift for OuroTech's authored serpent; others stay neutral.
+			if (_mfgId == "ourotech")
+				tex.Modulate = new Color(1.05f, 1.1f, 1.2f, 0.92f);
 		}
-		else
-		{
-			_proceduralMark = new ManufacturerMarkDrawer
-			{
-				ManufacturerId = _mfgId,
-				Accent = _accent,
-				MouseFilter = MouseFilterEnum.Ignore
-			};
-			_proceduralMark.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-			_emblemRoot.AddChild(_proceduralMark);
-		}
+
+		_emblemRoot.AddChild(houseEmblem);
 
 		_speaker = new Label
 		{
@@ -265,8 +250,8 @@ public partial class DeepSpaceDepartureUi : Control
 
 		if (_emblemRoot != null && _houseChrome > 0.01f)
 		{
-			// Slow turn for OuroTech serpent; subtle sway for procedural marks.
-			var spin = _mfgId == "ourotech" ? 12f : 4f;
+			// Authored marks get a slow turn; keep it restrained so logos stay readable.
+			var spin = ManufacturerBrand.TryGetTexture(_mfgId, out _) ? 8f : 4f;
 			_emblemRoot.RotationDegrees += dt * spin * _houseChrome;
 		}
 
@@ -288,9 +273,6 @@ public partial class DeepSpaceDepartureUi : Control
 
 		if (_speaker != null)
 			_speaker.Modulate = _accent with { A = _houseChrome * 0.85f };
-
-		if (_proceduralMark != null)
-			_proceduralMark.Pulse = _housePulse;
 	}
 
 	public override void _Draw()
@@ -445,6 +427,7 @@ public partial class DeepSpaceDepartureUi : Control
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		var mfg = GameCatalog.GetManufacturer(_mfgId);
+		var liaison = ConventionCatalog.Get(_mfgId);
 		var corp = session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename;
 
 		var cards = new List<Card>();
@@ -468,32 +451,8 @@ public partial class DeepSpaceDepartureUi : Control
 			IsHouseTitle = true
 		});
 
-		switch (_mfgId)
-		{
-			case "brimforge":
-				House("\"Here's the honest version, pilot. There's ground out there nobody owns — and plenty who'll gut you for a piece of it.\"");
-				House("\"Your corp takes the ground. We keep the iron coming. That's the whole deal.\"");
-				House("\"And if anyone asks — we never shook hands.\"");
-				break;
-			case "ourotech":
-				House("\"Your contract establishes a wholly independent territorial-acquisition concern. Congratulations on the paperwork.\"");
-				House("\"Upon a verified claim, OuroTech may elect to license development rights. May.\"");
-				House("\"No formal relationship exists between us. Kindly ensure it stays that way.\"");
-				break;
-			case "trinova":
-				House("\"You're past the supported lanes now. Fuel, ammunition, repairs — every one of those is your problem out there.\"");
-				House("\"Keep the corp breathing, file claims that hold, and the accounts stay funded.\"");
-				House("\"That's the arrangement. Don't overthink it.\"");
-				break;
-			case "lumina":
-				House("\"The sector does not officially exist.\"");
-				House("\"Neither does this assignment.\"");
-				House("\"Acquire it regardless. We will know.\"");
-				break;
-			default:
-				House("\"Take the ground. Keep it quiet. The kit keeps coming as long as the claims do.\"");
-				break;
-		}
+		foreach (var line in liaison.DepartureLines)
+			House($"\"{line}\"");
 
 		cards.Add(new Card { Text = "YOU GRADUATED AS A PILOT.\nYOU LEAVE AS A MERCENARY.", Color = Gold, FontSize = 30, HoldBonus = 1.6f });
 		cards.Add(new Card { Text = "Your MAP is locked into a freight cradle.\nThe convention lights fall away behind the ship.", HoldBonus = 0.8f });
@@ -532,14 +491,12 @@ public partial class DeepSpaceDepartureUi : Control
 		return cards;
 	}
 
-	private static string SpeakerLine(string mfgId) => mfgId switch
+	private static string SpeakerLine(string mfgId)
 	{
-		"brimforge" => "BRIMFORGE  ·  SURFACE OPS",
-		"ourotech" => "OUROTECH  ·  LICENSING DESK",
-		"trinova" => "TRINOVA  ·  LOGISTICS DESK",
-		"lumina" => "LUMINA VAULTWORKS  ·  CURATED BRIEF",
-		_ => "MANUFACTURER  ·  BRIEF"
-	};
+		var mfg = GameCatalog.GetManufacturer(mfgId);
+		var liaison = ConventionCatalog.Get(mfgId);
+		return $"{mfg.DisplayName.ToUpperInvariant()}  ·  {liaison.LiaisonName.ToUpperInvariant()}  ·  {liaison.LiaisonTitle.ToUpperInvariant()}";
+	}
 
 	private async Task RunSequenceAsync()
 	{

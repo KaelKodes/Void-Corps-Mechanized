@@ -4,30 +4,42 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Bottom combat HUD: power/heat meters, integrity schematic, weapons + corps modules.
+/// Bottom combat HUD: integrity schematic, weapons + MAP modules.
+/// Power/heat meters live in the corner column or flank the player MAP (see GameSettings).
 /// </summary>
 public partial class MechHud : Control
 {
-	private readonly Dictionary<PartSlot, PanelContainer> _panels = new();
-	private readonly Dictionary<PartSlot, Label> _labels = new();
-	private PanelContainer? _hullPanel;
-	private Label? _hullLabel;
+	private IntegritySchematic? _schematic;
 
+	private Control? _rootRow;
+	private Control? _powerColumn;
+	private Control? _heatColumn;
 	private ProgressBar? _powerBar;
 	private ProgressBar? _heatBar;
 	private Label? _powerLabel;
 	private Label? _heatLabel;
 
+	private Control? _flankRoot;
+	private ProgressBar? _flankPowerBar;
+	private ProgressBar? _flankHeatBar;
+	private Label? _flankPowerLabel;
+	private Label? _flankHeatLabel;
+	private MechController? _trackedMech;
+
 	private readonly List<ModuleRow> _weaponRows = new();
 	private readonly List<ModuleRow> _abilityRows = new();
 
-	private static readonly Color FullColor = new(0.42f, 0.78f, 0.28f);
 	private static readonly Color EmptyColor = new(0.82f, 0.18f, 0.16f);
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
-	private static readonly Color MissingColor = new(0.28f, 0.3f, 0.32f);
-	private static readonly Color PanelBg = new(0.06f, 0.08f, 0.11f, 0.92f);
 	private static readonly Color PowerFill = new(0.35f, 0.7f, 1f);
 	private static readonly Color HeatFill = new(0.95f, 0.45f, 0.2f);
+
+	private const float MeterColumnWidth = 36f;
+	private const float CornerMeterBarHeight = 200f;
+	private const float FlankBarWidth = 16f;
+	private const float FlankBarHeight = 100f;
+	private const float FlankSideOffset = 64f;
+	private const float FlankAlpha = 0.62f;
 
 	private sealed class ModuleRow
 	{
@@ -38,8 +50,8 @@ public partial class MechHud : Control
 		public Label BodyLabel = null!;
 	}
 
-	private const float BaseWidth = 580f;
-	private const float BaseHeight = 360f;
+	private const float BaseWidth = 620f;
+	private const float BaseHeight = 280f;
 
 	public override void _Ready()
 	{
@@ -52,14 +64,55 @@ public partial class MechHud : Control
 	public override void _ExitTree()
 	{
 		GameSettings.Changed -= ApplyLayout;
+		if (_flankRoot != null && GodotObject.IsInstanceValid(_flankRoot))
+			_flankRoot.QueueFree();
+		_flankRoot = null;
+	}
+
+	public override void _Notification(int what)
+	{
+		if (what == NotificationVisibilityChanged && _flankRoot != null)
+			_flankRoot.Visible = Visible && GameSettings.MetersBesideMech;
+	}
+
+	public override void _Process(double delta)
+	{
+		if (!Visible || !GameSettings.MetersBesideMech || _trackedMech == null)
+		{
+			if (_flankRoot != null)
+				_flankRoot.Visible = false;
+			return;
+		}
+
+		UpdateFlankPositions(_trackedMech);
 	}
 
 	/// <summary>Applies scale + screen position from <see cref="GameSettings"/>.</summary>
 	public void ApplyLayout()
 	{
+		if (_rootRow == null)
+		{
+			if (!IsInsideTree())
+				return;
+			Build();
+		}
+
+		if (_rootRow == null)
+			return;
+
+		var beside = GameSettings.MetersBesideMech;
+		SetCornerMeterVisible(_powerColumn, !beside);
+		SetCornerMeterVisible(_heatColumn, !beside);
+
+		var width = BaseWidth;
+		_rootRow.CustomMinimumSize = new Vector2(width, BaseHeight);
+		_rootRow.Size = new Vector2(width, BaseHeight);
+		_rootRow.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+
 		var scale = GameSettings.HudScale;
 		Scale = new Vector2(scale, scale);
-		PivotOffset = new Vector2(0f, BaseHeight);
+		// Scale from bottom-center so resize keeps the HUD centered.
+		PivotOffset = new Vector2(width * 0.5f, BaseHeight);
 
 		AnchorLeft = 0f;
 		AnchorRight = 0f;
@@ -67,62 +120,171 @@ public partial class MechHud : Control
 		AnchorBottom = 1f;
 
 		var vp = GetViewport()?.GetVisibleRect().Size ?? new Vector2(1920, 1080);
-		var scaledW = BaseWidth * scale;
-		var maxX = Mathf.Max(0f, vp.X - scaledW - 16f);
+		var scaledW = width * scale;
+		var halfTravel = Mathf.Max(0f, (vp.X - scaledW) * 0.5f - 12f);
 		var maxLift = Mathf.Max(0f, vp.Y * 0.4f);
-		var left = 12f + GameSettings.HudOffsetX * maxX;
+		// HudOffsetX 0.5 = bottom-center (default); 0/1 slide toward the edges.
+		var centerLeft = vp.X * 0.5f - width * 0.5f;
+		var left = centerLeft + (GameSettings.HudOffsetX - 0.5f) * 2f * halfTravel;
 		var bottom = 14f + GameSettings.HudOffsetY * maxLift;
 
 		OffsetLeft = left;
-		OffsetRight = left + BaseWidth;
+		OffsetRight = left + width;
 		OffsetBottom = -bottom;
 		OffsetTop = -bottom - BaseHeight;
-		CustomMinimumSize = new Vector2(BaseWidth, BaseHeight);
+		CustomMinimumSize = new Vector2(width, BaseHeight);
 		Size = CustomMinimumSize;
+
+		EnsureFlankOverlay();
+		if (_flankRoot != null)
+			_flankRoot.Visible = Visible && beside;
 	}
 
 	private void Build()
 	{
+		if (_rootRow != null)
+			return;
+
 		var root = new HBoxContainer
 		{
 			CustomMinimumSize = new Vector2(BaseWidth, BaseHeight),
 			MouseFilter = MouseFilterEnum.Ignore
 		};
+		root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 		root.AddThemeConstantOverride("separation", 10);
 		AddChild(root);
+		_rootRow = root;
 		CustomMinimumSize = root.CustomMinimumSize;
 		Size = root.CustomMinimumSize;
 
-		root.AddChild(BuildMetersColumn());
+		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel);
+		root.AddChild(_powerColumn);
 		root.AddChild(BuildSchematicColumn());
 		root.AddChild(BuildModulesColumn());
+		_heatColumn = BuildMeterColumn("HEAT", HeatFill, out _heatBar, out _heatLabel);
+		root.AddChild(_heatColumn);
+		EnsureFlankOverlay();
 	}
 
-	private Control BuildMetersColumn()
+	private static void SetCornerMeterVisible(Control? column, bool visible)
+	{
+		if (column == null)
+			return;
+		column.Visible = visible;
+		column.CustomMinimumSize = visible ? new Vector2(MeterColumnWidth, 0) : Vector2.Zero;
+	}
+
+	private static Control BuildMeterColumn(
+		string caption,
+		Color fill,
+		out ProgressBar bar,
+		out Label label)
 	{
 		var col = new VBoxContainer
 		{
-			CustomMinimumSize = new Vector2(72, BaseHeight),
+			CustomMinimumSize = new Vector2(MeterColumnWidth, 0),
+			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+			SizeFlagsVertical = SizeFlags.ShrinkEnd,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
-		col.AddThemeConstantOverride("separation", 8);
 
-		var meters = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
-		meters.AddThemeConstantOverride("separation", 8);
-		col.AddChild(meters);
-
-		(_powerBar, _powerLabel) = MakeVerticalMeter(meters, "PWR", PowerFill);
-		(_heatBar, _heatLabel) = MakeVerticalMeter(meters, "HEAT", HeatFill);
+		(bar, label) = MakeVerticalMeter(
+			col, caption, fill, new Vector2(28, CornerMeterBarHeight));
 		return col;
 	}
 
-	private static (ProgressBar bar, Label caption) MakeVerticalMeter(Control parent, string caption, Color fill)
+	private void EnsureFlankOverlay()
+	{
+		var parent = GetParent();
+		if (parent == null)
+			return;
+
+		if (_flankRoot != null && GodotObject.IsInstanceValid(_flankRoot))
+			return;
+
+		_flankRoot = new Control
+		{
+			Name = "MechFlankMeters",
+			MouseFilter = MouseFilterEnum.Ignore,
+			Visible = false
+		};
+		_flankRoot.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		parent.AddChild(_flankRoot);
+		// Keep under pause / overlays but above world.
+		_flankRoot.ZIndex = 5;
+
+		(_flankPowerBar, _flankPowerLabel) = MakeVerticalMeter(
+			_flankRoot, "PWR", PowerFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
+		(_flankHeatBar, _flankHeatLabel) = MakeVerticalMeter(
+			_flankRoot, "HEAT", HeatFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
+		if (_flankPowerBar?.GetParent() is Control powerWrap)
+			powerWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
+		if (_flankHeatBar?.GetParent() is Control heatWrap)
+			heatWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
+	}
+
+	private void UpdateFlankPositions(MechController mech)
+	{
+		if (_flankRoot == null || _flankPowerBar == null || _flankHeatBar == null)
+			return;
+
+		var cam = mech.GetViewport()?.GetCamera3D();
+		if (cam == null || !GodotObject.IsInstanceValid(mech) || !mech.IsInsideTree())
+		{
+			_flankRoot.Visible = false;
+			return;
+		}
+
+		var anchor = mech.GlobalPosition + Vector3.Up * 1.35f;
+		if (cam.IsPositionBehind(anchor))
+		{
+			_flankRoot.Visible = false;
+			return;
+		}
+
+		var screen = cam.UnprojectPosition(anchor);
+		var vp = GetViewport()?.GetVisibleRect().Size ?? Vector2.Zero;
+		if (screen.X < -80f || screen.Y < -80f || screen.X > vp.X + 80f || screen.Y > vp.Y + 80f)
+		{
+			_flankRoot.Visible = false;
+			return;
+		}
+
+		_flankRoot.Visible = Visible;
+		PlaceFlankMeter(_flankPowerBar, _flankPowerLabel, screen + new Vector2(-FlankSideOffset, 0f));
+		PlaceFlankMeter(_flankHeatBar, _flankHeatLabel, screen + new Vector2(FlankSideOffset, 0f));
+	}
+
+	private static void PlaceFlankMeter(ProgressBar bar, Label? label, Vector2 center)
+	{
+		var wrap = bar.GetParent() as Control;
+		if (wrap == null)
+			return;
+
+		var size = wrap.Size;
+		if (size.X < 1f || size.Y < 1f)
+			size = wrap.CustomMinimumSize;
+
+		wrap.Position = center - size * 0.5f;
+		if (label != null)
+			label.Visible = true;
+	}
+
+	private static (ProgressBar bar, Label caption) MakeVerticalMeter(
+		Control parent,
+		string caption,
+		Color fill,
+		Vector2 barSize,
+		bool freePosition = false)
 	{
 		var wrap = new VBoxContainer
 		{
-			SizeFlagsVertical = SizeFlags.ExpandFill,
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			MouseFilter = MouseFilterEnum.Ignore
+			SizeFlagsVertical = freePosition ? SizeFlags.ShrinkCenter : SizeFlags.ShrinkEnd,
+			SizeFlagsHorizontal = freePosition ? SizeFlags.ShrinkCenter : SizeFlags.ShrinkCenter,
+			MouseFilter = MouseFilterEnum.Ignore,
+			CustomMinimumSize = freePosition
+				? new Vector2(barSize.X + 8f, barSize.Y + 28f)
+				: new Vector2(barSize.X + 4f, barSize.Y + 28f)
 		};
 		wrap.AddThemeConstantOverride("separation", 4);
 		parent.AddChild(wrap);
@@ -133,20 +295,24 @@ public partial class MechHud : Control
 			MaxValue = 1,
 			Value = 0,
 			ShowPercentage = false,
-			CustomMinimumSize = new Vector2(28, 280),
-			SizeFlagsVertical = SizeFlags.ExpandFill,
+			CustomMinimumSize = barSize,
+			SizeFlagsVertical = SizeFlags.ShrinkCenter,
 			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		bar.FillMode = (int)ProgressBar.FillModeEnum.BottomToTop;
-		bar.CustomMinimumSize = new Vector2(28, 280);
 		bar.AddThemeStyleboxOverride("background", new StyleBoxFlat
 		{
-			BgColor = new Color(0.12f, 0.14f, 0.16f),
-			CornerRadiusTopLeft = 3,
-			CornerRadiusTopRight = 3,
-			CornerRadiusBottomRight = 3,
-			CornerRadiusBottomLeft = 3,
+			BgColor = new Color(0.06f, 0.08f, 0.1f, 0.82f),
+			BorderColor = new Color(0.55f, 0.45f, 0.25f, 0.75f),
+			BorderWidthLeft = 1,
+			BorderWidthTop = 1,
+			BorderWidthRight = 1,
+			BorderWidthBottom = 1,
+			CornerRadiusTopLeft = 8,
+			CornerRadiusTopRight = 8,
+			CornerRadiusBottomRight = 8,
+			CornerRadiusBottomLeft = 8,
 			ContentMarginLeft = 2,
 			ContentMarginRight = 2,
 			ContentMarginTop = 2,
@@ -155,10 +321,10 @@ public partial class MechHud : Control
 		bar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
 		{
 			BgColor = fill,
-			CornerRadiusTopLeft = 2,
-			CornerRadiusTopRight = 2,
-			CornerRadiusBottomRight = 2,
-			CornerRadiusBottomLeft = 2
+			CornerRadiusTopLeft = 6,
+			CornerRadiusTopRight = 6,
+			CornerRadiusBottomRight = 6,
+			CornerRadiusBottomLeft = 6
 		});
 		wrap.AddChild(bar);
 
@@ -166,60 +332,88 @@ public partial class MechHud : Control
 		{
 			Text = caption,
 			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = new Color(0.75f, 0.8f, 0.85f),
+			Modulate = new Color(0.85f, 0.88f, 0.92f),
 			MouseFilter = MouseFilterEnum.Ignore
 		};
-		label.AddThemeFontSizeOverride("font_size", 11);
+		label.AddThemeFontSizeOverride("font_size", freePosition ? 12 : 11);
 		wrap.AddChild(label);
 		return (bar, label);
 	}
 
 	private Control BuildSchematicColumn()
 	{
-		var root = new Control
+		_schematic = new IntegritySchematic
 		{
-			CustomMinimumSize = new Vector2(210, BaseHeight),
+			CustomMinimumSize = new Vector2(210, 304),
+			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+			SizeFlagsVertical = SizeFlags.ShrinkEnd,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
-
-		MakeSlot(root, PartSlot.Head, "Head", new Vector2(64, 48), new Vector2(73, 4));
-		MakeSlot(root, PartSlot.WeaponL, "Arm L", new Vector2(52, 96), new Vector2(8, 60));
-		MakeSlot(root, PartSlot.Torso, "Torso", new Vector2(88, 88), new Vector2(61, 60));
-		MakeSlot(root, PartSlot.WeaponR, "Arm R", new Vector2(52, 96), new Vector2(150, 60));
-		MakeSlot(root, PartSlot.Legs, "Legs", new Vector2(120, 72), new Vector2(45, 166));
-
-		_hullPanel = MakeBlock(root, "Hull", new Vector2(210, 36), new Vector2(0, 300));
-		_hullLabel = _hullPanel.GetNode<Label>("Label");
-		return root;
+		return _schematic;
 	}
 
 	private Control BuildModulesColumn()
 	{
-		var col = new VBoxContainer
+		var frame = new PanelContainer
 		{
-			CustomMinimumSize = new Vector2(260, 0),
+			Name = "WeaponModules",
+			CustomMinimumSize = new Vector2(330, 0),
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			SizeFlagsVertical = SizeFlags.ShrinkEnd,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
+		frame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+		{
+			BgColor = new Color(0.04f, 0.055f, 0.07f, 0.92f),
+			BorderColor = new Color(0.55f, 0.45f, 0.28f, 0.85f),
+			BorderWidthLeft = 2,
+			BorderWidthTop = 2,
+			BorderWidthRight = 2,
+			BorderWidthBottom = 2,
+			ContentMarginLeft = 8,
+			ContentMarginTop = 8,
+			ContentMarginRight = 8,
+			ContentMarginBottom = 8,
+			CornerRadiusTopLeft = 2,
+			CornerRadiusTopRight = 2,
+			CornerRadiusBottomRight = 2,
+			CornerRadiusBottomLeft = 2
+		});
+
+		var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
 		col.AddThemeConstantOverride("separation", 4);
+		frame.AddChild(col);
+
+		var header = new Label
+		{
+			Text = "// WEAPONS / MODULES",
+			Modulate = MechUiTheme.Accent,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		header.AddThemeFontSizeOverride("font_size", 12);
+		col.AddChild(header);
 
 		_weaponRows.Add(MakeModuleRow(col));
 		_weaponRows.Add(MakeModuleRow(col));
 		for (var i = 0; i < AbilityController.MaxAbilitySlots; i++)
 			_abilityRows.Add(MakeModuleRow(col));
 
-		return col;
+		return frame;
 	}
 
 	private static ModuleRow MakeModuleRow(Control parent)
 	{
-		var row = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+		var row = new HBoxContainer
+		{
+			CustomMinimumSize = new Vector2(0, 52),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
 		row.AddThemeConstantOverride("separation", 4);
 		parent.AddChild(row);
 
 		var keyPanel = new PanelContainer
 		{
-			CustomMinimumSize = new Vector2(40, 38),
+			CustomMinimumSize = new Vector2(44, 52),
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		keyPanel.AddThemeStyleboxOverride("panel", MakeStyle(new Color(0.14f, 0.16f, 0.2f)));
@@ -237,7 +431,7 @@ public partial class MechHud : Control
 
 		var bodyPanel = new PanelContainer
 		{
-			CustomMinimumSize = new Vector2(210, 38),
+			CustomMinimumSize = new Vector2(220, 52),
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
@@ -264,108 +458,103 @@ public partial class MechHud : Control
 		};
 	}
 
-	private void MakeSlot(Control parent, PartSlot slot, string title, Vector2 size, Vector2 position)
-	{
-		var panel = MakeBlock(parent, title, size, position);
-		_panels[slot] = panel;
-		_labels[slot] = panel.GetNode<Label>("Label");
-	}
-
-	private static PanelContainer MakeBlock(Control parent, string title, Vector2 size, Vector2 position)
-	{
-		var panel = new PanelContainer
-		{
-			Position = position,
-			CustomMinimumSize = size,
-			Size = size,
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-		panel.AddThemeStyleboxOverride("panel", MakeStyle(FullColor));
-
-		var label = new Label
-		{
-			Name = "Label",
-			Text = $"{title}\n—/—",
-			HorizontalAlignment = HorizontalAlignment.Center,
-			VerticalAlignment = VerticalAlignment.Center,
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-		label.AddThemeFontSizeOverride("font_size", 13);
-		label.AddThemeColorOverride("font_color", Colors.Black);
-		panel.AddChild(label);
-		parent.AddChild(panel);
-		return panel;
-	}
-
 	private static StyleBoxFlat MakeStyle(Color color) => new()
 	{
 		BgColor = color,
-		CornerRadiusTopLeft = 4,
-		CornerRadiusTopRight = 4,
-		CornerRadiusBottomRight = 4,
-		CornerRadiusBottomLeft = 4,
-		ContentMarginLeft = 4,
-		ContentMarginTop = 3,
-		ContentMarginRight = 4,
-		ContentMarginBottom = 3
+		BorderColor = new Color(0.45f, 0.38f, 0.24f, 0.7f),
+		BorderWidthLeft = 1,
+		BorderWidthTop = 1,
+		BorderWidthRight = 1,
+		BorderWidthBottom = 1,
+		CornerRadiusTopLeft = 3,
+		CornerRadiusTopRight = 3,
+		CornerRadiusBottomRight = 3,
+		CornerRadiusBottomLeft = 3,
+		ContentMarginLeft = 6,
+		ContentMarginTop = 4,
+		ContentMarginRight = 6,
+		ContentMarginBottom = 4
 	};
 
 	public void Refresh(MechController? mech)
 	{
+		_trackedMech = mech;
 		if (mech == null)
+		{
+			if (_flankRoot != null)
+				_flankRoot.Visible = false;
 			return;
+		}
 
 		RefreshMeters(mech);
-		RefreshSlot(mech, PartSlot.Head, "Head");
-		RefreshSlot(mech, PartSlot.WeaponL, "Arm L");
-		RefreshSlot(mech, PartSlot.Torso, "Torso");
-		RefreshSlot(mech, PartSlot.WeaponR, "Arm R");
-		RefreshSlot(mech, PartSlot.Legs, "Legs");
-		RefreshHull(mech.Health);
+		_schematic?.Refresh(mech);
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
+
+		if (GameSettings.MetersBesideMech)
+			UpdateFlankPositions(mech);
 	}
 
 	private void RefreshMeters(MechController mech)
 	{
 		var power = mech.PowerHeat;
 		var stats = mech.Assembler?.Stats;
-		if (_powerBar != null)
-		{
-			_powerBar.Value = power?.LoadRatio ?? 0f;
-			if (_powerLabel != null)
-			{
-				_powerLabel.Text = power == null
-					? "PWR"
-					: $"PWR\n{power.CurrentLoad:0}/{stats?.PowerCapacity ?? 0:0}";
-				_powerLabel.Modulate = power?.IsOverheated == true
-					? new Color(1f, 0.45f, 0.35f)
-					: new Color(0.75f, 0.85f, 1f);
-			}
-		}
+		var beside = GameSettings.MetersBesideMech;
 
-		if (_heatBar != null)
+		ApplyPowerMeter(
+			beside ? _flankPowerBar : _powerBar,
+			beside ? _flankPowerLabel : _powerLabel,
+			power);
+		ApplyHeatMeter(
+			beside ? _flankHeatBar : _heatBar,
+			beside ? _flankHeatLabel : _heatLabel,
+			power,
+			stats?.HeatCap ?? 0f);
+	}
+
+	private static void ApplyPowerMeter(ProgressBar? bar, Label? label, MechPowerHeat? power)
+	{
+		if (bar == null)
+			return;
+
+		bar.Value = power?.PowerRatio ?? 0f;
+		if (label == null)
+			return;
+
+		label.Text = power == null
+			? "PWR"
+			: $"PWR\n{power.CurrentPower:0}/{power.EffectiveOperationalMax:0}";
+		label.Modulate = power?.IsOverheated == true
+			? new Color(1f, 0.45f, 0.35f)
+			: power is { CurrentPower: <= 0.5f }
+				? new Color(1f, 0.7f, 0.35f)
+				: new Color(0.75f, 0.85f, 1f);
+	}
+
+	private void ApplyHeatMeter(ProgressBar? bar, Label? label, MechPowerHeat? power, float heatCap)
+	{
+		if (bar == null)
+			return;
+
+		bar.Value = power?.HeatRatio ?? 0f;
+		var heatColor = MixHeat(power?.HeatRatio ?? 0f);
+		bar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
 		{
-			_heatBar.Value = power?.HeatRatio ?? 0f;
-			var heatColor = MixHeat(power?.HeatRatio ?? 0f);
-			_heatBar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
-			{
-				BgColor = heatColor,
-				CornerRadiusTopLeft = 2,
-				CornerRadiusTopRight = 2,
-				CornerRadiusBottomRight = 2,
-				CornerRadiusBottomLeft = 2
-			});
-			if (_heatLabel != null)
-			{
-				_heatLabel.Text = power == null
-					? "HEAT"
-					: $"HEAT\n{power.CurrentHeat:0}/{stats?.HeatCap ?? 0:0}";
-				_heatLabel.Modulate = power?.IsOverheated == true
-					? new Color(1f, 0.4f, 0.3f)
-					: new Color(1f, 0.75f, 0.55f);
-			}
-		}
+			BgColor = heatColor,
+			CornerRadiusTopLeft = 6,
+			CornerRadiusTopRight = 6,
+			CornerRadiusBottomRight = 6,
+			CornerRadiusBottomLeft = 6
+		});
+		if (label == null)
+			return;
+
+		label.Text = power == null
+			? "HEAT"
+			: $"HEAT\n{power.CurrentHeat:0}/{heatCap:0}";
+		label.Modulate = power?.IsOverheated == true
+			? new Color(1f, 0.4f, 0.3f)
+			: new Color(1f, 0.75f, 0.55f);
 	}
 
 	private static Color MixHeat(float ratio)
@@ -390,15 +579,47 @@ public partial class MechHud : Control
 		var hp = mech.Assembler?.Hardpoints.GetValueOrDefault(slot);
 		if (hp?.EquippedPart == null || hp.EquippedPart.VisualKind == "empty")
 		{
-			row.Root.Visible = false;
+			row.Root.Visible = true;
+			SetModuleRow(row, "Empty mount", new Color(0.1f, 0.11f, 0.13f));
 			return;
 		}
 
 		row.Root.Visible = true;
 		var part = hp.EquippedPart;
-		var status = hp.IsDestroyed ? "DOWN" : "READY";
-		var details = $"{part.DisplayName}\nDMG {part.Damage:0}  RNG {part.Range:0}\nH {part.HeatPerShot:0} | P {part.PowerLoadWhileFiring:0} | {status}";
-		SetModuleRow(row, details, hp.IsDestroyed ? DeadColor : new Color(0.14f, 0.18f, 0.22f));
+		string status;
+		string details;
+		if (part.IsHeldShield)
+		{
+			if (hp.IsDestroyed)
+				status = "DOWN";
+			else if (mech.IsHeldShieldBroken(slot))
+				status = "BROKEN";
+			else if (mech.IsHeldShieldRaised(slot))
+				status = "RAISED";
+			else
+				status = "READY";
+			details =
+				$"{part.DisplayName}\nSHIELD  ARC {part.ShieldArcDegrees:0}°\nP {part.ShieldPowerPerSec:0}/s | {status}";
+		}
+		else if (part.WeaponFamily == WeaponFamily.Melee)
+		{
+			status = hp.IsDestroyed ? "DOWN" : "READY";
+			details =
+				$"{part.DisplayName}\nDMG {part.Damage:0}  REACH {part.Range:0.0}\nCONTACT H {part.HeatPerShot:0} | {status}";
+		}
+		else
+		{
+			status = hp.IsDestroyed ? "DOWN" : "READY";
+			details =
+				$"{part.DisplayName}\nDMG {part.Damage:0}  RNG {part.Range:0}\nH {part.HeatPerShot:0} | P {part.PowerPerShot:0} | {status}";
+		}
+
+		var bg = hp.IsDestroyed || (part.IsHeldShield && mech.IsHeldShieldBroken(slot))
+			? DeadColor
+			: part.IsHeldShield && mech.IsHeldShieldRaised(slot)
+				? new Color(0.16f, 0.28f, 0.34f)
+				: new Color(0.14f, 0.18f, 0.22f);
+		SetModuleRow(row, details, bg);
 	}
 
 	private void RefreshAbilities(MechController mech)
@@ -456,64 +677,5 @@ public partial class MechHud : Control
 		row.BodyPanel.AddThemeStyleboxOverride("panel", MakeStyle(bodyColor));
 		row.BodyLabel.Text = text;
 		row.BodyLabel.AddThemeColorOverride("font_color", Colors.White);
-	}
-
-	private void RefreshHull(Damageable? hull)
-	{
-		if (_hullPanel == null || _hullLabel == null)
-			return;
-
-		if (hull == null || hull.MaxHealth <= 0f)
-		{
-			SetBlock(_hullPanel, _hullLabel, "Hull\n—/—", MissingColor);
-			return;
-		}
-
-		var cur = Mathf.Max(0f, hull.CurrentHealth);
-		var max = hull.MaxHealth;
-		var ratio = Mathf.Clamp(cur / max, 0f, 1f);
-		var color = hull.IsDead ? DeadColor : MixHealth(ratio);
-		SetBlock(_hullPanel, _hullLabel, $"Hull\n{Mathf.CeilToInt(cur)}/{Mathf.CeilToInt(max)}", color);
-	}
-
-	private void RefreshSlot(MechController mech, PartSlot slot, string title)
-	{
-		if (!_panels.TryGetValue(slot, out var panel) || !_labels.TryGetValue(slot, out var label))
-			return;
-
-		var hp = mech.Assembler?.Hardpoints.GetValueOrDefault(slot);
-		if (hp == null || hp.EquippedPart == null || hp.EquippedPart.VisualKind == "empty" || hp.MaxHp <= 0f)
-		{
-			SetBlock(panel, label, $"{title}\n—", MissingColor);
-			return;
-		}
-
-		if (hp.IsDestroyed)
-		{
-			SetBlock(panel, label, $"{title}\nDOWN", DeadColor);
-			return;
-		}
-
-		var cur = Mathf.Max(0f, hp.CurrentHp);
-		var max = hp.MaxHp;
-		var ratio = Mathf.Clamp(cur / max, 0f, 1f);
-		var text = slot == PartSlot.Legs && hp.LimbCount > 1
-			? $"{title}\n{Mathf.CeilToInt(cur)}/{Mathf.CeilToInt(max)}\n{hp.LimbsAlive}/{hp.LimbCount}"
-			: $"{title}\n{Mathf.CeilToInt(cur)}/{Mathf.CeilToInt(max)}";
-		SetBlock(panel, label, text, MixHealth(ratio));
-	}
-
-	private static Color MixHealth(float ratio)
-	{
-		if (ratio >= 0.55f)
-			return FullColor.Lerp(new Color(0.88f, 0.78f, 0.2f), 1f - (ratio - 0.55f) / 0.45f);
-		return new Color(0.88f, 0.78f, 0.2f).Lerp(EmptyColor, 1f - ratio / 0.55f);
-	}
-
-	private static void SetBlock(PanelContainer panel, Label label, string text, Color color)
-	{
-		panel.AddThemeStyleboxOverride("panel", MakeStyle(color));
-		label.Text = text;
-		label.AddThemeColorOverride("font_color", color.Luminance < 0.45f ? Colors.White : Colors.Black);
 	}
 }

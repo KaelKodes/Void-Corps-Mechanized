@@ -16,12 +16,16 @@ public partial class ConventionHallUi : Control
 	private Label? _pitchTitle;
 	private Label? _pitchBody;
 	private HBoxContainer? _pitchButtons;
+	private Button? _pitchAdvance;
 	private PanelContainer? _pityPanel;
+	private VoiceOscilloscope? _scope;
 
 	private string? _openManufacturerId;
 	/// <summary>Index into display lines (forgiveness prepended as line 0 when granted).</summary>
 	private int _lineIndex;
 	private readonly List<string> _lines = new();
+	private bool _lineSpeaking;
+	private string _currentFullLine = "";
 
 	public override void _Ready()
 	{
@@ -41,6 +45,19 @@ public partial class ConventionHallUi : Control
 		}
 
 		Build();
+		TextVoiceService.TokenSpoken -= OnTokenSpoken;
+		TextVoiceService.TokenSpoken += OnTokenSpoken;
+	}
+
+	private void OnTokenSpoken(bool vowel, float pitchScale)
+	{
+		_scope?.NotifyToken(vowel, pitchScale);
+	}
+
+	public override void _ExitTree()
+	{
+		TextVoiceService.TokenSpoken -= OnTokenSpoken;
+		TextVoiceService.Stop();
 	}
 
 	private void Build()
@@ -49,6 +66,7 @@ public partial class ConventionHallUi : Control
 			child.QueueFree();
 		_pitchPanel = null;
 		_pityPanel = null;
+		_scope = null;
 
 		var dim = new ColorRect
 		{
@@ -144,6 +162,10 @@ public partial class ConventionHallUi : Control
 		col.AddThemeConstantOverride("separation", 10);
 		panel.AddChild(col);
 
+		var emblem = ManufacturerBrand.MakeEmblemOrFallback(manufacturerId, mfg.AccentColor, 96f);
+		emblem.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+		col.AddChild(emblem);
+
 		var name = new Label
 		{
 			Text = mfg.DisplayName.ToUpperInvariant(),
@@ -224,8 +246,8 @@ public partial class ConventionHallUi : Control
 		_pitchPanel = new PanelContainer
 		{
 			Visible = false,
-			Position = new Vector2(280, 540),
-			CustomMinimumSize = new Vector2(1360, 340)
+			Position = new Vector2(220, 520),
+			CustomMinimumSize = new Vector2(1480, 360)
 		};
 		_pitchPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
@@ -235,9 +257,9 @@ public partial class ConventionHallUi : Control
 			BorderWidthTop = 2,
 			BorderWidthRight = 2,
 			BorderWidthBottom = 2,
-			ContentMarginLeft = 18,
+			ContentMarginLeft = 16,
 			ContentMarginTop = 14,
-			ContentMarginRight = 18,
+			ContentMarginRight = 16,
 			ContentMarginBottom = 14,
 			CornerRadiusTopLeft = 8,
 			CornerRadiusTopRight = 8,
@@ -246,9 +268,23 @@ public partial class ConventionHallUi : Control
 		});
 		AddChild(_pitchPanel);
 
-		var root = new VBoxContainer();
+		var row = new HBoxContainer();
+		row.AddThemeConstantOverride("separation", 18);
+		_pitchPanel.AddChild(row);
+
+		_scope = new VoiceOscilloscope
+		{
+			CustomMinimumSize = new Vector2(240, 260),
+			SizeFlagsVertical = SizeFlags.ShrinkCenter
+		};
+		row.AddChild(_scope);
+
+		var root = new VBoxContainer
+		{
+			SizeFlagsHorizontal = SizeFlags.ExpandFill
+		};
 		root.AddThemeConstantOverride("separation", 10);
-		_pitchPanel.AddChild(root);
+		row.AddChild(root);
 
 		_pitchTitle = new Label { Modulate = new Color(0.85f, 0.7f, 0.38f) };
 		_pitchTitle.AddThemeFontSizeOverride("font_size", 20);
@@ -258,6 +294,7 @@ public partial class ConventionHallUi : Control
 		{
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			CustomMinimumSize = new Vector2(0, 150),
+			SizeFlagsVertical = SizeFlags.ExpandFill,
 			Modulate = new Color(0.8f, 0.85f, 0.9f)
 		};
 		_pitchBody.AddThemeFontSizeOverride("font_size", 16);
@@ -295,6 +332,7 @@ public partial class ConventionHallUi : Control
 		col.AddThemeConstantOverride("separation", 12);
 		_pityPanel.AddChild(col);
 
+		var keel = ConventionCatalog.Get("trinova");
 		var t = new Label
 		{
 			Text = "TRINOVA SALVAGE CONTRACT",
@@ -307,8 +345,8 @@ public partial class ConventionHallUi : Control
 		var body = new Label
 		{
 			Text =
-				"Every floor withdrew. Trinova's logistics desk still has a scrap-heap MAP and a pity affiliation.\n" +
-				"Take it, or your wings stay grounded.",
+				$"Every other booth closed. {keel.LiaisonName} still has a scrap-heap MAP and a salvage affiliation.\n" +
+				"Take it, or leave the convention without a chassis.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart
 		};
@@ -344,24 +382,24 @@ public partial class ConventionHallUi : Control
 		_lineIndex = 0;
 		_lines.Clear();
 
+		var def = ConventionCatalog.Get(manufacturerId);
 		var rival = _run.Convention.TryGrantForgiveness(manufacturerId);
 		if (rival != null)
 		{
 			_run.Save();
 			var rivalName = GameCatalog.GetManufacturer(rival).DisplayName;
-			_lines.Add($"RECRUITER  ·  Heard you slagged {rivalName}'s floor model. Ha. One more demo. Don't waste it.");
+			_lines.Add(def.FormatForgiveness(rivalName));
 		}
 
-		var def = ConventionCatalog.Get(manufacturerId);
 		var status = _run.Convention.Get(manufacturerId);
 		if (status.Qualified)
-			_lines.AddRange(def.QualifiedReturnLines);
+			_lines.AddRange(def.FormatLines(def.QualifiedReturnLines));
 		else if (status.Withdrawn)
-			_lines.AddRange(def.WithdrawnReturnLines);
+			_lines.AddRange(def.FormatLines(def.WithdrawnReturnLines));
 		else if (status.AttemptsRemaining < ConventionState.MaxAttempts)
-			_lines.AddRange(def.FailedReturnLines);
+			_lines.AddRange(def.FormatLines(def.FailedReturnLines));
 		else
-			_lines.AddRange(def.PitchLines);
+			_lines.AddRange(def.FormatLines(def.PitchLines));
 
 		if (_pitchPanel != null)
 			_pitchPanel.Visible = true;
@@ -378,14 +416,59 @@ public partial class ConventionHallUi : Control
 		var def = ConventionCatalog.Get(id);
 		var status = _run.Convention.Get(id);
 
-		_pitchTitle.Text = $"{mfg.DisplayName}  ·  Recruiter booth";
+		_pitchTitle.Text = $"{mfg.DisplayName}  ·  {def.LiaisonName}  ·  {def.LiaisonTitle}";
 		_pitchTitle.Modulate = mfg.AccentColor;
+		_scope?.SetManufacturer(id);
+		if (_pitchPanel != null)
+		{
+			var style = _pitchPanel.GetThemeStylebox("panel") as StyleBoxFlat;
+			if (style != null)
+			{
+				style = (StyleBoxFlat)style.Duplicate();
+				style.BorderColor = mfg.AccentColor;
+				_pitchPanel.AddThemeStyleboxOverride("panel", style);
+			}
+		}
 
 		var atActions = _lineIndex >= _lines.Count;
 		if (!atActions)
-			_pitchBody.Text = _lines[_lineIndex];
+		{
+			var fullLine = _lines[_lineIndex];
+			_currentFullLine = fullLine;
+			var divider = fullLine.IndexOf('·');
+			var speaker = divider >= 0 ? fullLine[..(divider + 1)] + "  " : "";
+			var spoken = divider >= 0 ? fullLine[(divider + 1)..].TrimStart() : fullLine;
+			var expectedLineIndex = _lineIndex;
+
+			// Full text is the no-audio fallback. An active voice service immediately
+			// resets the body to zero characters, then reveals it on each spoken beat.
+			_pitchBody.Text = fullLine;
+			TextVoiceService.Speak(
+				spoken,
+				TextVoiceService.ProfileForManufacturer(id),
+				revealed =>
+				{
+					if (_pitchBody == null || _openManufacturerId != id || _lineIndex != expectedLineIndex)
+						return;
+					var count = Mathf.Clamp(revealed, 0, spoken.Length);
+					_pitchBody.Text = speaker + spoken[..count];
+				},
+				() =>
+				{
+					if (_pitchBody == null || _openManufacturerId != id || _lineIndex != expectedLineIndex)
+						return;
+					_lineSpeaking = false;
+					_pitchBody.Text = fullLine;
+					if (_pitchAdvance != null)
+						_pitchAdvance.Text = "Continue";
+				});
+			_lineSpeaking = TextVoiceService.IsSpeaking;
+		}
 		else
 		{
+			TextVoiceService.Stop();
+			_lineSpeaking = false;
+			_scope?.NotifySilence();
 			_pitchBody.Text =
 				$"{_lines[^1]}\n\n" +
 				$"Trial: {MissionCatalog.Get(def.TrialMission).Title}  ·  {StatusText(status)}\n" +
@@ -394,17 +477,34 @@ public partial class ConventionHallUi : Control
 
 		foreach (var child in _pitchButtons.GetChildren())
 			child.QueueFree();
+		_pitchAdvance = null;
 
 		if (!atActions)
 		{
-			var next = new Button { Text = "Continue", CustomMinimumSize = new Vector2(160, 40) };
-			next.Pressed += () =>
+			_pitchAdvance = new Button
+			{
+				Text = _lineSpeaking ? "Skip" : "Continue",
+				CustomMinimumSize = new Vector2(160, 40)
+			};
+			_pitchAdvance.Pressed += () =>
 			{
 				SfxService.Click();
+				if (_lineSpeaking)
+				{
+					TextVoiceService.Stop();
+					_scope?.NotifySilence();
+					_lineSpeaking = false;
+					if (_pitchBody != null)
+						_pitchBody.Text = _currentFullLine;
+					if (_pitchAdvance != null)
+						_pitchAdvance.Text = "Continue";
+					return;
+				}
+
 				_lineIndex++;
 				RefreshPitch();
 			};
-			_pitchButtons.AddChild(next);
+			_pitchButtons.AddChild(_pitchAdvance);
 			return;
 		}
 
@@ -448,6 +548,7 @@ public partial class ConventionHallUi : Control
 		back.Pressed += () =>
 		{
 			SfxService.Click();
+			TextVoiceService.Stop();
 			_openManufacturerId = null;
 			if (_pitchPanel != null)
 				_pitchPanel.Visible = false;

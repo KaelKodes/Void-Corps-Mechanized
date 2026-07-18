@@ -42,6 +42,9 @@ public static class GameCatalog
 		CatalogCoresSystems.Register(parts, manufacturers);
 		CatalogMounts.Register(parts, manufacturers);
 		CatalogTiers.Apply(parts);
+		CatalogDurability.Apply(parts);
+		CatalogPower.Apply(parts);
+		CatalogWeight.Apply(parts);
 
 		Manufacturers = manufacturers;
 		Parts = parts;
@@ -79,7 +82,7 @@ public static class GameCatalog
 	public static LoadoutData CreateStarterLoadout()
 	{
 		EnsureBuilt();
-		return SanitizeMounts(new LoadoutData
+		return SanitizeLoadout(new LoadoutData
 		{
 			LegsId = "legs_tri_biped",
 			TorsoId = "torso_tri_fleet",
@@ -100,7 +103,7 @@ public static class GameCatalog
 	public static LoadoutData CreateCadetLoanerLoadout()
 	{
 		EnsureBuilt();
-		return SanitizeMounts(new LoadoutData
+		return SanitizeLoadout(new LoadoutData
 		{
 			LegsId = "legs_brin_fortress",
 			TorsoId = "torso_brin_anvil",
@@ -124,6 +127,10 @@ public static class GameCatalog
 		return torso?.ProvidesMount(slot) ?? false;
 	}
 
+	/// <summary>
+	/// Mount / housing / head repair only. Does not strip parts for power —
+	/// garage installs hard-block overbudget kits instead.
+	/// </summary>
 	public static LoadoutData SanitizeMounts(LoadoutData loadout)
 	{
 		EnsureBuilt();
@@ -152,12 +159,130 @@ public static class GameCatalog
 		return loadout;
 	}
 
+	/// <summary>
+	/// Mount sanitize plus optional-module strip for authored / migrated loadouts
+	/// that must remain deployable even if catalogue numbers shift.
+	/// </summary>
+	public static LoadoutData SanitizeLoadout(LoadoutData loadout)
+	{
+		SanitizeMounts(loadout);
+		StripOverbudgetOptionalParts(loadout);
+		return loadout;
+	}
+
+	/// <summary>Total standby PowerRequirement for a loadout (empty / missing = 0).</summary>
+	public static float SumPowerRequirements(LoadoutData loadout)
+	{
+		EnsureBuilt();
+		float sum = 0f;
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var part = GetPart(loadout.GetPartId(slot));
+			if (part == null || part.VisualKind == "empty")
+				continue;
+			sum += Mathf.Max(0f, part.PowerRequirement);
+		}
+
+		return sum;
+	}
+
+	public static float GetCoreCapacity(LoadoutData loadout)
+	{
+		EnsureBuilt();
+		var core = GetPart(loadout.PowerCoreId);
+		if (core == null || core.Slot != PartSlot.PowerCore)
+			return 0f;
+		return Mathf.Max(0f, core.PowerCapacity);
+	}
+
+	public static bool IsPowerLegal(LoadoutData loadout) =>
+		SumPowerRequirements(loadout) <= GetCoreCapacity(loadout) + 0.01f;
+
+	/// <summary>Total mass of installed non-empty parts (empty mounts = 0).</summary>
+	public static float SumWeight(LoadoutData loadout)
+	{
+		EnsureBuilt();
+		float sum = 0f;
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var part = GetPart(loadout.GetPartId(slot));
+			if (part == null || part.VisualKind == "empty")
+				continue;
+			sum += Mathf.Max(0f, part.Weight);
+		}
+
+		return sum;
+	}
+
+	public static float GetLoadRating(LoadoutData loadout)
+	{
+		EnsureBuilt();
+		var legs = GetPart(loadout.LegsId);
+		if (legs == null || legs.Slot != PartSlot.Legs)
+			return 0f;
+		return Mathf.Max(0f, legs.LoadRating);
+	}
+
+	public static bool IsOverLoadRating(LoadoutData loadout) =>
+		SumWeight(loadout) > GetLoadRating(loadout) + 0.01f;
+
+	/// <summary>
+	/// True if replacing <paramref name="slot"/> with <paramref name="partId"/> stays within core capacity.
+	/// Mount-unavailable slots are cleared for the trial; optional modules are never silently stripped.
+	/// </summary>
+	public static bool CanEquipPart(LoadoutData loadout, PartSlot slot, string partId)
+	{
+		EnsureBuilt();
+		var trial = loadout.Clone();
+		trial.SetPartId(slot, partId);
+		if (slot is PartSlot.Torso or PartSlot.PowerCore)
+			SanitizeMounts(trial);
+		return IsPowerLegal(trial);
+	}
+
+	/// <summary>
+	/// Drop optional modules (never legs/torso/head/core/weapons) until the kit is power-legal
+	/// or nothing remains to drop. Used only for authored/migrated loadouts.
+	/// </summary>
+	private static void StripOverbudgetOptionalParts(LoadoutData loadout)
+	{
+		if (IsPowerLegal(loadout))
+			return;
+
+		var stripOrder = new[]
+		{
+			PartSlot.ShoulderR,
+			PartSlot.ShoulderL,
+			PartSlot.Backpack,
+			PartSlot.Systems
+		};
+
+		foreach (var slot in stripOrder)
+		{
+			if (IsPowerLegal(loadout))
+				return;
+			if (!IsMountAvailable(loadout, slot))
+				continue;
+
+			var current = GetPart(loadout.GetPartId(slot));
+			if (current == null || current.VisualKind == "empty")
+				continue;
+
+			loadout.SetPartId(slot, slot switch
+			{
+				PartSlot.Backpack => "backpack_none",
+				PartSlot.Systems => "systems_none",
+				_ => "shoulder_none"
+			});
+		}
+	}
+
 	public static LoadoutData CreateEnemyLoadout(int variant = 0)
 	{
 		EnsureBuilt();
 		return (variant % 4) switch
 		{
-			1 => SanitizeMounts(new LoadoutData
+			1 => SanitizeLoadout(new LoadoutData
 			{
 				LegsId = "legs_ouro_razorhex",
 				TorsoId = "torso_ouro_thin",
@@ -170,7 +295,7 @@ public static class GameCatalog
 				BackpackId = "backpack_ouro_stitch",
 				SystemsId = "systems_ouro_radiator"
 			}),
-			2 => SanitizeMounts(new LoadoutData
+			2 => SanitizeLoadout(new LoadoutData
 			{
 				LegsId = "legs_brin_fortress",
 				TorsoId = "torso_brin_anvil",
@@ -183,7 +308,7 @@ public static class GameCatalog
 				BackpackId = "backpack_brin_citadel",
 				SystemsId = "systems_brin_slag"
 			}),
-			3 => SanitizeMounts(new LoadoutData
+			3 => SanitizeLoadout(new LoadoutData
 			{
 				LegsId = "legs_lum_phasehex",
 				TorsoId = "torso_lum_oracle",
@@ -196,7 +321,7 @@ public static class GameCatalog
 				BackpackId = "backpack_lum_veil",
 				SystemsId = "systems_lum_phase"
 			}),
-			_ => SanitizeMounts(new LoadoutData
+			_ => SanitizeLoadout(new LoadoutData
 			{
 				LegsId = "legs_tri_courier",
 				TorsoId = "torso_tri_fleet",

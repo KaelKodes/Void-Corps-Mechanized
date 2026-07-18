@@ -92,6 +92,6 @@ public partial class LoadoutData : Resource
 		if (dict.ContainsKey("shoulder_r")) loadout.ShoulderRId = dict["shoulder_r"].AsString();
 		if (dict.ContainsKey("backpack")) loadout.BackpackId = dict["backpack"].AsString();
 		if (dict.ContainsKey("systems")) loadout.SystemsId = dict["systems"].AsString();
-		return GameCatalog.SanitizeMounts(loadout);
+		return GameCatalog.SanitizeLoadout(loadout);
 	}
 }

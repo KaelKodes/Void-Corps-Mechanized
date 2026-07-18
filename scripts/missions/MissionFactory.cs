@@ -16,6 +16,7 @@ public static class MissionFactory
 					? BossEncounterId.OrbitalDuelist
 					: bossEncounter)),
 			MissionType.CadetRange => new CadetRangeMission(),
+			MissionType.Sabotage => new SabotageMission(),
 			_ => new EliminateMission()
 		};
 }

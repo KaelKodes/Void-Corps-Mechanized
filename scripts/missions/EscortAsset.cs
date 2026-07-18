@@ -9,8 +9,12 @@ namespace Mechanize;
 public partial class EscortAsset : CharacterBody3D
 {
 	public float MaxHealth { get; private set; } = 280f;
-	public float MoveSpeed { get; set; } = 2.2f;
+	public float MoveSpeed { get; set; } = 2.4f;
 	public float EscortRadius { get; set; } = 16f;
+	/// <summary>How close the pilot must be to hop onto the rig deck.</summary>
+	public float MountRadius { get; set; } = 7f;
+	/// <summary>Speed multiplier while a mounted MAP diverts sprint power into the drivetrain.</summary>
+	public float OverdriveMultiplier { get; set; } = 1.35f;
 
 	private Damageable? _health;
 	private Vector3 _destination;
@@ -19,16 +23,25 @@ public partial class EscortAsset : CharacterBody3D
 	private bool _dead;
 	private bool _hold;
 	private float _cargoFill;
+	private bool _overdrive;
 
 	private Vector3 _lastPos;
 	private float _stuckTimer;
 	private float _strafeSign = 1f;
-	private float _detourTimer;
-	private Vector3 _detourDir = Vector3.Forward;
+	/// <summary>Wall-follow: stay on one flank until the goal lane reopens for a sustained stretch.</summary>
+	private bool _wallFollow;
+	private float _wallFollowAge;
+	private float _goalClearTimer;
+	private Vector3 _followDir = Vector3.Forward;
+	private Vector3 _wallNormal = Vector3.Right;
+	private float _progressAtFollowStart;
+	private float _reverseTimer;
 	private readonly RandomNumberGenerator _rng = new();
 
 	public bool HasArrived => _arrived;
 	public bool IsHolding => _hold;
+	public bool CanReceiveOverdrive => !_dead && !_hold && !_arrived;
+	public bool IsOverdriveActive => _overdrive && CanReceiveOverdrive;
 	public bool IsDestroyed => _dead || (_health?.IsDead ?? false);
 	public float HealthRatio => _health == null || _health.MaxHealth <= 0f
 		? 0f
@@ -61,6 +74,9 @@ public partial class EscortAsset : CharacterBody3D
 		_destination = destination with { Y = 0f };
 		_arrived = false;
 		_hold = false;
+		ExitWallFollow();
+		_stuckTimer = 0f;
+		_reverseTimer = 0f;
 	}
 
 	public void SetHold(bool hold)
@@ -74,6 +90,36 @@ public partial class EscortAsset : CharacterBody3D
 	}
 
 	public void SetCargoFill(float fill01) => _cargoFill = Mathf.Clamp(fill01, 0f, 1f);
+
+	public void SetOverdrive(bool active) => _overdrive = active && CanReceiveOverdrive;
+
+	/// <summary>Deck anchor the pilot pins to while riding.</summary>
+	public Node3D? MountPoint => GetNodeOrNull<Node3D>("MountPoint");
+
+	public bool CanMountFrom(Vector3 worldPos) =>
+		!_dead
+		&& _health?.IsDead != true
+		&& MountPoint != null
+		&& worldPos.DistanceTo(GlobalPosition) <= MountRadius;
+
+	/// <summary>A ground-level spot clear of walls beside/behind the rig to drop the pilot on dismount.</summary>
+	public Vector3 SafeDismountPosition()
+	{
+		var right = GlobalTransform.Basis.X;
+		right.Y = 0f;
+		right = right.LengthSquared() < 0.01f ? Vector3.Right : right.Normalized();
+		var forward = -GlobalTransform.Basis.Z;
+		forward.Y = 0f;
+		forward = forward.LengthSquared() < 0.01f ? Vector3.Forward : forward.Normalized();
+
+		foreach (var dir in new[] { right, -right, -forward, forward })
+		{
+			if (ProbeClearanceFrom(GlobalPosition + Vector3.Up * 0.9f, dir, 5.5f) >= 4.6f)
+				return (GlobalPosition + dir * 4.2f) with { Y = 0f };
+		}
+
+		return (GlobalPosition + right * 4.2f) with { Y = 0f };
+	}
 
 	private void Build()
 	{
@@ -124,6 +170,10 @@ public partial class EscortAsset : CharacterBody3D
 		AddWheel(dark, new Vector3(-1.1f, 0.35f, 1.2f));
 		AddWheel(dark, new Vector3(1.1f, 0.35f, 1.2f));
 
+		// Rider deck + mount anchor — the pilot pins their feet to this node when mounted.
+		AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(2.2f, 0.16f, 2.4f) }, drill, new Vector3(0f, 1.3f, 0.25f)));
+		AddChild(new Node3D { Name = "MountPoint", Position = new Vector3(0f, 1.34f, 0.25f) });
+
 		AddChild(new CollisionShape3D
 		{
 			Shape = new BoxShape3D { Size = new Vector3(2.4f, 1.4f, 3.6f) },
@@ -152,6 +202,7 @@ public partial class EscortAsset : CharacterBody3D
 			Modulate = new Color(0.95f, 0.78f, 0.4f)
 		};
 		AddChild(label);
+		OcclusionSilhouette.EnsureOn(this);
 	}
 
 	private void AddWheel(Material mat, Vector3 position)
@@ -194,6 +245,8 @@ public partial class EscortAsset : CharacterBody3D
 		if (!IsEscorted)
 		{
 			_stuckTimer = 0f;
+			_reverseTimer = 0f;
+			ExitWallFollow();
 			_lastPos = GlobalPosition;
 			Velocity = new Vector3(0f, Velocity.Y, 0f);
 			ApplyGravity(dt);
@@ -203,33 +256,18 @@ public partial class EscortAsset : CharacterBody3D
 
 		var preferred = toGoal.Normalized();
 		UpdateStuck(dt);
-		_detourTimer = Mathf.Max(0f, _detourTimer - dt);
-
-		Vector3 moveDir;
-		if (_detourTimer > 0f)
-			moveDir = BlendTowardGoal(_detourDir, preferred, 0.35f);
-		else
-			moveDir = SteerAroundObstacles(preferred);
+		var moveDir = ChooseMoveDir(preferred, dt);
 
 		var targetYaw = Mathf.Atan2(-moveDir.X, -moveDir.Z);
-		Rotation = new Vector3(Rotation.X, Mathf.RotateToward(Rotation.Y, targetYaw, 2.2f * dt), Rotation.Z);
-		Velocity = new Vector3(moveDir.X * MoveSpeed, Velocity.Y, moveDir.Z * MoveSpeed);
+		var turnRate = _wallFollow || _reverseTimer > 0f ? 1.6f : 2.6f;
+		Rotation = new Vector3(Rotation.X, Mathf.RotateToward(Rotation.Y, targetYaw, turnRate * dt), Rotation.Z);
+		var speed = MoveSpeed * (IsOverdriveActive ? OverdriveMultiplier : 1f);
+		Velocity = new Vector3(moveDir.X * speed, Velocity.Y, moveDir.Z * speed);
 		ApplyGravity(dt);
 		MoveAndSlide();
 
-		if (GetSlideCollisionCount() > 0 && _detourTimer <= 0f)
-		{
-			var hit = GetSlideCollision(0);
-			var normal = hit.GetNormal();
-			normal.Y = 0f;
-			if (normal.LengthSquared() > 0.01f)
-			{
-				normal = normal.Normalized();
-				var along = normal.Cross(Vector3.Up).Normalized() * _strafeSign;
-				_detourDir = (along * 1.4f + normal * 0.55f + preferred * 0.2f).Normalized();
-				_detourTimer = _rng.RandfRange(0.7f, 1.4f);
-			}
-		}
+		if (GetSlideCollisionCount() > 0)
+			NoteWallFromSlide(preferred);
 	}
 
 	private void UpdateLabel()
@@ -241,6 +279,8 @@ public partial class EscortAsset : CharacterBody3D
 		var hp = $"{Mathf.CeilToInt(_health.CurrentHealth)}/{Mathf.CeilToInt(_health.MaxHealth)}";
 		if (_hold)
 			label.Text = $"MINING  {Mathf.RoundToInt(_cargoFill * 100f)}%  ·  {hp}";
+		else if (IsOverdriveActive)
+			label.Text = $"MINING RIG  ·  OVERDRIVE  ·  {hp}";
 		else
 			label.Text = $"MINING RIG  {hp}";
 	}
@@ -258,85 +298,316 @@ public partial class EscortAsset : CharacterBody3D
 		var moved = GlobalPosition.DistanceTo(_lastPos);
 		_lastPos = GlobalPosition;
 		var speed = moved / Mathf.Max(dt, 0.001f);
-		if (speed < 0.35f)
+		if (speed < 0.22f)
 			_stuckTimer += dt;
 		else
-			_stuckTimer = Mathf.Max(0f, _stuckTimer - dt * 0.6f);
+			_stuckTimer = Mathf.Max(0f, _stuckTimer - dt * 1.2f);
 
-		if (_stuckTimer < 0.85f)
+		if (_stuckTimer < 1.8f)
 			return;
 
 		_stuckTimer = 0f;
-		_strafeSign *= -1f;
+		// Boxed in: reverse a beat, then flip flank and resume wall-follow.
+		_reverseTimer = 1.1f;
+		BeginWallFollow(FlatDirToGoal(), forceOpposite: true);
+	}
+
+	private Vector3 ChooseMoveDir(Vector3 preferred, float dt)
+	{
+		if (_reverseTimer > 0f)
+		{
+			_reverseTimer -= dt;
+			var back = (-preferred + FlatCross(preferred) * _strafeSign * 0.55f);
+			back.Y = 0f;
+			if (back.LengthSquared() > 0.01f)
+				return back.Normalized();
+			return -preferred;
+		}
+
+		if (_wallFollow)
+		{
+			_wallFollowAge += dt;
+			return TickWallFollow(preferred, dt);
+		}
+
+		// Need a long clear lane before trusting "direct" — short gaps still trap the rig.
+		if (IsPathClear(preferred, 8f))
+			return preferred;
+
+		BeginWallFollow(preferred, forceOpposite: false);
+		return _followDir;
+	}
+
+	private Vector3 TickWallFollow(Vector3 preferred, float dt)
+	{
+		// Stay on the wall until the goal has been openly clear for a while —
+		// not just one lucky frame between two crates.
+		if (IsPathClear(preferred, 9f))
+			_goalClearTimer += dt;
+		else
+			_goalClearTimer = 0f;
+
+		var madeProgress = ProgressToGoal() + 2.5f < _progressAtFollowStart;
+		var heldLongEnough = _wallFollowAge >= 3.5f;
+		if (_goalClearTimer >= 0.85f && heldLongEnough && (madeProgress || _wallFollowAge >= 7f))
+		{
+			ExitWallFollow();
+			return preferred;
+		}
+
+		// Hard cap so a dead alley eventually re-evaluates.
+		if (_wallFollowAge > 14f)
+		{
+			_strafeSign *= -1f;
+			BeginWallFollow(preferred, forceOpposite: true);
+		}
+
+		var along = FlatCross(_wallNormal) * _strafeSign;
+		if (along.LengthSquared() < 0.01f)
+			along = FlatCross(preferred) * _strafeSign;
+
+		// Corner: follow lane blocked → rotate around the obstacle on the same side.
+		if (!IsPathClear(along, 2.4f))
+		{
+			var corner = (-_wallNormal * 0.15f + along * 0.35f - preferred * 0.1f);
+			// Probe for a free tangent around the corner (±45° / ±90° on the committed side).
+			var best = along;
+			var bestClear = 0f;
+			foreach (var ang in new[] { 0.4f, 0.8f, 1.2f, 1.6f, -0.35f })
+			{
+				var dir = RotateYaw(along, ang * _strafeSign);
+				var clear = ProbeClearance(dir, 5f);
+				if (clear > bestClear)
+				{
+					bestClear = clear;
+					best = dir;
+				}
+			}
+
+			if (bestClear > 1.2f)
+				along = best;
+			else
+			{
+				// Hug outward off the wall then resume tangent.
+				along = (_wallNormal * 0.7f + along).Normalized();
+			}
+		}
+		else
+		{
+			// Keep light contact with the wall so we don't peel off into the wrong corridor.
+			var hug = along + _wallNormal * 0.12f;
+			hug.Y = 0f;
+			if (hug.LengthSquared() > 0.01f)
+				along = hug.Normalized();
+		}
+
+		_followDir = along;
+		return along;
+	}
+
+	private void NoteWallFromSlide(Vector3 preferred)
+	{
+		var hit = GetSlideCollision(0);
+		var normal = hit.GetNormal();
+		normal.Y = 0f;
+		if (normal.LengthSquared() < 0.01f)
+			return;
+
+		normal = normal.Normalized();
+		// Smooth the remembered wall so chatter between faces doesn't flip us.
+		_wallNormal = _wallFollow
+			? (_wallNormal * 0.65f + normal * 0.35f).Normalized()
+			: normal;
+
+		if (!_wallFollow)
+			BeginWallFollow(preferred, forceOpposite: false);
+		else
+		{
+			var along = FlatCross(_wallNormal) * _strafeSign;
+			if (along.LengthSquared() > 0.01f)
+				_followDir = (along * 1.5f + _wallNormal * 0.35f).Normalized();
+		}
+	}
+
+	private void BeginWallFollow(Vector3 preferred, bool forceOpposite)
+	{
+		var side = PickFlankSide(preferred, forceOpposite);
+		_strafeSign = side;
+		_wallFollow = true;
+		_wallFollowAge = 0f;
+		_goalClearTimer = 0f;
+		_progressAtFollowStart = ProgressToGoal();
+
+		if (_wallNormal.LengthSquared() < 0.01f)
+			_wallNormal = -preferred;
+
+		var along = FlatCross(_wallNormal) * _strafeSign;
+		if (along.LengthSquared() < 0.01f || ProbeClearance(along, 3f) < 1.5f)
+			along = FlatCross(preferred) * _strafeSign;
+
+		_followDir = (along * 1.4f + _wallNormal * 0.3f).Normalized();
+	}
+
+	private void ExitWallFollow()
+	{
+		_wallFollow = false;
+		_wallFollowAge = 0f;
+		_goalClearTimer = 0f;
+	}
+
+	/// <summary>
+	/// Score each flank by walking several virtual steps along it and asking
+	/// "from here, can I see the goal?" — picks the corridor that opens, not the one-step nudge.
+	/// </summary>
+	private float PickFlankSide(Vector3 preferred, bool forceOpposite)
+	{
+		var right = FlatCross(preferred);
+		float ScoreSide(float sign)
+		{
+			var along = right * sign;
+			var score = 0f;
+			var cursor = GlobalPosition + Vector3.Up * 0.9f;
+			const float step = 3.2f;
+			const int steps = 6; // ~19m of look-ahead at crawler scale
+			for (var i = 0; i < steps; i++)
+			{
+				var stepClear = ProbeClearanceFrom(cursor, along, step + 0.5f);
+				if (stepClear < 1.1f)
+				{
+					// Dead alley — still credit earlier progress, then stop.
+					score += i * 0.4f;
+					break;
+				}
+
+				cursor += along * Mathf.Min(step, stepClear - 0.3f);
+				score += stepClear * 0.35f;
+
+				// From this offset, how open is the path toward the goal?
+				var toGoal = _destination - cursor;
+				toGoal.Y = 0f;
+				if (toGoal.LengthSquared() < 0.01f)
+				{
+					score += 40f;
+					break;
+				}
+
+				var goalDir = toGoal.Normalized();
+				var goalClear = ProbeClearanceFrom(cursor, goalDir, 12f);
+				score += goalClear * 1.8f;
+				if (goalClear > 10f)
+				{
+					score += 25f + (steps - i) * 3f; // earlier opening wins
+					break;
+				}
+			}
+
+			return score;
+		}
+
+		var leftScore = ScoreSide(-1f);
+		var rightScore = ScoreSide(1f);
+
+		if (forceOpposite)
+			return _strafeSign > 0f ? -1f : 1f;
+
+		// Strong hysteresis: keep current side unless the other is clearly better.
+		if (_wallFollow)
+		{
+			var current = _strafeSign > 0f ? rightScore : leftScore;
+			var other = _strafeSign > 0f ? leftScore : rightScore;
+			if (other > current + 12f)
+				return -_strafeSign;
+			return _strafeSign;
+		}
+
+		return rightScore >= leftScore ? 1f : -1f;
+	}
+
+	private float ProgressToGoal()
+	{
+		var d = _destination - GlobalPosition;
+		d.Y = 0f;
+		return d.Length();
+	}
+
+	private bool IsPathClear(Vector3 dir, float distance)
+	{
+		dir.Y = 0f;
+		if (dir.LengthSquared() < 0.01f)
+			return true;
+		dir = dir.Normalized();
+
+		var right = FlatCross(dir);
+		var origins = new[]
+		{
+			GlobalPosition + Vector3.Up * 0.9f,
+			GlobalPosition + Vector3.Up * 0.9f + right * 1.15f,
+			GlobalPosition + Vector3.Up * 0.9f - right * 1.15f
+		};
+
+		foreach (var origin in origins)
+		{
+			if (ProbeClearanceFrom(origin, dir, distance) < distance * 0.9f)
+				return false;
+		}
+
+		return true;
+	}
+
+	private float ProbeClearance(Vector3 dir, float distance)
+	{
+		dir.Y = 0f;
+		if (dir.LengthSquared() < 0.01f)
+			return distance;
+		dir = dir.Normalized();
+		var right = FlatCross(dir);
+		var c = ProbeClearanceFrom(GlobalPosition + Vector3.Up * 0.9f, dir, distance);
+		var r = ProbeClearanceFrom(GlobalPosition + Vector3.Up * 0.9f + right * 1.15f, dir, distance);
+		var l = ProbeClearanceFrom(GlobalPosition + Vector3.Up * 0.9f - right * 1.15f, dir, distance);
+		return Mathf.Min(c, Mathf.Min(r, l));
+	}
+
+	private float ProbeClearanceFrom(Vector3 origin, Vector3 dir, float distance)
+	{
+		var space = GetWorld3D()?.DirectSpaceState;
+		if (space == null)
+			return distance;
+
+		dir.Y = 0f;
+		if (dir.LengthSquared() < 0.01f)
+			return distance;
+		dir = dir.Normalized();
+
+		var query = PhysicsRayQueryParameters3D.Create(origin, origin + dir * distance);
+		query.CollisionMask = 1 | 8;
+		query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+		var hit = space.IntersectRay(query);
+		if (hit.Count == 0)
+			return distance;
+		return origin.DistanceTo(hit["position"].AsVector3());
+	}
+
+	private Vector3 FlatDirToGoal()
+	{
 		var preferred = _destination - GlobalPosition;
 		preferred.Y = 0f;
 		if (preferred.LengthSquared() > 0.01f)
-			preferred = preferred.Normalized();
-		else
-			preferred = -GlobalTransform.Basis.Z;
-
-		_detourDir = PickOpenDirection(preferred, forceOpposite: true);
-		_detourTimer = _rng.RandfRange(1.1f, 2.0f);
+			return preferred.Normalized();
+		return -GlobalTransform.Basis.Z;
 	}
 
-	private Vector3 SteerAroundObstacles(Vector3 preferred)
+	private static Vector3 FlatCross(Vector3 forward)
 	{
-		var space = GetWorld3D()?.DirectSpaceState;
-		if (space == null)
-			return preferred;
-
-		var origin = GlobalPosition + Vector3.Up * 0.9f;
-		var probeDist = 4.5f;
-		var ahead = PhysicsRayQueryParameters3D.Create(origin, origin + preferred * probeDist);
-		ahead.CollisionMask = 1 | 8;
-		ahead.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
-		var block = space.IntersectRay(ahead);
-		if (block.Count == 0)
-			return preferred;
-
-		return PickOpenDirection(preferred, forceOpposite: false);
+		var right = forward.Cross(Vector3.Up);
+		if (right.LengthSquared() < 0.001f)
+			right = Vector3.Right;
+		return right.Normalized();
 	}
 
-	private Vector3 PickOpenDirection(Vector3 preferred, bool forceOpposite)
+	private static Vector3 RotateYaw(Vector3 dir, float radians)
 	{
-		var space = GetWorld3D()?.DirectSpaceState;
-		if (space == null)
-			return preferred;
-
-		var origin = GlobalPosition + Vector3.Up * 0.9f;
-		var lateral = preferred.Cross(Vector3.Up);
-		if (lateral.LengthSquared() < 0.001f)
-			lateral = Vector3.Right;
-		lateral = lateral.Normalized() * (forceOpposite ? -_strafeSign : _strafeSign);
-
-		Vector3 best = lateral;
-		var bestScore = float.MinValue;
-		for (var i = 0; i < 14; i++)
-		{
-			var ang = i * Mathf.Tau / 14f;
-			var dir = new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang));
-			var query = PhysicsRayQueryParameters3D.Create(origin, origin + dir * 6.5f);
-			query.CollisionMask = 1 | 8;
-			query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
-			var hit = space.IntersectRay(query);
-			var clear = hit.Count == 0 ? 6.5f : origin.DistanceTo(hit["position"].AsVector3());
-			var toward = dir.Dot(preferred);
-			var flank = dir.Dot(lateral);
-			var score = clear * 1.6f + toward * 2.4f + flank * 2.0f;
-			if (score > bestScore)
-			{
-				bestScore = score;
-				best = dir;
-			}
-		}
-
-		return best.LengthSquared() > 0.01f ? best.Normalized() : preferred;
-	}
-
-	private static Vector3 BlendTowardGoal(Vector3 detour, Vector3 preferred, float preferredWeight)
-	{
-		var blended = detour + preferred * preferredWeight;
-		blended.Y = 0f;
-		return blended.LengthSquared() > 0.01f ? blended.Normalized() : detour;
+		var c = Mathf.Cos(radians);
+		var s = Mathf.Sin(radians);
+		return new Vector3(dir.X * c - dir.Z * s, 0f, dir.X * s + dir.Z * c).Normalized();
 	}
 }

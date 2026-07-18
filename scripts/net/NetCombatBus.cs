@@ -49,7 +49,9 @@ public partial class NetCombatBus : Node
 		TargetingMode targeting,
 		int preferredSlot,
 		bool ballistic,
-		float gravity)
+		float gravity,
+		bool playsWorldImpactSfx = true,
+		bool damagesWorldObjects = true)
 	{
 		var projectile = BuildProjectile(
 			source,
@@ -61,7 +63,9 @@ public partial class NetCombatBus : Node
 			preferredSlot,
 			ballistic,
 			gravity,
-			dealsDamage: true);
+			dealsDamage: true,
+			playsWorldImpactSfx,
+			damagesWorldObjects);
 		parent.AddChild(projectile);
 		PlaceProjectile(projectile, position, velocity);
 
@@ -80,7 +84,9 @@ public partial class NetCombatBus : Node
 			(int)targeting,
 			preferredSlot,
 			ballistic,
-			gravity);
+			gravity,
+			playsWorldImpactSfx,
+			damagesWorldObjects);
 	}
 
 	[Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
@@ -94,7 +100,9 @@ public partial class NetCombatBus : Node
 		int targeting,
 		int preferredSlot,
 		bool ballistic,
-		float gravity)
+		float gravity,
+		bool playsWorldImpactSfx,
+		bool damagesWorldObjects)
 	{
 		Node? source = null;
 		if (!string.IsNullOrEmpty(sourcePath))
@@ -114,7 +122,9 @@ public partial class NetCombatBus : Node
 			preferredSlot,
 			ballistic,
 			gravity,
-			dealsDamage: false);
+			dealsDamage: false,
+			playsWorldImpactSfx,
+			damagesWorldObjects);
 		parent.AddChild(projectile);
 		PlaceProjectile(projectile, position, velocity);
 	}
@@ -129,7 +139,9 @@ public partial class NetCombatBus : Node
 		int preferredSlot,
 		bool ballistic,
 		float gravity,
-		bool dealsDamage)
+		bool dealsDamage,
+		bool playsWorldImpactSfx,
+		bool damagesWorldObjects)
 	{
 		var projectile = Projectile.Create(ballistic);
 		projectile.Source = source;
@@ -141,6 +153,8 @@ public partial class NetCombatBus : Node
 		projectile.TargetingMode = targeting;
 		projectile.PreferredSlot = preferredSlot >= 0 ? (PartSlot)preferredSlot : null;
 		projectile.DealsDamage = dealsDamage;
+		projectile.PlaysWorldImpactSfx = playsWorldImpactSfx;
+		projectile.DamagesWorldObjects = damagesWorldObjects;
 		return projectile;
 	}
 

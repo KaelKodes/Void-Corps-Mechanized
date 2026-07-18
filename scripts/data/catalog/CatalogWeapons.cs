@@ -82,5 +82,15 @@ public static class CatalogWeapons
 			4, 11f, 28f, 65f, AimMode.Gimbaled, 1.8f, 9f, WeaponFamily.Energy);
 		parts["wep_lum_well"] = CatalogBuilders.Weapon("wep_lum_well", "Well Emitter", "lumina", m, s, "energy",
 			13, 2.2f, 40f, 58f, AimMode.Fixed, 8f, 17f, WeaponFamily.Energy);
+
+		// Combat slice: one melee + one held shield (arm slots).
+		parts["wep_brin_cleaver"] = CatalogBuilders.MeleeWeapon(
+			"wep_brin_cleaver", "Forge Cleaver", "brimforge", m, s, "cleaver",
+			damage: 32f, fireRate: 0.85f, range: 1.5f,
+			heatShot: 3f, powerLoad: 0f, armor: 26f, structureHp: 68f);
+		parts["wep_tri_bulwark"] = CatalogBuilders.HeldShield(
+			"wep_tri_bulwark", "Bulwark Plate", "trinova", m, s, "held_shield",
+			arcDegrees: 120f, raisePowerPerSec: 14f, heatPerDamage: 0.5f,
+			armor: 28f, structureHp: 78f, powerReq: 9f);
 	}
 }

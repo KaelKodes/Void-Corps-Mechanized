@@ -8,9 +8,10 @@ alwaysApply: true
 ## Hard distinctions
 
 - **Mechanize** = product title only.
-- **MAP** / **MAD** = chassis classes (manned pilot / unmanned drone).
+- **MAP** / **MAD** = operation classes (manned pilot / unmanned drone).
+- **Standard / Titan** = size tiers. Titans are still MAP/MAD by operation class; they are roughly 4× a field MAP and reserved for major claim contests.
 - **Manufacturers** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) license parts and frames. They are **not** Corps. Do not call them Corps in UI, briefs, or catalogue copy.
-- **Corps** = organizations from guild-scale to large businesses. Players join corps; corp success ↔ member success.
+- **Corps** = organizations from guild-scale to large businesses. Players join corps; corp success ↔ member success. Rival NPC corps field named pilots (mini-bosses) and Titans (sector Warning bosses).
 - Rumors that the Big Four manufacturers secretly back some corps may exist, but that is **not public** at campaign start. Do not present manufacturer→corp backing as established fact in early-game copy.
 
 ## Player fantasy (campaign)

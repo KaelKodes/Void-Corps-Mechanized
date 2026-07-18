@@ -11,7 +11,9 @@ public enum MissionType
 	Escort,
 	BossEncounter,
 	/// <summary>MAP Cadet Program — scripted range (unfailable).</summary>
-	CadetRange
+	CadetRange,
+	/// <summary>Bullet-hell sabotage run — reach Point B, plant, extract.</summary>
+	Sabotage = 9
 }
 
 public static class MissionCatalog
@@ -46,10 +48,12 @@ public static class MissionCatalog
 			"Hold the pad against fodder waves, then surviving rival MAPs."),
 		new(MissionType.Escort, "Mining Escort",
 			"Escort the company mining rig to the vein, guard it while cargo fills, then bring the full load home to your drop beacon."),
-		new(MissionType.BossEncounter, "Warning — Boss",
-			"Sector Warning. A named MAP threat ends this claim path."),
+		new(MissionType.BossEncounter, "Warning — Titan Claim",
+			"Sector Warning. A rival corp has fielded a Titan-class MAP to contest the claim."),
 		new(MissionType.CadetRange, "Cadet Range",
-			"MAP Cadet Program certification range. Learn the sticks before live fire.")
+			"MAP Cadet Program certification range. Learn the sticks before live fire."),
+		new(MissionType.Sabotage, "Sabotage Run",
+			"Infiltrate the corridor under patterned fire. Reach the uplink, plant the package, and call for exfil.")
 	];
 
 	public static MissionInfo Get(MissionType type)

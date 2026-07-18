@@ -9,14 +9,14 @@ namespace Mechanize;
 /// </summary>
 public partial class MechIntegrity : Node
 {
-	[Signal] public delegate void ComponentDamagedEventHandler(PartSlot slot, float remaining, float max);
+	[Signal] public delegate void ComponentDamagedEventHandler(PartSlot slot, float amount, float remaining, float max);
 	[Signal] public delegate void ComponentDestroyedEventHandler(PartSlot slot);
 	[Signal] public delegate void MechCollapsedEventHandler();
 	[Signal] public delegate void SelfDestructArmedEventHandler(bool armed);
 
 	private MechController? _mech;
 	private MechAssembler? _assembler;
-	private Damageable? _chassisHealth;
+	private Damageable? _torsoHealth;
 	private bool _collapsed;
 	private bool _selfDestructHolding;
 	private float _selfDestructHold;
@@ -54,14 +54,24 @@ public partial class MechIntegrity : Node
 		}
 	}
 
-	public void Bind(MechController mech, MechAssembler assembler, Damageable? chassisHealth)
+	public void Bind(MechController mech, MechAssembler assembler, Damageable? torsoHealth)
 	{
+		if (_torsoHealth != null)
+			_torsoHealth.Died -= OnTorsoHealthDied;
+
 		_mech = mech;
 		_assembler = assembler;
-		_chassisHealth = chassisHealth;
+		_torsoHealth = torsoHealth;
 		_collapsed = false;
 		CancelSelfDestruct();
 		InitializeComponentHealth();
+
+		if (_torsoHealth != null
+		    && _assembler.Hardpoints.TryGetValue(PartSlot.Torso, out var torso))
+		{
+			torso.BindExternalHealth(_torsoHealth);
+			_torsoHealth.Died += OnTorsoHealthDied;
+		}
 	}
 
 	public void InitializeComponentHealth()
@@ -74,31 +84,34 @@ public partial class MechIntegrity : Node
 	}
 
 	/// <summary>
-	/// Mend chassis hull and damaged (non-destroyed) components. Returns total HP restored.
+	/// Mend torso structure and damaged (non-destroyed) components. Returns total HP restored.
 	/// </summary>
 	public float ApplyMend(float amount)
 	{
-		if (_collapsed || amount <= 0f)
+		if (_collapsed || amount <= 0f || _assembler == null)
 			return 0f;
 
 		var healed = 0f;
 		var remaining = amount;
 
-		if (_chassisHealth != null && !_chassisHealth.IsDead)
+		if (_assembler.Hardpoints.TryGetValue(PartSlot.Torso, out var torso)
+		    && torso.CanTakeDamage)
 		{
-			var before = _chassisHealth.CurrentHealth;
-			_chassisHealth.ApplyHeal(remaining * 0.35f);
-			var gained = _chassisHealth.CurrentHealth - before;
+			var gained = torso.ApplyHeal(remaining * 0.35f);
 			healed += gained;
 			remaining = Mathf.Max(0f, remaining - gained);
+			if (gained > 0.01f)
+				EmitSignal(SignalName.ComponentDamaged, (int)PartSlot.Torso, -gained, torso.CurrentHp, torso.MaxHp);
 		}
 
-		if (_assembler == null || remaining <= 0.01f)
+		if (remaining <= 0.01f)
 			return healed;
 
 		// Prefer the most damaged living packages.
 		var packages = _assembler.Hardpoints.Values
-			.Where(hp => hp.CanTakeDamage && hp.CurrentHp < hp.MaxHp - 0.01f)
+			.Where(hp => hp.Slot != PartSlot.Torso
+			             && hp.CanTakeDamage
+			             && hp.CurrentHp < hp.MaxHp - 0.01f)
 			.OrderBy(hp => hp.CurrentHp / Mathf.Max(1f, hp.MaxHp))
 			.ToList();
 
@@ -111,7 +124,7 @@ public partial class MechIntegrity : Node
 				continue;
 			healed += gained;
 			remaining -= gained;
-			EmitSignal(SignalName.ComponentDamaged, (int)hp.Slot, hp.CurrentHp, hp.MaxHp);
+			EmitSignal(SignalName.ComponentDamaged, (int)hp.Slot, -gained, hp.CurrentHp, hp.MaxHp);
 		}
 
 		return healed;
@@ -170,13 +183,24 @@ public partial class MechIntegrity : Node
 		if (_mech?.IsInvulnerable == true)
 			return null;
 
+		var remaining = damage;
+		if (_mech != null)
+			remaining = _mech.TryAbsorbWithHeldShield(damage, hitPosition);
+
+		if (remaining <= 0.01f)
+			return _mech?.GetRaisedHeldShieldSlot();
+
 		Hardpoint? target = null;
 
-		if (aimedShot && preferredSlot.HasValue
-			&& _assembler.Hardpoints.TryGetValue(preferredSlot.Value, out var preferred)
-			&& preferred.CanTakeDamage)
+		if (aimedShot && preferredSlot.HasValue)
 		{
-			target = preferred;
+			if (_assembler.Hardpoints.TryGetValue(preferredSlot.Value, out var preferred)
+			    && preferred.CanTakeDamage)
+				target = preferred;
+			else
+				// A precision round already in flight does not vanish when its target
+				// component is destroyed; it continues into the central torso.
+				target = GetTorso();
 		}
 		else
 		{
@@ -184,42 +208,26 @@ public partial class MechIntegrity : Node
 		}
 
 		target ??= FindNearestComponent(hitPosition);
+		target ??= GetTorso();
 		if (target == null)
-		{
-			_chassisHealth?.ApplyDamage(damage);
 			return null;
-		}
 
-		var packageDestroyed = target.ApplyComponentDamage(damage, out var limbsLost);
-		EmitSignal(SignalName.ComponentDamaged, (int)target.Slot, target.CurrentHp, target.MaxHp);
+		var before = target.CurrentHp;
+		var packageDestroyed = target.ApplyComponentDamage(remaining, out var limbsLost);
+		var structureLost = Mathf.Max(0f, before - target.CurrentHp);
+		EmitSignal(SignalName.ComponentDamaged, (int)target.Slot, structureLost, target.CurrentHp, target.MaxHp);
 
 		if (limbsLost > 0 && target.IsLegPackage)
-		{
-			ApplyLimbLossShock(target, limbsLost);
 			GD.Print($"{_mech?.Name} lost {limbsLost} limb(s). Legs {target.LimbsAlive}/{target.LimbCount}.");
-		}
 
-		if (packageDestroyed)
+		if (packageDestroyed && !target.IsDestroyed)
 		{
 			EmitSignal(SignalName.ComponentDestroyed, (int)target.Slot);
 			OnComponentDestroyed(target);
 		}
 
-		// Small chassis bleed on every hit.
-		_chassisHealth?.ApplyDamage(damage * 0.12f);
 		EvaluateCollapse();
 		return target.Slot;
-	}
-
-	private void ApplyLimbLossShock(Hardpoint legs, int limbsLost)
-	{
-		if (_chassisHealth == null || limbsLost <= 0)
-			return;
-
-		// Losing legs is catastrophic structurally — hex losing 5/6 should nearly kill the mech.
-		var perLimbFraction = legs.EquippedPart?.LegType == LegType.Hexapod ? 0.16f : 0.22f;
-		var shock = _chassisHealth.MaxHealth * perLimbFraction * limbsLost;
-		_chassisHealth.ApplyDamage(shock);
 	}
 
 	public Hardpoint? FindNearestComponent(Vector3 worldPoint)
@@ -254,13 +262,16 @@ public partial class MechIntegrity : Node
 
 	private void OnComponentDestroyed(Hardpoint hardpoint)
 	{
+		if (hardpoint.IsDestroyed)
+			return;
+
 		GD.Print($"{_mech?.Name} lost {hardpoint.Slot} ({hardpoint.EquippedPart?.DisplayName}).");
 		hardpoint.MarkDestroyed();
 
 		if (_mech?.Abilities != null && _assembler != null)
 			_mech.Abilities.RebuildBindings();
 		_assembler?.RefreshStatsAfterDamage();
-		_mech?.PowerHeat?.Bind(_assembler!);
+		_mech?.PowerHeat?.RefreshStats(_assembler!);
 	}
 
 	private void EvaluateCollapse()
@@ -268,16 +279,8 @@ public partial class MechIntegrity : Node
 		if (_assembler == null || _collapsed)
 			return;
 
-		var destroyed = _assembler.Hardpoints.Values.Count(h => h.IsDestroyed);
-		var torsoDead = IsDestroyed(PartSlot.Torso);
-		var systemsDead = IsDestroyed(PartSlot.Systems);
-		var headDead = IsDestroyed(PartSlot.Head);
-		var chassisCritical = _chassisHealth != null && _chassisHealth.CurrentHealth <= _chassisHealth.MaxHealth * 0.05f;
-
-		// Immobile legs alone don't auto-kill — chassis shock from limb loss usually does.
-		if (torsoDead || (systemsDead && chassisCritical) || (headDead && chassisCritical)
-			|| destroyed >= 5 || (_chassisHealth?.IsDead ?? false))
-			Collapse("critical structural failure");
+		if (IsDestroyed(PartSlot.Torso) || (_torsoHealth?.IsDead ?? false))
+			Collapse("torso destroyed");
 	}
 
 	private bool IsDestroyed(PartSlot slot)
@@ -293,11 +296,36 @@ public partial class MechIntegrity : Node
 			return;
 		_collapsed = true;
 		CancelSelfDestruct();
+
+		var torso = GetTorso();
+		if (torso is { IsDestroyed: false })
+		{
+			EmitSignal(SignalName.ComponentDestroyed, (int)PartSlot.Torso);
+			OnComponentDestroyed(torso);
+		}
+
 		GD.Print($"{_mech?.Name} collapsed: {reason}");
 		EmitSignal(SignalName.MechCollapsed);
-		if (_chassisHealth != null && !_chassisHealth.IsDead)
-			_chassisHealth.ApplyDamage(_chassisHealth.CurrentHealth + 1f);
 		_mech?.SetControlsEnabled(false);
+	}
+
+	private void OnTorsoHealthDied()
+	{
+		var torso = GetTorso();
+		if (torso is { IsDestroyed: false })
+		{
+			EmitSignal(SignalName.ComponentDestroyed, (int)PartSlot.Torso);
+			OnComponentDestroyed(torso);
+		}
+
+		Collapse("torso destroyed");
+	}
+
+	private Hardpoint? GetTorso()
+	{
+		if (_assembler == null)
+			return null;
+		return _assembler.Hardpoints.TryGetValue(PartSlot.Torso, out var torso) ? torso : null;
 	}
 
 	private void DetonateSelfDestruct()

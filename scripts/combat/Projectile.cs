@@ -14,6 +14,10 @@ public partial class Projectile : Area3D
 	public PartSlot? PreferredSlot { get; set; }
 	/// <summary>False on client replicas — they show the shot but never apply damage.</summary>
 	public bool DealsDamage { get; set; } = true;
+	/// <summary>Disable for dense hazards so misses against cover do not flood the mix.</summary>
+	public bool PlaysWorldImpactSfx { get; set; } = true;
+	/// <summary>When false, the shot is still blocked by cover but never damages it (bullet-hell hazards).</summary>
+	public bool DamagesWorldObjects { get; set; } = true;
 
 	private float _age;
 
@@ -122,9 +126,10 @@ public partial class Projectile : Area3D
 				return false;
 
 			var collider = hit["collider"].AsGodotObject() as Node;
-			if (AbsorbHit(collider))
+			var impact = hit["position"].AsVector3();
+			if (AbsorbHit(collider, impact))
 			{
-				GlobalPosition = hit["position"].AsVector3();
+				GlobalPosition = impact;
 				return true;
 			}
 
@@ -137,11 +142,11 @@ public partial class Projectile : Area3D
 		return false;
 	}
 
-	private void OnBodyEntered(Node3D body) => AbsorbHit(body);
-	private void OnAreaEntered(Area3D area) => AbsorbHit(area);
+	private void OnBodyEntered(Node3D body) => AbsorbHit(body, body.GlobalPosition);
+	private void OnAreaEntered(Area3D area) => AbsorbHit(area, area.GlobalPosition);
 
 	/// <summary>Returns true if this projectile should stop (damage applied or world impact).</summary>
-	private bool AbsorbHit(Node? node)
+	private bool AbsorbHit(Node? node, Vector3 impactPosition)
 	{
 		if (node == null)
 			return false;
@@ -159,7 +164,7 @@ public partial class Projectile : Area3D
 			{
 				mech.Integrity.ReceiveHit(
 					Damage,
-					GlobalPosition,
+					impactPosition,
 					PreferredSlot,
 					TargetingMode == TargetingMode.AimedComponent);
 				if (TelemetryUtil.IsPlayerSource(Source))
@@ -179,7 +184,8 @@ public partial class Projectile : Area3D
 		var damageable = FindDamageable(node);
 		if (damageable != null)
 		{
-			if (DealsDamage)
+			// Hazard projectiles are blocked by cover but never chew through it.
+			if (DealsDamage && DamagesWorldObjects)
 			{
 				var kind = TelemetryUtil.Classify(node);
 				damageable.ApplyDamage(Damage);
@@ -192,7 +198,8 @@ public partial class Projectile : Area3D
 				}
 			}
 
-			SfxService.Play("weapon_hit", (float)GD.RandRange(0.95, 1.15), -3f);
+			if (PlaysWorldImpactSfx)
+				SfxService.Play("weapon_hit", (float)GD.RandRange(0.95, 1.15), -3f);
 			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
@@ -200,7 +207,8 @@ public partial class Projectile : Area3D
 		// World / cover / other solid — stop the shot.
 		if (hitTeam == TeamId.Neutral)
 		{
-			SfxService.Play("weapon_hit", 0.8f, -8f);
+			if (PlaysWorldImpactSfx)
+				SfxService.Play("weapon_hit", 0.8f, -8f);
 			MeshMat.QueueFreeSafe(this);
 			return true;
 		}

@@ -28,7 +28,6 @@ public partial class MechAssembler : Node
 	public IReadOnlyDictionary<PartSlot, Hardpoint> Hardpoints => _hardpoints;
 	public MechStats Stats { get; private set; } = MechStats.BlindFallback;
 
-	public float TotalArmor => Stats.HullHp;
 	public float MaxSpeed => Stats.WalkSpeed;
 	public float TurnRateDegrees => Stats.TurnRateDegrees;
 	public float FireRateMultiplier => Stats.FireRateMultiplier;
@@ -93,7 +92,7 @@ public partial class MechAssembler : Node
 
 	public MechStats DeriveStats()
 	{
-		float hull = 40f;
+		float torsoHp = 40f;
 		float speed = 8f;
 		float turn = 70f;
 		float fireBonus = 1f;
@@ -101,8 +100,10 @@ public partial class MechAssembler : Node
 		float dissipate = 6f;
 		float idleHeat = 0.5f;
 		float moveHeat = 0f;
-		float powerCap = 40f;
-		float powerOut = 10f;
+		float powerCap = 0f;
+		float powerGen = 0f;
+		float powerReserved = 0f;
+		var hasCore = false;
 		int coreClass = 0;
 		int housing = 1;
 		int shoulders = 0;
@@ -119,12 +120,19 @@ public partial class MechAssembler : Node
 		var legMode = LegMode.Locked;
 		var legType = LegType.Bipedal;
 		var headAlive = true;
+		float totalWeight = 0f;
+		float loadRating = 0f;
 
 		foreach (var slot in EquipOrder)
 		{
 			if (!_hardpoints.TryGetValue(slot, out var hp) || hp.EquippedPart == null)
 				continue;
 			var p = hp.EquippedPart;
+
+			// Destroyed parts still weigh the chassis; losing an arm does not lighten the MAP.
+			if (p.VisualKind != "empty")
+				totalWeight += Mathf.Max(0f, p.Weight);
+
 			if (hp.IsDestroyed)
 			{
 				if (slot == PartSlot.Head)
@@ -132,7 +140,9 @@ public partial class MechAssembler : Node
 				continue;
 			}
 
-			hull += p.Armor + p.HullBonus;
+			if (p.VisualKind != "empty")
+				powerReserved += Mathf.Max(0f, p.PowerRequirement);
+
 			speed += p.MaxSpeed;
 			turn += p.TurnRateDegrees;
 			fireBonus += p.FireRateBonus;
@@ -143,15 +153,17 @@ public partial class MechAssembler : Node
 
 			if (slot == PartSlot.Torso)
 			{
+				torsoHp = Mathf.Max(1f, p.StructureHp);
 				housing = Mathf.Max(1, p.PowerCoreHousing);
 				shoulders = p.ShoulderMountCount;
 				backs = p.BackpackMountCount;
 			}
 			else if (slot == PartSlot.PowerCore)
 			{
+				hasCore = true;
 				coreClass = p.PowerCoreClass;
-				powerCap += p.PowerCapacity;
-				powerOut += p.PowerOutput;
+				powerCap = Mathf.Max(0f, p.PowerCapacity);
+				powerGen = Mathf.Max(0f, p.PowerOutput);
 			}
 			else if (slot == PartSlot.Head)
 			{
@@ -169,6 +181,7 @@ public partial class MechAssembler : Node
 				sprintMult = p.SprintMultiplier > 0.1f ? p.SprintMultiplier : 1.45f;
 				sprintHeat = p.SprintHeatPerSec;
 				sprintLoad = p.SprintPowerLoad;
+				loadRating = Mathf.Max(0f, p.LoadRating);
 			}
 		}
 
@@ -181,15 +194,29 @@ public partial class MechAssembler : Node
 			scanRes = 0.1f;
 		}
 
+		// No living core → no capacity / generation (destroyed or unequipped).
+		if (!hasCore)
+		{
+			powerCap = 0f;
+			powerGen = 0f;
+		}
+
+		powerReserved = Mathf.Max(0f, powerReserved);
+		var operational = Mathf.Max(0f, powerCap - powerReserved);
+		var (weightMove, weightTurn, loadRatio) =
+			CatalogWeight.ComputeOverloadMultipliers(totalWeight, loadRating);
+
 		return new MechStats
 		{
-			HullHp = Mathf.Max(40f, hull),
+			TorsoHp = torsoHp,
 			ShoulderMounts = shoulders,
 			BackMounts = backs,
 			PowerCoreClass = coreClass,
 			PowerCoreHousing = housing,
-			PowerCapacity = Mathf.Max(40f, powerCap),
-			PowerOutput = Mathf.Max(5f, powerOut),
+			PowerCapacity = powerCap,
+			PowerGeneration = Mathf.Max(0f, powerGen),
+			PowerReserved = powerReserved,
+			OperationalMax = operational,
 			HeatCap = Mathf.Max(40f, heatCap),
 			HeatDissipation = Mathf.Max(2f, dissipate),
 			IdleHeatPerSec = idleHeat,
@@ -207,7 +234,12 @@ public partial class MechAssembler : Node
 			SprintHeatPerSec = sprintHeat,
 			SprintPowerLoad = sprintLoad,
 			LegMode = legMode,
-			LegType = legType
+			LegType = legType,
+			TotalWeight = totalWeight,
+			LoadRating = loadRating,
+			LoadRatio = loadRatio,
+			WeightMoveMultiplier = weightMove,
+			WeightTurnMultiplier = weightTurn
 		};
 	}
 

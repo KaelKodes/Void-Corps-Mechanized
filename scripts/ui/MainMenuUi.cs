@@ -1,3 +1,4 @@
+using System.Linq;
 using Godot;
 
 namespace Mechanize;
@@ -334,10 +335,11 @@ public partial class MainMenuUi : Control
 		root.AddChild(title);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var skirmishClaims = VoidCorpsIdentity.StandardClaimSites.ToArray();
 		var claimIndex = 0;
-		for (var i = 0; i < VoidCorpsIdentity.ClaimSites.Length; i++)
+		for (var i = 0; i < skirmishClaims.Length; i++)
 		{
-			if (session != null && VoidCorpsIdentity.ClaimSites[i].Code == session.CurrentClaim.Code)
+			if (session != null && skirmishClaims[i].Code == session.CurrentClaim.Code)
 				claimIndex = i;
 		}
 
@@ -355,14 +357,51 @@ public partial class MainMenuUi : Control
 		claimLabel.AddThemeFontSizeOverride("font_size", 18);
 		root.AddChild(claimLabel);
 
+		void SyncClaimToMission()
+		{
+			if (missionType == MissionType.Sabotage)
+			{
+				var sab = VoidCorpsIdentity.FindClaim(SabotageMission.ClaimCode);
+				if (sab.HasValue)
+					session?.SetClaim(sab.Value);
+				return;
+			}
+
+			if (session != null
+			    && (session.CurrentClaim.SabotageOnly
+			        || session.CurrentClaim.Code == SabotageMission.ClaimCode)
+			    && skirmishClaims.Length > 0)
+			{
+				claimIndex = 0;
+				session.SetClaim(skirmishClaims[claimIndex]);
+			}
+		}
+
 		void RefreshClaim()
 		{
-			var claim = VoidCorpsIdentity.ClaimSites[claimIndex];
+			if (missionType == MissionType.Sabotage)
+			{
+				var sab = VoidCorpsIdentity.FindClaim(SabotageMission.ClaimCode);
+				if (sab.HasValue)
+				{
+					claimLabel.Text =
+						$"[SABOTAGE ONLY]\n{sab.Value.Code}\n{sab.Value.DisplayName}\n{sab.Value.Brief}";
+					session?.SetClaim(sab.Value);
+					return;
+				}
+			}
+
+			if (skirmishClaims.Length == 0)
+				return;
+			claimIndex = (claimIndex % skirmishClaims.Length + skirmishClaims.Length) % skirmishClaims.Length;
+			var claim = skirmishClaims[claimIndex];
 			claimLabel.Text =
 				$"[{ArenaSizeUtil.Label(claim.Size)}]  v{claim.MapVersion:0.0}\n" +
 				$"{claim.Code}\n{claim.DisplayName}\n{claim.Brief}";
 			session?.SetClaim(claim);
 		}
+
+		SyncClaimToMission();
 		RefreshClaim();
 
 		var claimRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
@@ -370,13 +409,17 @@ public partial class MainMenuUi : Control
 		root.AddChild(claimRow);
 		var prevClaim = MakeButton("< Claim", () =>
 		{
-			claimIndex = (claimIndex - 1 + VoidCorpsIdentity.ClaimSites.Length) % VoidCorpsIdentity.ClaimSites.Length;
+			if (missionType == MissionType.Sabotage || skirmishClaims.Length == 0)
+				return;
+			claimIndex = (claimIndex - 1 + skirmishClaims.Length) % skirmishClaims.Length;
 			RefreshClaim();
 		});
 		claimRow.AddChild(prevClaim);
 		var nextClaim = MakeButton("Claim >", () =>
 		{
-			claimIndex = (claimIndex + 1) % VoidCorpsIdentity.ClaimSites.Length;
+			if (missionType == MissionType.Sabotage || skirmishClaims.Length == 0)
+				return;
+			claimIndex = (claimIndex + 1) % skirmishClaims.Length;
 			RefreshClaim();
 		});
 		claimRow.AddChild(nextClaim);
@@ -396,6 +439,8 @@ public partial class MainMenuUi : Control
 			missionLabel.Text = $"MISSION: {info.Title}\n{info.Brief}";
 			if (session != null)
 				session.PendingMission = missionType;
+			SyncClaimToMission();
+			RefreshClaim();
 		}
 		RefreshMission();
 

@@ -15,6 +15,7 @@ public partial class SupportUnit : CharacterBody3D
 	private SupportPilotAI? _pilot;
 	private Node3D? _visual;
 	private Node3D? _turret;
+	private DamageSmoke? _damageSmoke;
 	private float _fireCooldown;
 	private bool _alive = true;
 
@@ -33,6 +34,8 @@ public partial class SupportUnit : CharacterBody3D
 		EnsureCollision();
 		EnsureHealth();
 		BuildVisual();
+		EnsureDamageSmoke();
+		OcclusionSilhouette.EnsureOn(this);
 
 		_pilot = GetNodeOrNull<SupportPilotAI>("SupportPilotAI");
 		if (_pilot == null)
@@ -59,9 +62,20 @@ public partial class SupportUnit : CharacterBody3D
 			_health.ResetHealth(_data.MaxHealth + _data.Armor);
 		}
 		BuildVisual();
+		EnsureDamageSmoke();
+		OcclusionSilhouette.EnsureOn(this);
 	}
 
 	public Vector3 GetAimPoint() => GlobalPosition + Vector3.Up * (IsStaticUnit ? 1.6f : 0.9f);
+
+	public override void _Process(double delta)
+	{
+		EnsureDamageSmoke();
+		_damageSmoke?.SetHealth(
+			_health?.CurrentHealth ?? 0f,
+			_health?.MaxHealth ?? 0f,
+			IsAlive);
+	}
 
 	public void AttachHostReplication()
 	{
@@ -333,6 +347,19 @@ public partial class SupportUnit : CharacterBody3D
 		}
 	}
 
+	private void EnsureDamageSmoke()
+	{
+		if (_damageSmoke != null && GodotObject.IsInstanceValid(_damageSmoke))
+		{
+			_damageSmoke.Position = new Vector3(0f, IsStaticUnit ? 1.5f : 0.9f, 0f);
+			return;
+		}
+
+		_damageSmoke = DamageSmoke.Create(IsStaticUnit ? 1.25f : 1f);
+		_damageSmoke.Position = new Vector3(0f, IsStaticUnit ? 1.5f : 0.9f, 0f);
+		AddChild(_damageSmoke);
+	}
+
 	private static StandardMaterial3D MakeMat(
 		Color albedo,
 		float metallic,
@@ -392,6 +419,7 @@ public partial class SupportUnit : CharacterBody3D
 	{
 		_alive = false;
 		Velocity = Vector3.Zero;
+		_damageSmoke?.Stop();
 		ProcessMode = ProcessModeEnum.Disabled;
 		Visible = false;
 

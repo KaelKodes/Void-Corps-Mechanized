@@ -593,7 +593,10 @@ public partial class CampaignMapUi : Control
 		{
 			var boss = BossEncounterCatalog.Get(node.Offers[0].BossEncounterId);
 			_dossierBody.Text =
-				$"WARNING — {boss.BossName}\n{boss.Brief}\n\n{claimBrief}";
+				$"TITAN CLAIM — {boss.Pilot.DisplayName}\n" +
+				$"{boss.Corp.DisplayName} · {MechChassisClassUtil.Label(boss.ChassisClass)}\n\n" +
+				$"{boss.Brief}\n\n{claimBrief}\n\n" +
+				"No manufacturer reputation is attached to this fight. Both corps want the same ground.";
 		}
 		else
 		{
@@ -606,9 +609,35 @@ public partial class CampaignMapUi : Control
 		{
 			var offer = node.Offers[i];
 			var index = i;
-			var mfg = GameCatalog.GetManufacturer(offer.ManufacturerId);
-			var rival = GameCatalog.GetManufacturer(offer.RivalManufacturerId);
 			var mission = MissionCatalog.Get(offer.MissionType);
+			var isBoss = offer.MissionType == MissionType.BossEncounter;
+			var accent = MechUiTheme.MapRouteWarning;
+			string cardText;
+
+			if (isBoss)
+			{
+				var pilot = RivalRosterCatalog.GetPilot(offer.RivalPilotId);
+				var corp = RivalRosterCatalog.GetCorp(pilot.CorpId);
+				accent = corp.AccentColor;
+				cardText =
+					$"{corp.DisplayName}  ·  {mission.Title}\n" +
+					$"{MechChassisClassUtil.Label(MechChassisClass.Titan)}  ·  {pilot.DisplayName}  ·  No manufacturer reputation";
+			}
+			else
+			{
+				var mfg = GameCatalog.GetManufacturer(offer.ManufacturerId);
+				var rival = GameCatalog.GetManufacturer(offer.RivalManufacturerId);
+				accent = mfg.AccentColor;
+				cardText =
+					$"{mfg.DisplayName}  ·  {mission.Title}\n" +
+					$"{offer.Difficulty}   |   +{offer.RepGain} {ShortMfg(mfg.DisplayName)}   /   -{offer.RepLoss} {ShortMfg(rival.DisplayName)}";
+				if (!string.IsNullOrEmpty(offer.RivalPilotId))
+				{
+					var pilot = RivalRosterCatalog.GetPilot(offer.RivalPilotId);
+					var corp = RivalRosterCatalog.GetCorp(pilot.CorpId);
+					cardText += $"\nRival pilot reported: {pilot.Callsign} · {corp.ShortName}";
+				}
+			}
 
 			var card = new Button
 			{
@@ -616,17 +645,21 @@ public partial class CampaignMapUi : Control
 				ButtonGroup = offerGroup,
 				ButtonPressed = index == _pendingOfferIndex,
 				SizeFlagsHorizontal = SizeFlags.ExpandFill,
-				CustomMinimumSize = new Vector2(0, 64),
+				CustomMinimumSize = new Vector2(0, string.IsNullOrEmpty(offer.RivalPilotId) ? 64 : 82),
 				Alignment = HorizontalAlignment.Left,
-				Text =
-					$"{mfg.DisplayName}  ·  {mission.Title}\n" +
-					$"{offer.Difficulty}   |   +{offer.RepGain} {ShortMfg(mfg.DisplayName)}   /   -{offer.RepLoss} {ShortMfg(rival.DisplayName)}"
+				Text = cardText
 			};
 			card.AddThemeFontSizeOverride("font_size", 13);
-			card.AddThemeStyleboxOverride("normal", MechUiTheme.MakeOfferCardStyle(false, mfg.AccentColor));
-			card.AddThemeStyleboxOverride("hover", MechUiTheme.MakeOfferCardStyle(true, mfg.AccentColor));
-			card.AddThemeStyleboxOverride("pressed", MechUiTheme.MakeOfferCardStyle(true, mfg.AccentColor));
+			card.AddThemeStyleboxOverride("normal", MechUiTheme.MakeOfferCardStyle(false, accent));
+			card.AddThemeStyleboxOverride("hover", MechUiTheme.MakeOfferCardStyle(true, accent));
+			card.AddThemeStyleboxOverride("pressed", MechUiTheme.MakeOfferCardStyle(true, accent));
 			card.AddThemeColorOverride("font_color", MechUiTheme.Text);
+			if (!isBoss && ManufacturerBrand.TryGetTexture(offer.ManufacturerId, out var mark))
+			{
+				card.Icon = mark;
+				card.ExpandIcon = true;
+				card.AddThemeConstantOverride("icon_max_width", 40);
+			}
 			card.Pressed += () =>
 			{
 				SfxService.Click();
@@ -649,7 +682,10 @@ public partial class CampaignMapUi : Control
 		{
 			if (child is not Button btn || i >= node.Offers.Count)
 				continue;
-			var accent = GameCatalog.GetManufacturer(node.Offers[i].ManufacturerId).AccentColor;
+			var offer = node.Offers[i];
+			var accent = offer.MissionType == MissionType.BossEncounter
+				? RivalRosterCatalog.GetCorp(offer.RivalCorpId).AccentColor
+				: GameCatalog.GetManufacturer(offer.ManufacturerId).AccentColor;
 			var selected = i == _pendingOfferIndex;
 			btn.AddThemeStyleboxOverride("normal", MechUiTheme.MakeOfferCardStyle(selected, accent));
 			btn.ButtonPressed = selected;

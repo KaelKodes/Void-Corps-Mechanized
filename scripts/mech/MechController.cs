@@ -34,6 +34,13 @@ public partial class MechController : CharacterBody3D
 	private PartSlot? _ghostLastSlot;
 	private WeaponFamily _ghostLastFamily = WeaponFamily.None;
 	private float _ghostLastTime;
+	private bool _shieldRaisedL;
+	private bool _shieldRaisedR;
+	private bool _shieldBrokenL;
+	private bool _shieldBrokenR;
+	private Node3D? _carrierMount;
+	private EscortAsset? _carrierAsset;
+	private bool _carrierOverdrive;
 
 	private float _netTurn;
 	private float _netThrottle;
@@ -46,6 +53,7 @@ public partial class MechController : CharacterBody3D
 	private bool _hasNetInput;
 	private float _netInputAge;
 
+	public MechChassisClass ChassisClass { get; private set; } = MechChassisClass.Standard;
 	public bool IsInvulnerable => _respawnInvuln > 0f;
 	public bool IsHumanPilot => OwningPeerId != 0 || IsPlayerControlled;
 	public bool IsLocalPilot
@@ -101,6 +109,7 @@ public partial class MechController : CharacterBody3D
 		cfg.AddProperty(new NodePath("Damageable:MaxHealth"));
 		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedHeat"));
 		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedLoad"));
+		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedOperationalMax"));
 		sync.ReplicationConfig = cfg;
 		AddChild(sync);
 	}
@@ -186,6 +195,32 @@ public partial class MechController : CharacterBody3D
 	public string AimedComponentLabel => _aimedComponentLabel;
 	public bool ControlsEnabled => _controlsEnabled;
 	public bool IsSprinting => _sprinting;
+	/// <summary>True while riding an escort carrier (no steering; aim + weapons stay live).</summary>
+	public bool IsCarrierMounted => _carrierMount != null && GodotObject.IsInstanceValid(_carrierMount);
+	/// <summary>
+	/// How far above the floor the MAP has been lifted while mounted.
+	/// Projectiles subtract this so shots still travel at grounded combat height.
+	/// </summary>
+	public float CarrierCombatLift => IsCarrierMounted ? Mathf.Max(0f, GlobalPosition.Y) : 0f;
+	public bool IsCarrierOverdriveActive => _carrierOverdrive;
+	public bool IsHeldShieldRaised(PartSlot slot) => slot switch
+	{
+		PartSlot.WeaponL => _shieldRaisedL,
+		PartSlot.WeaponR => _shieldRaisedR,
+		_ => false
+	};
+	public bool IsHeldShieldBroken(PartSlot slot) => slot switch
+	{
+		PartSlot.WeaponL => _shieldBrokenL,
+		PartSlot.WeaponR => _shieldBrokenR,
+		_ => false
+	};
+	public PartSlot? GetRaisedHeldShieldSlot()
+	{
+		if (_shieldRaisedL) return PartSlot.WeaponL;
+		if (_shieldRaisedR) return PartSlot.WeaponR;
+		return null;
+	}
 
 	public override void _Ready()
 	{
@@ -241,6 +276,8 @@ public partial class MechController : CharacterBody3D
 			_missileDecal = new MissileLockDecal { Name = "MissileLockDecal" };
 			AddChild(_missileDecal);
 		}
+
+		OcclusionSilhouette.EnsureOn(this);
 	}
 
 	public void RebuildFromLoadout(LoadoutData loadout)
@@ -251,14 +288,35 @@ public partial class MechController : CharacterBody3D
 		_powerHeat ??= GetNodeOrNull<MechPowerHeat>("MechPowerHeat");
 		_assembler?.Assemble(loadout);
 
-		if (_assembler != null && _health != null)
-			_health.ResetHealth(_assembler.TotalArmor);
-
-		_abilities?.Bind(this, _assembler!, _health);
 		_integrity?.Bind(this, _assembler!, _health);
+		_abilities?.Bind(this, _assembler!, _health);
 		_powerHeat?.Bind(_assembler!);
+		ApplyChassisClass(ChassisClass);
 		StopSprint();
+		ClearHeldShieldBattleState();
 		SetControlsEnabled(true);
+	}
+
+	/// <summary>
+	/// Applies a size-class silhouette. Titans use denser part meshes
+	/// (<see cref="TitanPartVisualFactory"/>) on the MAP socket rig at ~4× scale.
+	/// </summary>
+	public void ApplyChassisClass(MechChassisClass chassisClass)
+	{
+		ChassisClass = chassisClass;
+		var scale = MechChassisClassUtil.VisualScale(chassisClass);
+
+		var sockets = GetNodeOrNull<Node3D>("Sockets");
+		if (sockets != null)
+			sockets.Scale = Vector3.One * scale;
+
+		var collision = GetNodeOrNull<CollisionShape3D>("Collision");
+		if (collision != null)
+		{
+			var box = new BoxShape3D { Size = new Vector3(1.6f, 2.2f, 1.6f) * scale };
+			collision.Shape = box;
+			collision.Position = new Vector3(0f, 1.1f * scale, 0f);
+		}
 	}
 
 	public void SetControlsEnabled(bool enabled)
@@ -267,8 +325,31 @@ public partial class MechController : CharacterBody3D
 		if (!enabled)
 		{
 			Velocity = Vector3.Zero;
+			StopCarrierOverdrive();
 			StopSprint();
+			LowerHeldShields();
 		}
+	}
+
+	/// <summary>Pin the MAP to a carrier deck: locomotion + gravity off, aim/fire stay live.</summary>
+	public void MountToCarrier(Node3D mountPoint)
+	{
+		_carrierMount = mountPoint;
+		_carrierAsset = mountPoint.GetParentOrNull<EscortAsset>();
+		StopCarrierOverdrive();
+		StopSprint();
+		LowerHeldShields();
+		Velocity = Vector3.Zero;
+	}
+
+	/// <summary>Release from the carrier and set down at a ground position beside it.</summary>
+	public void DismountFromCarrier(Vector3 groundPosition)
+	{
+		StopCarrierOverdrive();
+		_carrierMount = null;
+		_carrierAsset = null;
+		Velocity = Vector3.Zero;
+		GlobalPosition = groundPosition with { Y = GlobalPosition.Y };
 	}
 
 	public override void _PhysicsProcess(double delta)
@@ -299,9 +380,16 @@ public partial class MechController : CharacterBody3D
 			ClearMissileLock();
 			_abilities?.EndPulseRepair(applyCooldown: false);
 			Velocity = Vector3.Zero;
+			StopCarrierOverdrive();
 			StopSprint();
 			ApplyGravity(dt);
 			MoveAndSlide();
+			return;
+		}
+
+		if (IsCarrierMounted)
+		{
+			TickMountedRide(dt);
 			return;
 		}
 
@@ -399,6 +487,8 @@ public partial class MechController : CharacterBody3D
 
 		UpdateUpperBodyAim(dt);
 		AimHardpoints();
+		UpdateMeleeContacts();
+		UpdateHeldShields(firePrimary, fireSecondary);
 
 		if (firePrimary)
 			FireWeapon(PartSlot.WeaponL);
@@ -414,6 +504,89 @@ public partial class MechController : CharacterBody3D
 		}
 
 		UpdateMissileDecal();
+	}
+
+	/// <summary>
+	/// Riding an escort carrier: no locomotion or gravity, but the pilot keeps full aim,
+	/// weapons, shields and abilities. Gimbaled torsos retain 360° coverage; locked chassis
+	/// fire along the rig's facing (the trade-off for a mobile firing platform).
+	/// </summary>
+	private void TickMountedRide(float dt)
+	{
+		var firePrimary = false;
+		var fireSecondary = false;
+		var abilityIndex = -1;
+		var wantOverdrive = false;
+
+		if (IsPlayerControlled)
+		{
+			UpdateAimFromMouse();
+			UpdateAimedComponent();
+			firePrimary = Input.IsActionPressed("fire_primary");
+			fireSecondary = Input.IsActionPressed("fire_secondary");
+			wantOverdrive = Input.IsActionPressed("sprint");
+			abilityIndex = ReadPlayerAbilityInput();
+		}
+		else
+		{
+			UpdateAimedComponent();
+		}
+
+		if (_carrierMount != null && GodotObject.IsInstanceValid(_carrierMount))
+		{
+			GlobalPosition = _carrierMount.GlobalPosition;
+			// Chassis follows the rig's heading; gimbaled torso still swings freely to the aim point.
+			Rotation = new Vector3(Rotation.X, _carrierMount.GlobalRotation.Y, Rotation.Z);
+		}
+		Velocity = Vector3.Zero;
+
+		UpdateCarrierOverdrive(wantOverdrive, dt);
+		UpdateUpperBodyAim(dt);
+		AimHardpoints();
+		UpdateHeldShields(firePrimary, fireSecondary);
+
+		if (firePrimary)
+			FireWeapon(PartSlot.WeaponL);
+		if (fireSecondary)
+			FireWeapon(PartSlot.WeaponR);
+		if (abilityIndex >= 0)
+			_abilities?.TryActivate(abilityIndex, _aimPoint);
+
+		UpdateMissileDecal();
+	}
+
+	private void UpdateCarrierOverdrive(bool requested, float dt)
+	{
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var carrierReady = _carrierAsset is { CanReceiveOverdrive: true };
+		var powerReady = _powerHeat?.CanUseAbilities == true;
+
+		if (!requested || !carrierReady || !powerReady)
+		{
+			StopCarrierOverdrive();
+			return;
+		}
+
+		if (!_carrierOverdrive)
+		{
+			var draw = Mathf.Max(0f, stats.SprintPowerLoad);
+			if (_powerHeat != null && !_powerHeat.TryDraw("carrier_overdrive", draw))
+			{
+				StopCarrierOverdrive();
+				return;
+			}
+			_carrierOverdrive = true;
+		}
+
+		_carrierAsset?.SetOverdrive(true);
+		_powerHeat?.AddHeat(Mathf.Max(0f, stats.SprintHeatPerSec * 2f) * dt);
+	}
+
+	private void StopCarrierOverdrive()
+	{
+		_powerHeat?.Release("carrier_overdrive");
+		_carrierAsset?.SetOverdrive(false);
+		_carrierOverdrive = false;
 	}
 
 	/// <summary>
@@ -544,6 +717,165 @@ public partial class MechController : CharacterBody3D
 		_sprinting = false;
 	}
 
+	private void ClearHeldShieldBattleState()
+	{
+		_shieldBrokenL = false;
+		_shieldBrokenR = false;
+		LowerHeldShields();
+	}
+
+	private void LowerHeldShields()
+	{
+		if (_shieldRaisedL)
+			_powerHeat?.Release(ShieldDrainKey(PartSlot.WeaponL));
+		if (_shieldRaisedR)
+			_powerHeat?.Release(ShieldDrainKey(PartSlot.WeaponR));
+		_shieldRaisedL = false;
+		_shieldRaisedR = false;
+	}
+
+	private static string ShieldDrainKey(PartSlot slot) => $"shield_{slot}";
+
+	private void UpdateHeldShields(bool firePrimary, bool fireSecondary)
+	{
+		UpdateHeldShieldArm(PartSlot.WeaponL, firePrimary, ref _shieldRaisedL, ref _shieldBrokenL);
+		UpdateHeldShieldArm(PartSlot.WeaponR, fireSecondary, ref _shieldRaisedR, ref _shieldBrokenR);
+	}
+
+	private void UpdateHeldShieldArm(PartSlot slot, bool wantRaise, ref bool raised, ref bool broken)
+	{
+		var part = GetLivingHeldShield(slot);
+		if (part == null || broken)
+		{
+			if (raised)
+			{
+				_powerHeat?.Release(ShieldDrainKey(slot));
+				raised = false;
+			}
+
+			return;
+		}
+
+		var canRaise = _powerHeat is { IsOverheated: false, CurrentPower: > 0.5f };
+		if (!wantRaise || !canRaise)
+		{
+			if (raised)
+			{
+				_powerHeat?.Release(ShieldDrainKey(slot));
+				raised = false;
+			}
+
+			return;
+		}
+
+		if (raised && _powerHeat is { CurrentPower: <= 0.01f })
+		{
+			_powerHeat.Release(ShieldDrainKey(slot));
+			raised = false;
+			return;
+		}
+
+		if (!raised)
+		{
+			if (_powerHeat != null && !_powerHeat.TryDraw(ShieldDrainKey(slot), part.ShieldPowerPerSec))
+				return;
+			raised = true;
+		}
+	}
+
+	private PartData? GetLivingHeldShield(PartSlot slot)
+	{
+		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(slot, out var hp))
+			return null;
+		if (hp.IsDestroyed || hp.EquippedPart is not { IsHeldShield: true })
+			return null;
+		return hp.EquippedPart;
+	}
+
+	/// <summary>
+	/// Soak damage with a raised held shield if the impact is inside its forward arc.
+	/// Returns remaining damage after absorption.
+	/// </summary>
+	public float TryAbsorbWithHeldShield(float damage, Vector3 hitPosition)
+	{
+		if (damage <= 0.01f)
+			return damage;
+
+		foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+		{
+			if (!IsHeldShieldRaised(slot) || IsHeldShieldBroken(slot))
+				continue;
+			var part = GetLivingHeldShield(slot);
+			if (part == null)
+				continue;
+			if (!IsImpactInShieldArc(hitPosition, part.ShieldArcDegrees))
+				continue;
+
+			var heatPer = Mathf.Max(0.05f, part.ShieldHeatPerDamage);
+			var headroom = _powerHeat != null
+				? Mathf.Max(0f, _powerHeat.Stats.HeatCap - _powerHeat.CurrentHeat)
+				: 0f;
+			var absorbable = headroom / heatPer;
+			var absorbed = Mathf.Min(damage, absorbable);
+			if (absorbed > 0.01f && _powerHeat != null)
+			{
+				_powerHeat.AddHeat(absorbed * heatPer);
+				if (_powerHeat.IsOverheated)
+					BreakHeldShield(slot);
+			}
+
+			return Mathf.Max(0f, damage - absorbed);
+		}
+
+		return damage;
+	}
+
+	private void BreakHeldShield(PartSlot slot)
+	{
+		switch (slot)
+		{
+			case PartSlot.WeaponL:
+				_shieldBrokenL = true;
+				if (_shieldRaisedL)
+				{
+					_powerHeat?.Release(ShieldDrainKey(slot));
+					_shieldRaisedL = false;
+				}
+				break;
+			case PartSlot.WeaponR:
+				_shieldBrokenR = true;
+				if (_shieldRaisedR)
+				{
+					_powerHeat?.Release(ShieldDrainKey(slot));
+					_shieldRaisedR = false;
+				}
+				break;
+		}
+
+		SfxService.Play("alarm", 0.9f, -4f);
+		GD.Print($"{Name} held shield broke ({slot}).");
+	}
+
+	private bool IsImpactInShieldArc(Vector3 hitPosition, float arcDegrees)
+	{
+		var facing = _upperBody != null
+			? -_upperBody.GlobalTransform.Basis.Z
+			: -GlobalTransform.Basis.Z;
+		facing.Y = 0f;
+		if (facing.LengthSquared() < 0.001f)
+			return true;
+		facing = facing.Normalized();
+
+		var toHit = hitPosition - GlobalPosition;
+		toHit.Y = 0f;
+		if (toHit.LengthSquared() < 0.25f)
+			return true;
+		toHit = toHit.Normalized();
+
+		var half = Mathf.Max(10f, arcDegrees) * 0.5f;
+		return facing.Dot(toHit) >= Mathf.Cos(Mathf.DegToRad(half));
+	}
+
 	private void SubmitLocalInputToHost()
 	{
 		UpdateAimFromMouse();
@@ -595,7 +927,7 @@ public partial class MechController : CharacterBody3D
 
 	private Vector3 ProcessLockedLegMovement(float dt, float turnInput, float throttleInput)
 	{
-		var turnRate = (_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier();
+		var turnRate = (_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier() * GetWeightTurnMultiplier();
 		var mobility = _integrity?.LegMobilityFactor ?? 1f;
 		turnRate *= Mathf.Lerp(0.4f, 1f, mobility);
 		RotateY(Mathf.DegToRad(turnInput * turnRate * dt));
@@ -653,7 +985,8 @@ public partial class MechController : CharacterBody3D
 
 		var targetYaw = Mathf.Atan2(-moveDirection.X, -moveDirection.Z);
 		var currentYaw = Rotation.Y;
-		var turnRateRadians = Mathf.DegToRad((_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier() * mobility) * dt * 1.35f;
+		var turnRateRadians = Mathf.DegToRad(
+			(_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier() * GetWeightTurnMultiplier() * mobility) * dt * 1.35f;
 		Rotation = new Vector3(Rotation.X, Mathf.RotateToward(currentYaw, targetYaw, turnRateRadians), Rotation.Z);
 
 		return moveDirection * GetCurrentSpeed() * mobility;
@@ -661,12 +994,18 @@ public partial class MechController : CharacterBody3D
 
 	private float GetCurrentSpeed()
 	{
-		var walk = (_assembler?.MaxSpeed ?? 10f) * GetSpeedMultiplier();
+		var walk = (_assembler?.MaxSpeed ?? 10f) * GetSpeedMultiplier() * GetWeightMoveMultiplier();
 		if (!_sprinting)
 			return walk;
 		var mult = _assembler?.Stats.SprintMultiplier ?? 1.45f;
 		return walk * mult;
 	}
+
+	private float GetWeightMoveMultiplier() =>
+		Mathf.Clamp(_assembler?.Stats.WeightMoveMultiplier ?? 1f, 0f, 1f);
+
+	private float GetWeightTurnMultiplier() =>
+		Mathf.Clamp(_assembler?.Stats.WeightTurnMultiplier ?? 1f, 0f, 1f);
 
 	private float GetTurnMultiplier() => _assembler?.LegType switch
 	{
@@ -675,12 +1014,17 @@ public partial class MechController : CharacterBody3D
 		_ => 1f
 	};
 
-	private float GetSpeedMultiplier() => _assembler?.LegType switch
+	private float GetSpeedMultiplier()
 	{
-		LegType.Tracks => 1.05f,
-		LegType.Hexapod => 0.95f,
-		_ => 1f
-	};
+		var chassis = MechChassisClassUtil.SpeedMultiplier(ChassisClass);
+		var legs = _assembler?.LegType switch
+		{
+			LegType.Tracks => 1.05f,
+			LegType.Hexapod => 0.95f,
+			_ => 1f
+		};
+		return chassis * legs;
+	}
 
 	private float GetReverseMultiplier() => _assembler?.LegType switch
 	{
@@ -707,7 +1051,10 @@ public partial class MechController : CharacterBody3D
 		var from = camera.ProjectRayOrigin(mouse);
 		var dir = camera.ProjectRayNormal(mouse);
 
-		var plane = new Plane(Vector3.Up, GlobalPosition.Y + 1.0f);
+		// Aim on a plane ~1m above the MAP's *grounded* feet. While riding a tall carrier,
+		// subtract the deck lift so the cursor still paints at normal combat height.
+		var planeY = GlobalPosition.Y - CarrierCombatLift + 1.0f;
+		var plane = new Plane(Vector3.Up, planeY);
 		var hit = plane.IntersectsRay(from, dir);
 		_aimPoint = hit ?? (GlobalPosition - GlobalTransform.Basis.Z * 20f);
 	}
@@ -853,6 +1200,26 @@ public partial class MechController : CharacterBody3D
 			hp.AimAt(_aimPoint, chassisForward);
 	}
 
+	private void UpdateMeleeContacts()
+	{
+		if (_assembler == null)
+			return;
+
+		var aimed = _aimedComponentSlot;
+		if (aimed.HasValue && !CanCombatId(_aimPoint))
+			aimed = null;
+
+		foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+		{
+			if (!_assembler.Hardpoints.TryGetValue(slot, out var hardpoint)
+			    || hardpoint.EquippedPart?.WeaponFamily != WeaponFamily.Melee)
+				continue;
+
+			if (hardpoint.TryMeleeContact(this, aimed, out var contactHeat, out _))
+				_powerHeat?.AddHeat(contactHeat);
+		}
+	}
+
 	private void FireWeapon(PartSlot slot)
 	{
 		if (_assembler == null)
@@ -863,8 +1230,11 @@ public partial class MechController : CharacterBody3D
 			return;
 
 		var part = hardpoint.EquippedPart;
-		var powerLoad = part.PowerLoadWhileFiring;
-		if (_powerHeat != null && powerLoad > 0.01f && !_powerHeat.CanAfford(powerLoad))
+		if (part.IsHeldShield || part.WeaponFamily == WeaponFamily.Melee)
+			return;
+
+		var powerCost = part.PowerPerShot;
+		if (_powerHeat != null && powerCost > 0.01f && !_powerHeat.CanSpend(powerCost))
 			return;
 
 		var aimed = _aimedComponentSlot;
@@ -874,21 +1244,25 @@ public partial class MechController : CharacterBody3D
 		var heatOver = _powerHeat != null && _powerHeat.HeatRatio > 0.7f ? 1.35f : 1f;
 		var ghost = FamilyHeatMultiplier(part.WeaponFamily, slot);
 		var parent = GetTree().CurrentScene ?? GetParent();
-		if (hardpoint.TryFire(
-			    this,
-			    parent!,
-			    _assembler.FireRateMultiplier,
-			    _powerHeat?.FireRateThrottle ?? 1f,
-			    _aimPoint,
-			    aimed,
-			    out _,
-			    out var heat))
-		{
-			if (IsHumanPilot)
-				TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
-			_powerHeat?.AddHeat(heat * heatOver * ghost);
-			NoteFamilyFire(part.WeaponFamily, slot);
-		}
+
+		var fired = hardpoint.TryFire(
+			this,
+			parent!,
+			_assembler.FireRateMultiplier,
+			_powerHeat?.FireRateThrottle ?? 1f,
+			_aimPoint,
+			aimed,
+			out _,
+			out var heat);
+
+		if (!fired)
+			return;
+
+		_powerHeat?.TrySpend(powerCost);
+		if (IsHumanPilot)
+			TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
+		_powerHeat?.AddHeat(heat * heatOver * ghost);
+		NoteFamilyFire(part.WeaponFamily, slot);
 	}
 
 	/// <summary>
@@ -897,7 +1271,7 @@ public partial class MechController : CharacterBody3D
 	/// </summary>
 	private float FamilyHeatMultiplier(WeaponFamily family, PartSlot slot)
 	{
-		if (family is WeaponFamily.None or WeaponFamily.Support)
+		if (family is WeaponFamily.None or WeaponFamily.Support or WeaponFamily.Melee)
 			return 1f;
 
 		var now = Time.GetTicksMsec() * 0.001f;
@@ -911,7 +1285,7 @@ public partial class MechController : CharacterBody3D
 
 	private void NoteFamilyFire(WeaponFamily family, PartSlot slot)
 	{
-		if (family is WeaponFamily.None or WeaponFamily.Support)
+		if (family is WeaponFamily.None or WeaponFamily.Support or WeaponFamily.Melee)
 			return;
 		_ghostLastFamily = family;
 		_ghostLastSlot = slot;

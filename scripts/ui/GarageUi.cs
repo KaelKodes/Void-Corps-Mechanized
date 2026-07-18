@@ -6,33 +6,53 @@ using Godot;
 
 namespace Mechanize;
 
+/// <summary>
+/// Hangar loadout screen: category rail, owned component list, 3D MAP preview,
+/// preview-before-equip, and live chassis stats. Shared by prep and field garage.
+/// </summary>
 public partial class GarageUi : Control
 {
 	[Signal] public delegate void LoadoutAppliedEventHandler(LoadoutData loadout);
 
-	private LoadoutData _draft = null!;
-	private bool _prepMode = true;
-	private bool _gspCollapsed;
-	private PartSlot? _selected;
+	private enum HangarCategory
+	{
+		Head,
+		Torso,
+		Legs,
+		ArmL,
+		ArmR,
+		Utilities
+	}
 
-	private PanelContainer? _gspPanel;
-	private Label? _gspBody;
-	private Button? _gspToggle;
-	private PanelContainer? _detailsPanel;
-	private TextureRect? _detailsPortrait;
-	private Label? _detailsTitle;
-	private Label? _detailsBody;
+	private LoadoutData _draft = null!;
+	private LoadoutData _baseline = null!;
+	private bool _prepMode = true;
+
+	private HangarCategory? _openCategory;
+	private PartSlot? _activeSlot;
+	private string? _previewPartId;
+
+	private PanelContainer? _listPanel;
+	private VBoxContainer? _railBox;
+	private HBoxContainer? _subSlotRow;
+	private VBoxContainer? _listBox;
+	private Label? _listHint;
+	private HangarMechPreview? _mechPreview;
+	private RichTextLabel? _statsBody;
 	private Label? _titleLabel;
 	private Label? _subtitleLabel;
+	private Button? _equipButton;
 	private Button? _readyButton;
-	private Control? _dollCanvas;
-	private readonly Dictionary<PartSlot, SlotChip> _chips = new();
+	private Label? _equipHint;
+
+	private readonly Dictionary<HangarCategory, Button> _railButtons = new();
 
 	public override void _Ready()
 	{
 		GameCatalog.EnsureBuilt();
-		_draft = GetNodeOrNull<GameSession>("/root/GameSession")?.CurrentLoadout.Clone()
-			?? GameCatalog.CreateStarterLoadout();
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		_draft = session?.CurrentLoadout.Clone() ?? GameCatalog.CreateStarterLoadout();
+		_baseline = _draft.Clone();
 		GameCatalog.SanitizeMounts(_draft);
 
 		MouseFilter = MouseFilterEnum.Stop;
@@ -46,7 +66,7 @@ public partial class GarageUi : Control
 	{
 		_prepMode = prep;
 		if (_titleLabel != null)
-			_titleLabel.Text = prep ? "PREP SCREEN" : "FIELD GARAGE";
+			_titleLabel.Text = prep ? "HANGAR" : "FIELD HANGAR";
 		if (_subtitleLabel != null)
 		{
 			var session = GetNodeOrNull<GameSession>("/root/GameSession");
@@ -56,6 +76,7 @@ public partial class GarageUi : Control
 				? $"Staging — {claim}  ·  {mission}"
 				: $"Mid-claim refit — {claim}";
 		}
+
 		if (_readyButton != null)
 			_readyButton.Text = prep ? "READY" : "Deploy Loadout";
 	}
@@ -68,8 +89,10 @@ public partial class GarageUi : Control
 			session.Profile.EnforceOwnedEquipLimits(session.Profile.Loadout);
 			_draft = session.CurrentLoadout.Clone();
 		}
+
 		GameCatalog.SanitizeMounts(_draft);
-		_selected = null;
+		_baseline = _draft.Clone();
+		ClearPreviewSelection(closeCategory: false);
 		RefreshAll();
 	}
 
@@ -79,46 +102,105 @@ public partial class GarageUi : Control
 
 		var margins = new MarginContainer { Name = "Margins" };
 		margins.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		margins.AddThemeConstantOverride("margin_left", 28);
-		margins.AddThemeConstantOverride("margin_top", 28);
-		margins.AddThemeConstantOverride("margin_right", 28);
-		margins.AddThemeConstantOverride("margin_bottom", 28);
+		margins.AddThemeConstantOverride("margin_left", 24);
+		margins.AddThemeConstantOverride("margin_top", 24);
+		margins.AddThemeConstantOverride("margin_right", 24);
+		margins.AddThemeConstantOverride("margin_bottom", 24);
 		AddChild(margins);
 
-		var root = new HBoxContainer
+		var root = new VBoxContainer
 		{
-			Name = "Root",
-			Alignment = BoxContainer.AlignmentMode.Center,
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			SizeFlagsVertical = SizeFlags.ExpandFill
 		};
-		root.AddThemeConstantOverride("separation", 14);
+		root.AddThemeConstantOverride("separation", 12);
 		margins.AddChild(root);
 
-		BuildGspColumn(root);
-		BuildCenterColumn(root);
-		BuildDetailsColumn(root);
-	}
+		var headerPanel = MechUiTheme.MakePanel("HeaderStrip", deep: true);
+		headerPanel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+		root.AddChild(headerPanel);
+		var headerInner = MechUiTheme.MakeHeaderStrip("HANGAR", "");
+		headerPanel.AddChild(headerInner);
+		_titleLabel = headerInner.GetNodeOrNull<Label>("Title");
+		_subtitleLabel = headerInner.GetNodeOrNull<Label>("Subtitle");
 
-	private void BuildGspColumn(HBoxContainer root)
-	{
-		var col = new HBoxContainer
+		var columns = new HBoxContainer
 		{
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			SizeFlagsVertical = SizeFlags.ExpandFill
 		};
-		col.AddThemeConstantOverride("separation", 6);
-		root.AddChild(col);
+		columns.AddThemeConstantOverride("separation", 12);
+		root.AddChild(columns);
 
-		_gspPanel = MechUiTheme.MakePanel("GSP", 248);
-		_gspPanel.CustomMinimumSize = new Vector2(248, 0);
-		_gspPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
-		col.AddChild(_gspPanel);
+		BuildRail(columns);
+		BuildComponentList(columns);
+		BuildPreviewColumn(columns);
+		BuildStatsColumn(columns);
+	}
 
-		var gspInner = new VBoxContainer();
-		gspInner.AddThemeConstantOverride("separation", 10);
-		_gspPanel.AddChild(gspInner);
+	private void BuildRail(HBoxContainer columns)
+	{
+		var panel = MechUiTheme.MakePanel("HangarRail", 168);
+		panel.CustomMinimumSize = new Vector2(168, 0);
+		panel.SizeFlagsVertical = SizeFlags.ExpandFill;
+		columns.AddChild(panel);
 
-		gspInner.AddChild(MechUiTheme.MakeSectionLabel("CHASSIS TELEMETRY"));
+		var inner = new VBoxContainer();
+		inner.AddThemeConstantOverride("separation", 8);
+		panel.AddChild(inner);
+		inner.AddChild(MechUiTheme.MakeSectionLabel("HANGAR"));
+
+		_railBox = new VBoxContainer();
+		_railBox.AddThemeConstantOverride("separation", 6);
+		inner.AddChild(_railBox);
+
+		AddRailButton(HangarCategory.Head, "Head");
+		AddRailButton(HangarCategory.Torso, "Torso");
+		AddRailButton(HangarCategory.Legs, "Legs");
+		AddRailButton(HangarCategory.ArmL, "L. Arm");
+		AddRailButton(HangarCategory.ArmR, "R. Arm");
+		AddRailButton(HangarCategory.Utilities, "Utilities");
+	}
+
+	private void AddRailButton(HangarCategory category, string label)
+	{
+		var button = new Button
+		{
+			Text = label,
+			CustomMinimumSize = new Vector2(0, 42),
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			ToggleMode = true
+		};
+		MechUiTheme.StyleGhostButton(button);
+		button.Pressed += () => OnRailPressed(category);
+		_railBox!.AddChild(button);
+		_railButtons[category] = button;
+	}
+
+	private void BuildComponentList(HBoxContainer columns)
+	{
+		_listPanel = MechUiTheme.MakePanel("ComponentList", 300);
+		_listPanel.CustomMinimumSize = new Vector2(300, 0);
+		_listPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
+		_listPanel.Visible = false;
+		columns.AddChild(_listPanel);
+
+		var inner = new VBoxContainer();
+		inner.AddThemeConstantOverride("separation", 8);
+		_listPanel.AddChild(inner);
+		inner.AddChild(MechUiTheme.MakeSectionLabel("COMPONENT LIST"));
+
+		_subSlotRow = new HBoxContainer();
+		_subSlotRow.AddThemeConstantOverride("separation", 6);
+		inner.AddChild(_subSlotRow);
+
+		_listHint = new Label
+		{
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = MechUiTheme.Muted
+		};
+		_listHint.AddThemeFontSizeOverride("font_size", 12);
+		inner.AddChild(_listHint);
 
 		var scroll = new ScrollContainer
 		{
@@ -126,29 +208,17 @@ public partial class GarageUi : Control
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
 		};
-		gspInner.AddChild(scroll);
+		inner.AddChild(scroll);
 
-		_gspBody = new Label
+		_listBox = new VBoxContainer
 		{
-			AutowrapMode = TextServer.AutowrapMode.WordSmart,
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			Modulate = MechUiTheme.Text
+			SizeFlagsHorizontal = SizeFlags.ExpandFill
 		};
-		_gspBody.AddThemeFontSizeOverride("font_size", 14);
-		scroll.AddChild(_gspBody);
-
-		_gspToggle = new Button
-		{
-			Text = "◀",
-			CustomMinimumSize = new Vector2(28, 56),
-			SizeFlagsVertical = SizeFlags.ShrinkCenter
-		};
-		MechUiTheme.StyleGhostButton(_gspToggle);
-		_gspToggle.Pressed += ToggleGsp;
-		col.AddChild(_gspToggle);
+		_listBox.AddThemeConstantOverride("separation", 6);
+		scroll.AddChild(_listBox);
 	}
 
-	private void BuildCenterColumn(HBoxContainer root)
+	private void BuildPreviewColumn(HBoxContainer columns)
 	{
 		var center = new VBoxContainer
 		{
@@ -156,56 +226,67 @@ public partial class GarageUi : Control
 			SizeFlagsVertical = SizeFlags.ExpandFill
 		};
 		center.AddThemeConstantOverride("separation", 10);
-		root.AddChild(center);
+		columns.AddChild(center);
 
-		var headerPanel = MechUiTheme.MakePanel("HeaderStrip", deep: true);
-		headerPanel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-		center.AddChild(headerPanel);
+		var previewPanel = MechUiTheme.MakePanel("MechPreview");
+		previewPanel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+		previewPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
+		previewPanel.CustomMinimumSize = new Vector2(420, 320);
+		center.AddChild(previewPanel);
 
-		var headerInner = MechUiTheme.MakeHeaderStrip("PREP SCREEN", "");
-		headerPanel.AddChild(headerInner);
-		_titleLabel = headerInner.GetNodeOrNull<Label>("Title");
-		_subtitleLabel = headerInner.GetNodeOrNull<Label>("Subtitle");
+		var previewInner = new VBoxContainer();
+		previewInner.AddThemeConstantOverride("separation", 8);
+		previewPanel.AddChild(previewInner);
+		previewInner.AddChild(MechUiTheme.MakeSectionLabel("MECH PREVIEW"));
 
-		var dollFrame = MechUiTheme.MakePanel("Paperdoll");
-		dollFrame.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-		dollFrame.SizeFlagsVertical = SizeFlags.ExpandFill;
-		dollFrame.CustomMinimumSize = new Vector2(480, 300);
-		center.AddChild(dollFrame);
-
-		var dollInner = new VBoxContainer();
-		dollInner.AddThemeConstantOverride("separation", 8);
-		dollFrame.AddChild(dollInner);
-		dollInner.AddChild(MechUiTheme.MakeSectionLabel("HARDPOINTS"));
-
-		_dollCanvas = new Control
+		_mechPreview = new HangarMechPreview
 		{
-			Name = "DollCanvas",
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			SizeFlagsVertical = SizeFlags.ExpandFill,
-			ClipContents = false
+			CustomMinimumSize = new Vector2(360, 260)
 		};
-		_dollCanvas.Resized += LayoutPaperdoll;
-		dollInner.AddChild(_dollCanvas);
+		previewInner.AddChild(_mechPreview);
 
-		CreateChip(PartSlot.Head, "Head", new Vector2(108, 96));
-		CreateChip(PartSlot.PowerCore, "Core", new Vector2(88, 78));
-		CreateChip(PartSlot.Systems, "Systems", new Vector2(92, 80));
-		CreateChip(PartSlot.WeaponL, "Arm L", new Vector2(100, 148));
-		CreateChip(PartSlot.Torso, "Torso", new Vector2(148, 148));
-		CreateChip(PartSlot.WeaponR, "Arm R", new Vector2(100, 148));
-		CreateChip(PartSlot.Legs, "Legs", new Vector2(180, 120));
-		CreateChip(PartSlot.ShoulderL, "Shoulder L", new Vector2(96, 80));
-		CreateChip(PartSlot.ShoulderR, "Shoulder R", new Vector2(96, 80));
-		CreateChip(PartSlot.Backpack, "Back", new Vector2(100, 76));
-
-		var footer = new VBoxContainer
+		var tip = new Label
 		{
-			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-			SizeFlagsVertical = SizeFlags.ShrinkEnd
+			Text = "Drag to orbit  ·  scroll to zoom",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Muted
 		};
-		footer.AddThemeConstantOverride("separation", 8);
-		center.AddChild(footer);
+		tip.AddThemeFontSizeOverride("font_size", 11);
+		previewInner.AddChild(tip);
+
+		var actions = new HBoxContainer
+		{
+			Alignment = BoxContainer.AlignmentMode.Center,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill
+		};
+		actions.AddThemeConstantOverride("separation", 10);
+		center.AddChild(actions);
+
+		_equipButton = new Button { Text = "EQUIP", CustomMinimumSize = new Vector2(120, 42) };
+		MechUiTheme.StylePrimaryButton(_equipButton);
+		_equipButton.Pressed += OnEquipPressed;
+		actions.AddChild(_equipButton);
+
+		var reset = new Button { Text = "RESET", CustomMinimumSize = new Vector2(120, 42) };
+		MechUiTheme.StyleGhostButton(reset);
+		reset.Pressed += OnResetPressed;
+		actions.AddChild(reset);
+
+		var exit = new Button { Text = "EXIT", CustomMinimumSize = new Vector2(120, 42) };
+		MechUiTheme.StyleGhostButton(exit);
+		exit.Pressed += OnExitPressed;
+		actions.AddChild(exit);
+
+		_equipHint = new Label
+		{
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Muted,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart
+		};
+		_equipHint.AddThemeFontSizeOverride("font_size", 12);
+		center.AddChild(_equipHint);
 
 		_readyButton = new Button
 		{
@@ -215,143 +296,502 @@ public partial class GarageUi : Control
 		};
 		_readyButton.AddThemeFontSizeOverride("font_size", 20);
 		MechUiTheme.StylePrimaryButton(_readyButton);
-		_readyButton.Pressed += () =>
-		{
-			GameCatalog.SanitizeMounts(_draft);
-			SfxService.Confirm();
-			EmitSignal(SignalName.LoadoutApplied, _draft.Clone());
-		};
-		footer.AddChild(_readyButton);
-
-		var reset = new Button
-		{
-			Text = "Reset Starter Kit",
-			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-			CustomMinimumSize = new Vector2(240, 36)
-		};
-		MechUiTheme.StyleGhostButton(reset);
-		reset.Pressed += () =>
-		{
-			_draft = GameCatalog.CreateStarterLoadout();
-			_selected = null;
-			RefreshAll();
-		};
-		footer.AddChild(reset);
-
-		var tip = new Label
-		{
-			Text = "Click a hardpoint to inspect  ·  click again to close",
-			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = MechUiTheme.Muted
-		};
-		tip.AddThemeFontSizeOverride("font_size", 12);
-		footer.AddChild(tip);
+		_readyButton.Pressed += OnReadyPressed;
+		center.AddChild(_readyButton);
 	}
 
-	private void BuildDetailsColumn(HBoxContainer root)
+	private void BuildStatsColumn(HBoxContainer columns)
 	{
-		_detailsPanel = MechUiTheme.MakePanel("Details", 300);
-		_detailsPanel.CustomMinimumSize = new Vector2(300, 0);
-		_detailsPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
-		_detailsPanel.Visible = false;
-		root.AddChild(_detailsPanel);
+		var panel = MechUiTheme.MakePanel("LiveStats", 280);
+		panel.CustomMinimumSize = new Vector2(280, 0);
+		panel.SizeFlagsVertical = SizeFlags.ExpandFill;
+		columns.AddChild(panel);
 
 		var inner = new VBoxContainer();
 		inner.AddThemeConstantOverride("separation", 8);
-		_detailsPanel.AddChild(inner);
+		panel.AddChild(inner);
+		inner.AddChild(MechUiTheme.MakeSectionLabel("LIVE STAT DISPLAY"));
 
-		inner.AddChild(MechUiTheme.MakeSectionLabel("PART BAY"));
-
-		_detailsPortrait = new TextureRect
-		{
-			CustomMinimumSize = new Vector2(140, 140),
-			ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-			StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-			SizeFlagsHorizontal = SizeFlags.ShrinkCenter
-		};
-		inner.AddChild(_detailsPortrait);
-
-		_detailsTitle = new Label
-		{
-			HorizontalAlignment = HorizontalAlignment.Center,
-			AutowrapMode = TextServer.AutowrapMode.WordSmart,
-			Modulate = MechUiTheme.AccentHot
-		};
-		_detailsTitle.AddThemeFontSizeOverride("font_size", 18);
-		inner.AddChild(_detailsTitle);
-
-		var cycle = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-		cycle.AddThemeConstantOverride("separation", 10);
-		inner.AddChild(cycle);
-
-		var prev = new Button { Text = "<  Prev", CustomMinimumSize = new Vector2(96, 34) };
-		MechUiTheme.StyleGhostButton(prev);
-		prev.Pressed += () => CycleSelected(-1);
-		cycle.AddChild(prev);
-
-		var next = new Button { Text = "Next  >", CustomMinimumSize = new Vector2(96, 34) };
-		MechUiTheme.StyleGhostButton(next);
-		next.Pressed += () => CycleSelected(1);
-		cycle.AddChild(next);
-
-		var bodyScroll = new ScrollContainer
+		var scroll = new ScrollContainer
 		{
 			SizeFlagsVertical = SizeFlags.ExpandFill,
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
 		};
-		inner.AddChild(bodyScroll);
+		inner.AddChild(scroll);
 
-		_detailsBody = new Label
+		_statsBody = new RichTextLabel
 		{
-			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			BbcodeEnabled = true,
+			FitContent = true,
+			ScrollActive = false,
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			Modulate = MechUiTheme.Text
+			CustomMinimumSize = new Vector2(0, 40)
 		};
-		_detailsBody.AddThemeFontSizeOverride("font_size", 14);
-		bodyScroll.AddChild(_detailsBody);
+		_statsBody.AddThemeFontSizeOverride("normal_font_size", 13);
+		_statsBody.AddThemeColorOverride("default_color", MechUiTheme.Text);
+		scroll.AddChild(_statsBody);
 	}
 
-	private void CreateChip(PartSlot slot, string caption, Vector2 size)
+	private void OnRailPressed(HangarCategory category)
 	{
-		var chip = new SlotChip(slot, caption, size);
-		chip.Pressed += () => OnChipPressed(slot);
-		_dollCanvas!.AddChild(chip);
-		_chips[slot] = chip;
-	}
-
-	private void OnChipPressed(PartSlot slot)
-	{
-		if (!GameCatalog.IsMountAvailable(_draft, slot) && slot is PartSlot.ShoulderL or PartSlot.ShoulderR or PartSlot.Backpack)
+		SfxService.Click();
+		if (_openCategory == category)
+		{
+			ClearPreviewSelection(closeCategory: true);
+			RefreshAll();
 			return;
+		}
 
-		_selected = _selected == slot ? null : slot;
+		_openCategory = category;
+		_previewPartId = null;
+		_activeSlot = DefaultSlotForCategory(category);
 		RefreshAll();
 	}
 
-	private void CycleSelected(int direction)
+	private PartSlot? DefaultSlotForCategory(HangarCategory category) => category switch
 	{
-		if (_selected == null)
+		HangarCategory.Head => PartSlot.Head,
+		HangarCategory.Torso => PartSlot.Torso,
+		HangarCategory.Legs => PartSlot.Legs,
+		HangarCategory.ArmL => PartSlot.WeaponL,
+		HangarCategory.ArmR => PartSlot.WeaponR,
+		HangarCategory.Utilities => FirstAvailableUtilitySlot(),
+		_ => null
+	};
+
+	private PartSlot? FirstAvailableUtilitySlot()
+	{
+		foreach (var slot in new[] { PartSlot.ShoulderL, PartSlot.ShoulderR, PartSlot.Backpack, PartSlot.Systems })
+		{
+			if (GameCatalog.IsMountAvailable(_draft, slot))
+				return slot;
+		}
+
+		return PartSlot.Systems;
+	}
+
+	private void OnSubSlotPressed(PartSlot slot)
+	{
+		SfxService.Click();
+		_activeSlot = slot;
+		_previewPartId = null;
+		RefreshAll();
+	}
+
+	private void OnPartRowPressed(string partId)
+	{
+		SfxService.Click();
+		if (_activeSlot == null)
 			return;
 
-		var slot = _selected.Value;
-		if (!GameCatalog.IsMountAvailable(_draft, slot))
+		_previewPartId = partId == _draft.GetPartId(_activeSlot.Value) ? null : partId;
+		RefreshAll();
+	}
+
+	private void OnEquipPressed()
+	{
+		if (_activeSlot == null || string.IsNullOrEmpty(_previewPartId))
 			return;
 
-		var options = GetOwnedOptionsForSlot(slot);
-		if (options.Count == 0)
+		var slot = _activeSlot.Value;
+		if (!GameCatalog.CanEquipPart(_draft, slot, _previewPartId))
+		{
+			SfxService.Play("alarm", 1.05f, -6f);
+			RefreshActions();
 			return;
+		}
 
-		var currentId = _draft.GetPartId(slot);
-		var index = options.FindIndex(p => p.Id == currentId);
-		if (index < 0)
-			index = 0;
-
-		index = (index + direction + options.Count) % options.Count;
-		_draft.SetPartId(slot, options[index].Id);
+		SfxService.Confirm();
+		_draft.SetPartId(slot, _previewPartId);
 		if (slot is PartSlot.Torso or PartSlot.PowerCore)
 			GameCatalog.SanitizeMounts(_draft);
+		_previewPartId = null;
 		RefreshAll();
+	}
+
+	private void OnResetPressed()
+	{
+		SfxService.Click();
+		_draft = _baseline.Clone();
+		GameCatalog.SanitizeMounts(_draft);
+		ClearPreviewSelection(closeCategory: true);
+		RefreshAll();
+	}
+
+	private void OnExitPressed()
+	{
+		SfxService.Click();
+		if (_prepMode)
+		{
+			ClearPreviewSelection(closeCategory: true);
+			RefreshAll();
+			return;
+		}
+
+		Visible = false;
+		ClearPreviewSelection(closeCategory: true);
+	}
+
+	private void OnReadyPressed()
+	{
+		GameCatalog.SanitizeMounts(_draft);
+		if (!GameCatalog.IsPowerLegal(_draft))
+		{
+			SfxService.Play("alarm", 1.05f, -6f);
+			RefreshStats();
+			RefreshActions();
+			return;
+		}
+
+		SfxService.Confirm();
+		_baseline = _draft.Clone();
+		EmitSignal(SignalName.LoadoutApplied, _draft.Clone());
+	}
+
+	private void ClearPreviewSelection(bool closeCategory)
+	{
+		_previewPartId = null;
+		_activeSlot = null;
+		if (closeCategory)
+			_openCategory = null;
+	}
+
+	private void RefreshAll()
+	{
+		GameCatalog.SanitizeMounts(_draft);
+		RefreshRail();
+		RefreshComponentList();
+		RefreshPreview();
+		RefreshStats();
+		RefreshActions();
+	}
+
+	private void RefreshRail()
+	{
+		foreach (var (category, button) in _railButtons)
+		{
+			var selected = _openCategory == category;
+			button.ButtonPressed = selected;
+			button.AddThemeStyleboxOverride("normal", MechUiTheme.MakeChipStyle(selected));
+			button.AddThemeStyleboxOverride("hover", MechUiTheme.MakeChipStyle(true));
+			button.AddThemeStyleboxOverride("pressed", MechUiTheme.MakeChipStyle(true));
+			button.AddThemeColorOverride("font_color", selected ? MechUiTheme.AccentHot : MechUiTheme.Muted);
+		}
+	}
+
+	private void RefreshComponentList()
+	{
+		if (_listPanel == null || _listBox == null || _subSlotRow == null || _listHint == null)
+			return;
+
+		foreach (var child in _listBox.GetChildren())
+			child.QueueFree();
+		foreach (var child in _subSlotRow.GetChildren())
+			child.QueueFree();
+
+		if (_openCategory == null || _activeSlot == null)
+		{
+			_listPanel.Visible = false;
+			return;
+		}
+
+		_listPanel.Visible = true;
+		var subSlots = SubSlotsForCategory(_openCategory.Value).ToList();
+		if (subSlots.Count > 1)
+		{
+			foreach (var slot in subSlots)
+			{
+				var selected = _activeSlot == slot;
+				var btn = new Button
+				{
+					Text = SlotLabel(slot),
+					ToggleMode = true,
+					ButtonPressed = selected,
+					SizeFlagsHorizontal = SizeFlags.ExpandFill,
+					CustomMinimumSize = new Vector2(0, 32)
+				};
+				MechUiTheme.StyleGhostButton(btn);
+				if (selected)
+				{
+					btn.AddThemeStyleboxOverride("normal", MechUiTheme.MakeChipStyle(true));
+					btn.AddThemeColorOverride("font_color", MechUiTheme.AccentHot);
+				}
+
+				var captured = slot;
+				btn.Pressed += () => OnSubSlotPressed(captured);
+				_subSlotRow.AddChild(btn);
+			}
+		}
+
+		_listHint.Text = $"{SlotLabel(_activeSlot.Value)}  ·  owned kit  ·  select to preview";
+
+		var options = GetOwnedOptionsForSlot(_activeSlot.Value);
+		var equippedId = _draft.GetPartId(_activeSlot.Value);
+		if (options.Count == 0)
+		{
+			_listBox.AddChild(new Label
+			{
+				Text = "No owned parts for this slot.",
+				Modulate = MechUiTheme.Muted
+			});
+			return;
+		}
+
+		foreach (var part in options)
+		{
+			var isEquipped = part.Id == equippedId;
+			var isPreview = _previewPartId == part.Id;
+			_listBox.AddChild(MakePartRow(part, isEquipped, isPreview));
+		}
+	}
+
+	private IEnumerable<PartSlot> SubSlotsForCategory(HangarCategory category)
+	{
+		switch (category)
+		{
+			case HangarCategory.Head:
+				yield return PartSlot.Head;
+				break;
+			case HangarCategory.Torso:
+				yield return PartSlot.Torso;
+				yield return PartSlot.PowerCore;
+				break;
+			case HangarCategory.Legs:
+				yield return PartSlot.Legs;
+				break;
+			case HangarCategory.ArmL:
+				yield return PartSlot.WeaponL;
+				break;
+			case HangarCategory.ArmR:
+				yield return PartSlot.WeaponR;
+				break;
+			case HangarCategory.Utilities:
+				foreach (var slot in new[] { PartSlot.ShoulderL, PartSlot.ShoulderR, PartSlot.Backpack, PartSlot.Systems })
+				{
+					if (GameCatalog.IsMountAvailable(_draft, slot))
+						yield return slot;
+				}
+				break;
+		}
+	}
+
+	private Control MakePartRow(PartData part, bool equipped, bool preview)
+	{
+		var row = new Button
+		{
+			CustomMinimumSize = new Vector2(0, 72),
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			Alignment = HorizontalAlignment.Left,
+			ClipText = true
+		};
+		var tint = equipped || preview ? part.Tint.Lerp(MechUiTheme.Border, 0.45f) : (Color?)null;
+		row.AddThemeStyleboxOverride("normal", MechUiTheme.MakeChipStyle(equipped || preview, tint));
+		row.AddThemeStyleboxOverride("hover", MechUiTheme.MakeChipStyle(true, part.Tint));
+		row.AddThemeStyleboxOverride("pressed", MechUiTheme.MakeChipStyle(true, part.Tint));
+
+		var body = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+		body.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		body.AddThemeConstantOverride("separation", 10);
+		row.AddChild(body);
+
+		var portrait = new TextureRect
+		{
+			Texture = PartThumbnail.Get(part, 96),
+			CustomMinimumSize = new Vector2(56, 56),
+			ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+			StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+			MouseFilter = MouseFilterEnum.Ignore,
+			SizeFlagsVertical = SizeFlags.ShrinkCenter
+		};
+		body.AddChild(portrait);
+
+		var textCol = new VBoxContainer
+		{
+			MouseFilter = MouseFilterEnum.Ignore,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			SizeFlagsVertical = SizeFlags.ShrinkCenter
+		};
+		textCol.AddThemeConstantOverride("separation", 2);
+		body.AddChild(textCol);
+
+		var name = new Label
+		{
+			Text = part.DisplayName,
+			Modulate = MechUiTheme.AccentHot,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		name.AddThemeFontSizeOverride("font_size", 14);
+		textCol.AddChild(name);
+
+		var mfg = GameCatalog.GetManufacturer(part.ManufacturerId);
+		var meta = new Label
+		{
+			Text = $"{CatalogTiers.ShortLabel(part.Tier)}  ·  {mfg.DisplayName}" +
+			       (equipped ? "  ·  EQUIPPED" : preview ? "  ·  PREVIEW" : ""),
+			Modulate = equipped ? MechUiTheme.Success : preview ? MechUiTheme.Cyan : MechUiTheme.Muted,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		meta.AddThemeFontSizeOverride("font_size", 11);
+		textCol.AddChild(meta);
+
+		if (ManufacturerBrand.TryGetTexture(part.ManufacturerId, out var mark))
+		{
+			var markRect = new TextureRect
+			{
+				Texture = mark,
+				CustomMinimumSize = new Vector2(28, 28),
+				ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+				StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+				MouseFilter = MouseFilterEnum.Ignore,
+				SizeFlagsVertical = SizeFlags.ShrinkCenter
+			};
+			body.AddChild(markRect);
+		}
+
+		var partId = part.Id;
+		row.Pressed += () => OnPartRowPressed(partId);
+		return row;
+	}
+
+	private void RefreshPreview()
+	{
+		_mechPreview?.ShowLoadout(BuildDisplayLoadout());
+	}
+
+	private LoadoutData BuildDisplayLoadout()
+	{
+		var display = _draft.Clone();
+		if (_activeSlot != null && !string.IsNullOrEmpty(_previewPartId))
+		{
+			display.SetPartId(_activeSlot.Value, _previewPartId);
+			if (_activeSlot is PartSlot.Torso or PartSlot.PowerCore)
+				GameCatalog.SanitizeMounts(display);
+		}
+
+		GameCatalog.SanitizeMounts(display);
+		return display;
+	}
+
+	private void RefreshActions()
+	{
+		if (_equipButton == null || _equipHint == null || _readyButton == null)
+			return;
+
+		var previewing = _activeSlot != null && !string.IsNullOrEmpty(_previewPartId);
+		var canEquip = false;
+		if (previewing)
+			canEquip = GameCatalog.CanEquipPart(_draft, _activeSlot!.Value, _previewPartId!);
+
+		_equipButton.Disabled = !previewing || !canEquip;
+		_equipButton.Modulate = _equipButton.Disabled
+			? new Color(1f, 1f, 1f, 0.55f)
+			: Colors.White;
+
+		if (!previewing)
+			_equipHint.Text = "Select a part to preview  ·  EQUIP commits it to the draft";
+		else if (!canEquip)
+			_equipHint.Text = "Cannot equip — power budget or housing conflict";
+		else
+			_equipHint.Text = "Preview active — EQUIP to commit, or pick another part";
+
+		_equipHint.Modulate = previewing && !canEquip ? MechUiTheme.Danger : MechUiTheme.Muted;
+
+		var powerLegal = GameCatalog.IsPowerLegal(_draft);
+		_readyButton.Disabled = !powerLegal;
+		_readyButton.Modulate = powerLegal ? Colors.White : new Color(1f, 0.55f, 0.45f);
+	}
+
+	private void RefreshStats()
+	{
+		if (_statsBody == null)
+			return;
+
+		var baseline = DeriveDraftStats(_draft);
+		var displayLoadout = BuildDisplayLoadout();
+		var preview = DeriveDraftStats(displayLoadout);
+		var previewing = _activeSlot != null && !string.IsNullOrEmpty(_previewPartId);
+
+		var reserved = GameCatalog.SumPowerRequirements(displayLoadout);
+		var capacity = GameCatalog.GetCoreCapacity(displayLoadout);
+		var operational = Mathf.Max(0f, capacity - reserved);
+		var powerLegal = GameCatalog.IsPowerLegal(displayLoadout);
+		var legs = GameCatalog.GetPart(displayLoadout.LegsId);
+		var drive = legs?.LegType switch
+		{
+			LegType.Hexapod => "Hexapod strafe",
+			LegType.Tracks => "Tracked tank",
+			_ => "Bipedal tank"
+		};
+
+		var sb = new StringBuilder();
+		sb.AppendLine(previewing ? "// PREVIEW vs DRAFT" : "// DRAFT LOADOUT");
+		sb.AppendLine();
+		AppendStat(sb, "Torso integrity", baseline.TorsoHp, preview.TorsoHp, previewing, "0");
+		sb.AppendLine();
+		sb.AppendLine("POWER");
+		sb.AppendLine($"  Class {preview.PowerCoreClass}/{preview.PowerCoreHousing}");
+		AppendStat(sb, "Capacity", baseline.PowerCapacity, preview.PowerCapacity, previewing, "0");
+		AppendStat(sb, "Generation", baseline.PowerGeneration, preview.PowerGeneration, previewing, "0");
+		AppendStat(sb, "Reserved", GameCatalog.SumPowerRequirements(_draft), reserved, previewing, "0");
+		AppendStat(sb, "Pool",
+			Mathf.Max(0f, GameCatalog.GetCoreCapacity(_draft) - GameCatalog.SumPowerRequirements(_draft)),
+			operational, previewing, "0");
+		if (!powerLegal)
+			sb.AppendLine("  [color=#E66152]!! OVERBUDGET — strip kit or upgrade core[/color]");
+		sb.AppendLine();
+		sb.AppendLine("HEAT");
+		AppendStat(sb, "Cap", baseline.HeatCap, preview.HeatCap, previewing, "0");
+		AppendStat(sb, "Dissipate", baseline.HeatDissipation, preview.HeatDissipation, previewing, "0.0");
+		sb.AppendLine();
+		sb.AppendLine("SENSORS");
+		AppendStat(sb, "Vision m", baseline.VisionRange, preview.VisionRange, previewing, "0");
+		AppendStat(sb, "Vision deg", baseline.VisionAngleDeg, preview.VisionAngleDeg, previewing, "0");
+		AppendStat(sb, "Close ID", baseline.CloseTargeting, preview.CloseTargeting, previewing, "0.00");
+		AppendStat(sb, "Scan m", baseline.ScannerRange, preview.ScannerRange, previewing, "0");
+		sb.AppendLine();
+		sb.AppendLine("MOBILITY");
+		sb.AppendLine($"  {drive}");
+		var draftWeight = GameCatalog.SumWeight(_draft);
+		var draftRating = GameCatalog.GetLoadRating(_draft);
+		var previewWeight = GameCatalog.SumWeight(displayLoadout);
+		var previewRating = GameCatalog.GetLoadRating(displayLoadout);
+		AppendStat(sb, "Weight", draftWeight, previewWeight, previewing, "0");
+		AppendStat(sb, "Load rating", draftRating, previewRating, previewing, "0");
+		var loadPct = previewRating > 0.01f ? previewWeight / previewRating * 100f : 0f;
+		sb.AppendLine($"  Load  {loadPct:0}%");
+		if (GameCatalog.IsOverLoadRating(displayLoadout))
+			sb.AppendLine("  [color=#E8A24A]!! OVER RATING — walk/turn will suffer[/color]");
+		AppendStat(sb, "Walk",
+			baseline.WalkSpeed * baseline.WeightMoveMultiplier,
+			preview.WalkSpeed * preview.WeightMoveMultiplier,
+			previewing, "0.0");
+		AppendStat(sb, "Turn",
+			baseline.TurnRateDegrees * baseline.WeightTurnMultiplier,
+			preview.TurnRateDegrees * preview.WeightTurnMultiplier,
+			previewing, "0");
+		sb.AppendLine($"  Sprint {(preview.CanSprint ? $"Yes ×{preview.SprintMultiplier:0.00}" : "No")}");
+		sb.AppendLine();
+		sb.AppendLine("MOUNTS");
+		sb.AppendLine($"  {preview.ShoulderMounts} shoulder / {preview.BackMounts} back");
+
+		_statsBody.Text = sb.ToString().TrimEnd();
+	}
+
+	private static void AppendStat(
+		StringBuilder sb, string label, float baseline, float preview, bool previewing, string format)
+	{
+		if (!previewing || Mathf.IsEqualApprox(baseline, preview))
+		{
+			sb.AppendLine($"  {label}  {preview.ToString(format)}");
+			return;
+		}
+
+		var delta = preview - baseline;
+		var sign = delta > 0f ? "+" : "";
+		var color = delta > 0f ? "#73C7EB" : "#E66152";
+		sb.AppendLine(
+			$"  {label}  {preview.ToString(format)}  [color={color}]({sign}{delta.ToString(format)})[/color]");
 	}
 
 	private List<PartData> GetOwnedOptionsForSlot(PartSlot slot)
@@ -373,72 +813,42 @@ public partial class GarageUi : Control
 				list.Insert(0, current);
 		}
 
+		// Equipped always first.
+		list = list
+			.OrderByDescending(p => p.Id == currentId)
+			.ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+			.ToList();
 		return list;
 	}
 
-	private void ToggleGsp()
+	private static MechStats DeriveDraftStats(LoadoutData loadout)
 	{
-		_gspCollapsed = !_gspCollapsed;
-		if (_gspPanel != null)
-			_gspPanel.Visible = !_gspCollapsed;
-		if (_gspToggle != null)
-			_gspToggle.Text = _gspCollapsed ? "▶" : "◀";
-	}
-
-	private void RefreshAll()
-	{
-		GameCatalog.SanitizeMounts(_draft);
-		RefreshGsp();
-		RefreshPaperdoll();
-		RefreshDetails();
-		CallDeferred(MethodName.LayoutPaperdoll);
-	}
-
-	private void RefreshGsp()
-	{
-		if (_gspBody == null)
-			return;
-
-		GameCatalog.SanitizeMounts(_draft);
-		var stats = DeriveDraftStats();
-		var legs = GameCatalog.GetPart(_draft.LegsId);
-		var drive = legs?.LegType switch
-		{
-			LegType.Hexapod => "Hexapod strafe",
-			LegType.Tracks => "Tracked tank",
-			_ => "Bipedal tank"
-		};
-
-		_gspBody.Text =
-			$"HULL\n  {stats.HullHp:0}\n\n" +
-			$"POWER\n  Class {stats.PowerCoreClass}/{stats.PowerCoreHousing}\n  Cap {stats.PowerCapacity:0}  Out {stats.PowerOutput:0}\n\n" +
-			$"HEAT\n  Cap {stats.HeatCap:0}\n  Dissipate {stats.HeatDissipation:0.0}/s\n\n" +
-			$"SENSORS\n  Vision {stats.VisionRange:0}m / {stats.VisionAngleDeg:0}°\n  Close ID {stats.CloseTargeting:0.00}\n  Scan {stats.ScannerRange:0}m\n\n" +
-			$"MOBILITY\n  {drive}\n  Walk {stats.WalkSpeed:0.0}\n  Turn {stats.TurnRateDegrees:0}°/s\n  Sprint {(stats.CanSprint ? $"Yes ×{stats.SprintMultiplier:0.00}" : "No")}\n\n" +
-			$"MOUNTS\n  {stats.ShoulderMounts} shoulder / {stats.BackMounts} back";
-	}
-
-	private MechStats DeriveDraftStats()
-	{
-		float hull = 40f, speed = 8f, turn = 70f, fire = 1f;
+		float torsoHp = 40f, speed = 8f, turn = 70f, fire = 1f;
 		float heatCap = 40f, dissipate = 6f, idle = 0.5f, moveHeat = 0f;
-		float powerCap = 40f, powerOut = 10f;
+		float powerCap = 0f, powerGen = 0f, reserved = 0f;
+		var hasCore = false;
 		int coreClass = 0, housing = 1, shoulders = 0, backs = 0;
 		float vision = 12f, angle = 50f, close = 0.15f, scan = 20f, scanRes = 0.1f;
 		bool canSprint = false;
 		float sprintMult = 1.45f, sprintHeat = 18f, sprintLoad = 25f;
 		var legMode = LegMode.Locked;
 		var legType = LegType.Bipedal;
+		float totalWeight = 0f, loadRating = 0f;
 
 		foreach (PartSlot slot in Enum.GetValues(typeof(PartSlot)))
 		{
-			if (!GameCatalog.IsMountAvailable(_draft, slot))
+			if (!GameCatalog.IsMountAvailable(loadout, slot))
 				continue;
-			var p = GameCatalog.GetPart(_draft.GetPartId(slot));
+			var p = GameCatalog.GetPart(loadout.GetPartId(slot));
 			if (p == null)
 				continue;
 
-			hull += p.Armor + p.HullBonus;
+			if (p.VisualKind != "empty")
+			{
+				reserved += Math.Max(0f, p.PowerRequirement);
+				totalWeight += Math.Max(0f, p.Weight);
+			}
+
 			speed += p.MaxSpeed;
 			turn += p.TurnRateDegrees;
 			fire += p.FireRateBonus;
@@ -450,14 +860,16 @@ public partial class GarageUi : Control
 			switch (slot)
 			{
 				case PartSlot.Torso:
+					torsoHp = Math.Max(1f, p.StructureHp);
 					housing = Math.Max(1, p.PowerCoreHousing);
 					shoulders = p.ShoulderMountCount;
 					backs = p.BackpackMountCount;
 					break;
 				case PartSlot.PowerCore:
+					hasCore = true;
 					coreClass = p.PowerCoreClass;
-					powerCap += p.PowerCapacity;
-					powerOut += p.PowerOutput;
+					powerCap = Math.Max(0f, p.PowerCapacity);
+					powerGen = Math.Max(0f, p.PowerOutput);
 					break;
 				case PartSlot.Head:
 					vision = p.VisionRange;
@@ -473,19 +885,33 @@ public partial class GarageUi : Control
 					sprintMult = p.SprintMultiplier > 0.1f ? p.SprintMultiplier : 1.45f;
 					sprintHeat = p.SprintHeatPerSec;
 					sprintLoad = p.SprintPowerLoad;
+					loadRating = Math.Max(0f, p.LoadRating);
 					break;
 			}
 		}
 
+		if (!hasCore)
+		{
+			powerCap = 0f;
+			powerGen = 0f;
+		}
+
+		reserved = Math.Max(0f, reserved);
+		var operational = Math.Max(0f, powerCap - reserved);
+		var (weightMove, weightTurn, loadRatio) =
+			CatalogWeight.ComputeOverloadMultipliers(totalWeight, loadRating);
+
 		return new MechStats
 		{
-			HullHp = Math.Max(40f, hull),
+			TorsoHp = torsoHp,
 			ShoulderMounts = shoulders,
 			BackMounts = backs,
 			PowerCoreClass = coreClass,
 			PowerCoreHousing = housing,
-			PowerCapacity = Math.Max(40f, powerCap),
-			PowerOutput = Math.Max(5f, powerOut),
+			PowerCapacity = powerCap,
+			PowerGeneration = powerGen,
+			PowerReserved = reserved,
+			OperationalMax = operational,
 			HeatCap = Math.Max(40f, heatCap),
 			HeatDissipation = Math.Max(2f, dissipate),
 			IdleHeatPerSec = idle,
@@ -503,313 +929,27 @@ public partial class GarageUi : Control
 			SprintHeatPerSec = sprintHeat,
 			SprintPowerLoad = sprintLoad,
 			LegMode = legMode,
-			LegType = legType
+			LegType = legType,
+			TotalWeight = totalWeight,
+			LoadRating = loadRating,
+			LoadRatio = loadRatio,
+			WeightMoveMultiplier = weightMove,
+			WeightTurnMultiplier = weightTurn
 		};
-	}
-
-	private void RefreshPaperdoll()
-	{
-		var torsoExpanded = _selected is PartSlot.Torso or PartSlot.ShoulderL or PartSlot.ShoulderR or PartSlot.Backpack;
-
-		foreach (var (slot, chip) in _chips)
-		{
-			var available = GameCatalog.IsMountAvailable(_draft, slot);
-			var isMount = slot is PartSlot.ShoulderL or PartSlot.ShoulderR or PartSlot.Backpack;
-			chip.Visible = available && (!isMount || torsoExpanded);
-
-			var part = available ? GameCatalog.GetPart(_draft.GetPartId(slot)) : null;
-			chip.SetPart(part, _selected == slot);
-
-			// When mount cluster is open: fade the rest of the doll and keep mounts on top.
-			var inFocusCluster = torsoExpanded && (slot == PartSlot.Torso || isMount);
-			var dimmed = torsoExpanded && !inFocusCluster && chip.Visible;
-			chip.SetDimmed(dimmed);
-
-			if (!chip.Visible)
-			{
-				chip.ZIndex = 0;
-				continue;
-			}
-
-			if (torsoExpanded && isMount)
-				chip.ZIndex = 20;
-			else if (torsoExpanded && slot == PartSlot.Torso)
-				chip.ZIndex = 15;
-			else if (dimmed)
-				chip.ZIndex = 0;
-			else
-				chip.ZIndex = 5;
-		}
-
-		if (torsoExpanded)
-		{
-			// Ensure draw order among siblings matches ZIndex intent.
-			_chips[PartSlot.Torso].MoveToFront();
-			if (_chips[PartSlot.ShoulderL].Visible)
-				_chips[PartSlot.ShoulderL].MoveToFront();
-			if (_chips[PartSlot.ShoulderR].Visible)
-				_chips[PartSlot.ShoulderR].MoveToFront();
-			if (_chips[PartSlot.Backpack].Visible)
-				_chips[PartSlot.Backpack].MoveToFront();
-		}
-	}
-
-	private void RefreshDetails()
-	{
-		if (_detailsPanel == null)
-			return;
-
-		if (_selected == null)
-		{
-			_detailsPanel.Visible = false;
-			return;
-		}
-
-		var slot = _selected.Value;
-		_detailsPanel.Visible = true;
-
-		var part = GameCatalog.GetPart(_draft.GetPartId(slot));
-		if (_detailsPortrait != null)
-			_detailsPortrait.Texture = PartPortrait.Get(part, 192);
-
-		if (_detailsTitle != null)
-			_detailsTitle.Text = part == null
-				? $"Empty {SlotLabel(slot)}"
-				: $"{part.DisplayName}  ·  {CatalogTiers.ShortLabel(part.Tier)}";
-
-		if (_detailsBody == null)
-			return;
-
-		if (part == null)
-		{
-			_detailsBody.Text = $"{SlotLabel(slot)}\n\nNo part equipped.\nUse Prev / Next to install one.";
-			_detailsBody.Modulate = Colors.White;
-			return;
-		}
-
-		var mfg = GameCatalog.GetManufacturer(part.ManufacturerId);
-		var sb = new StringBuilder();
-		sb.AppendLine(SlotLabel(slot));
-		sb.AppendLine();
-		sb.AppendLine($"{CatalogTiers.Label(part.Tier)}  ·  {mfg.DisplayName}");
-		sb.AppendLine(mfg.Niche);
-		sb.AppendLine();
-		sb.AppendLine(mfg.Blurb);
-		sb.AppendLine();
-
-		if (part.Armor != 0) sb.AppendLine($"Armor  {part.Armor:+0;-0}");
-		if (part.HullBonus != 0) sb.AppendLine($"Hull  {part.HullBonus:+0;-0}");
-		if (part.MaxSpeed != 0) sb.AppendLine($"Speed  {part.MaxSpeed:+0.0;-0.0}");
-		if (part.TurnRateDegrees != 0) sb.AppendLine($"Turn  {part.TurnRateDegrees:+0;-0}°");
-		if (part.WeaponFamily != WeaponFamily.None)
-			sb.AppendLine($"Family  {part.WeaponFamily}");
-
-		if (part.Damage > 0)
-		{
-			sb.AppendLine($"Damage  {part.Damage:0}");
-			sb.AppendLine($"Fire rate  {part.FireRate:0.0}/s");
-			sb.AppendLine($"Range  {part.Range:0}");
-			sb.AppendLine($"Aim  {part.AimMode}");
-			sb.AppendLine($"Heat/shot  {part.HeatPerShot:0.0}");
-			sb.AppendLine($"Power draw  {part.PowerLoadWhileFiring:0}");
-			if (part.TargetingMode == TargetingMode.AimedComponent)
-				sb.AppendLine("Sharpshooter targeting");
-		}
-
-		if (slot == PartSlot.Legs)
-		{
-			sb.AppendLine($"Locomotion  {part.LegType} / {part.LegMode}");
-			sb.AppendLine(part.CanSprint
-				? $"Sprint  x{part.SprintMultiplier:0.00}  (heat {part.SprintHeatPerSec:0}/s, load {part.SprintPowerLoad:0})"
-				: "Sprint  not supported");
-		}
-		if (slot == PartSlot.Torso)
-		{
-			sb.AppendLine($"Power housing  Class {part.PowerCoreHousing}");
-			sb.AppendLine($"Mounts  {part.ShoulderMountCount} shoulder, {part.BackpackMountCount} backpack");
-		}
-		if (slot == PartSlot.PowerCore)
-		{
-			sb.AppendLine($"Core class  {part.PowerCoreClass}");
-			sb.AppendLine($"Power capacity  {part.PowerCapacity:0}");
-			sb.AppendLine($"Power output  {part.PowerOutput:0}");
-		}
-		if (slot == PartSlot.Head)
-		{
-			sb.AppendLine($"Vision  {part.VisionRange:0}m / {part.VisionAngleDeg:0}°");
-			sb.AppendLine($"Close targeting  {part.CloseTargeting:0.00}");
-			sb.AppendLine($"Scanner  {part.ScannerRange:0}m (res {part.ScannerResolution:0.00})");
-		}
-		if (part.HeatCapBonus != 0) sb.AppendLine($"Heat cap  +{part.HeatCapBonus:0}");
-		if (part.HeatDissipation > 0) sb.AppendLine($"Heat sink  +{part.HeatDissipation:0.0}/s");
-		if (part.AbilityKind == AbilityKind.Active)
-		{
-			sb.AppendLine($"Active  {part.AbilityId} ({part.AbilityCooldown:0.0}s)");
-			sb.AppendLine($"Ability load  {part.AbilityPowerLoad:0}  heat {part.AbilityHeatBurst:0}");
-		}
-		if (part.AbilityKind == AbilityKind.Passive)
-			sb.AppendLine($"Passive  {part.AbilityId}" + (part.FireRateBonus > 0 ? $" (+{part.FireRateBonus * 100f:0}% fire)" : ""));
-
-		_detailsBody.Text = sb.ToString().TrimEnd();
-		_detailsBody.Modulate = Colors.White;
-	}
-
-	private void LayoutPaperdoll()
-	{
-		if (_dollCanvas == null)
-			return;
-
-		var size = _dollCanvas.Size;
-		if (size.X < 8 || size.Y < 8)
-			return;
-
-		var cx = size.X * 0.5f;
-		var cy = size.Y * 0.5f;
-		var torsoExpanded = _selected is PartSlot.Torso or PartSlot.ShoulderL or PartSlot.ShoulderR or PartSlot.Backpack;
-		var scale = Mathf.Clamp(Mathf.Min(size.X / 520f, size.Y / 420f), 0.68f, 1.05f);
-
-		Place(_chips[PartSlot.Head], cx, cy - 155f * scale, scale);
-		Place(_chips[PartSlot.WeaponL], cx - 138f * scale, cy + 8f * scale, scale);
-		Place(_chips[PartSlot.WeaponR], cx + 138f * scale, cy + 8f * scale, scale);
-		Place(_chips[PartSlot.Torso], cx, cy - 4f * scale, scale * (torsoExpanded ? 1.08f : 1f));
-		Place(_chips[PartSlot.Legs], cx, cy + 138f * scale, scale);
-
-		// Core / Systems sit on the outer flanks so they clear shoulders, torso, and arms.
-		Place(_chips[PartSlot.PowerCore], cx - 210f * scale, cy + 18f * scale, scale * 0.9f);
-		Place(_chips[PartSlot.Systems], cx + 210f * scale, cy + 18f * scale, scale * 0.9f);
-
-		if (_chips[PartSlot.ShoulderL].Visible)
-			Place(_chips[PartSlot.ShoulderL], cx - 86f * scale, cy - 72f * scale, scale);
-		if (_chips[PartSlot.ShoulderR].Visible)
-			Place(_chips[PartSlot.ShoulderR], cx + 86f * scale, cy - 72f * scale, scale);
-		// Back sits on the torso body (was too low, floating between torso and legs).
-		if (_chips[PartSlot.Backpack].Visible)
-			Place(_chips[PartSlot.Backpack], cx, cy + 36f * scale, scale);
-	}
-
-	private static void Place(SlotChip chip, float x, float y, float scale = 1f)
-	{
-		var size = chip.ChipSize * scale;
-		chip.CustomMinimumSize = size;
-		chip.Size = size;
-		chip.Position = new Vector2(x - size.X * 0.5f, y - size.Y * 0.5f);
 	}
 
 	private static string SlotLabel(PartSlot slot) => slot switch
 	{
 		PartSlot.Head => "Head",
+		PartSlot.Torso => "Torso",
 		PartSlot.PowerCore => "Power Core",
-		PartSlot.Systems => "Systems",
+		PartSlot.Legs => "Legs",
 		PartSlot.WeaponL => "Left Arm",
 		PartSlot.WeaponR => "Right Arm",
-		PartSlot.ShoulderL => "Left Shoulder",
-		PartSlot.ShoulderR => "Right Shoulder",
+		PartSlot.ShoulderL => "L Shoulder",
+		PartSlot.ShoulderR => "R Shoulder",
 		PartSlot.Backpack => "Backpack",
+		PartSlot.Systems => "Systems",
 		_ => slot.ToString()
 	};
-
-	private partial class SlotChip : Button
-	{
-		public PartSlot Slot { get; }
-		public Vector2 ChipSize { get; }
-
-		private readonly TextureRect _portrait;
-		private readonly Label _caption;
-		private readonly Label _name;
-
-		public SlotChip(PartSlot slot, string caption, Vector2 size)
-		{
-			Slot = slot;
-			ChipSize = size;
-			CustomMinimumSize = size;
-			FocusMode = FocusModeEnum.None;
-			Flat = true;
-			ClipText = false;
-
-			var root = new VBoxContainer
-			{
-				MouseFilter = MouseFilterEnum.Ignore
-			};
-			root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-			root.AddThemeConstantOverride("separation", 1);
-			AddChild(root);
-
-			_portrait = new TextureRect
-			{
-				SizeFlagsVertical = SizeFlags.ExpandFill,
-				ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-				StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-				MouseFilter = MouseFilterEnum.Ignore
-			};
-			root.AddChild(_portrait);
-
-			_caption = new Label
-			{
-				Text = caption,
-				HorizontalAlignment = HorizontalAlignment.Center,
-				MouseFilter = MouseFilterEnum.Ignore,
-				Modulate = MechUiTheme.Muted
-			};
-			_caption.AddThemeFontSizeOverride("font_size", 11);
-			root.AddChild(_caption);
-
-			_name = new Label
-			{
-				Text = "",
-				HorizontalAlignment = HorizontalAlignment.Center,
-				VerticalAlignment = VerticalAlignment.Center,
-				MouseFilter = MouseFilterEnum.Ignore,
-				ClipText = true,
-				TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-				CustomMinimumSize = new Vector2(0, 16)
-			};
-			_name.AddThemeFontSizeOverride("font_size", 12);
-			root.AddChild(_name);
-
-			ApplyChrome(false, null);
-		}
-
-		public void SetPart(PartData? part, bool selected)
-		{
-			_portrait.Texture = PartPortrait.Get(part, 128);
-			var label = ChipLabel(part);
-			_name.Text = label;
-			TooltipText = part == null
-				? $"{_caption.Text}: Empty"
-				: $"{_caption.Text}: {part.DisplayName}";
-			_name.Modulate = part == null || part.VisualKind == "empty"
-				? MechUiTheme.Muted
-				: part.Tint.Lerp(Colors.White, 0.45f);
-			Color? tint = part == null || part.VisualKind == "empty"
-				? null
-				: part.Tint.Lerp(MechUiTheme.Border, 0.55f);
-			ApplyChrome(selected, tint);
-		}
-
-		public void SetDimmed(bool dimmed)
-		{
-			Modulate = dimmed
-				? new Color(1f, 1f, 1f, 0.28f)
-				: Colors.White;
-			// Still clickable so you can jump to another hardpoint, but quieter.
-			MouseDefaultCursorShape = dimmed
-				? CursorShape.Arrow
-				: CursorShape.PointingHand;
-		}
-
-		private static string ChipLabel(PartData? part)
-		{
-			if (part == null || part.VisualKind == "empty")
-				return "Empty";
-			return part.DisplayName;
-		}
-
-		private void ApplyChrome(bool selected, Color? tint)
-		{
-			var style = MechUiTheme.MakeChipStyle(selected, tint);
-			AddThemeStyleboxOverride("normal", style);
-			AddThemeStyleboxOverride("hover", style);
-			AddThemeStyleboxOverride("pressed", style);
-		}
-	}
 }

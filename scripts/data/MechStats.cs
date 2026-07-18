@@ -6,15 +6,22 @@ namespace Mechanize;
 public sealed class MechStats
 {
 	// Durability
-	public float HullHp { get; init; } = 100f;
+	/// <summary>Torso structure. This is the MAP's only defeat health pool.</summary>
+	public float TorsoHp { get; init; } = 100f;
 	public int ShoulderMounts { get; init; }
 	public int BackMounts { get; init; }
 
 	// Power
 	public int PowerCoreClass { get; init; } = 1;
 	public int PowerCoreHousing { get; init; } = 1;
+	/// <summary>Core capacity. Installation budget for PowerRequirement totals.</summary>
 	public float PowerCapacity { get; init; } = 100f;
-	public float PowerOutput { get; init; } = 20f;
+	/// <summary>Power generated per second into the operational pool.</summary>
+	public float PowerGeneration { get; init; } = 20f;
+	/// <summary>Sum of living component PowerRequirement values.</summary>
+	public float PowerReserved { get; init; }
+	/// <summary>Capacity minus reserved. Size of the rechargeable combat pool.</summary>
+	public float OperationalMax { get; init; } = 40f;
 
 	// Heat
 	public float HeatCap { get; init; } = 100f;
@@ -40,11 +47,24 @@ public sealed class MechStats
 	public LegMode LegMode { get; init; } = LegMode.Locked;
 	public LegType LegType { get; init; } = LegType.Bipedal;
 
+	/// <summary>Sum of installed non-empty part weights (includes destroyed parts).</summary>
+	public float TotalWeight { get; init; }
+	/// <summary>Living legs LoadRating. Zero when legs are missing/destroyed.</summary>
+	public float LoadRating { get; init; }
+	/// <summary>TotalWeight / LoadRating.</summary>
+	public float LoadRatio { get; init; } = 1f;
+	/// <summary>1 at/under rating → 0 at 200% rating.</summary>
+	public float WeightMoveMultiplier { get; init; } = 1f;
+	/// <summary>(WeightMoveMultiplier)² — turn degrades faster under overload.</summary>
+	public float WeightTurnMultiplier { get; init; } = 1f;
+
 	public static MechStats BlindFallback => new()
 	{
-		HullHp = 40f,
+		TorsoHp = 40f,
 		PowerCapacity = 40f,
-		PowerOutput = 8f,
+		PowerGeneration = 8f,
+		PowerReserved = 0f,
+		OperationalMax = 40f,
 		HeatCap = 60f,
 		HeatDissipation = 6f,
 		IdleHeatPerSec = 2f,

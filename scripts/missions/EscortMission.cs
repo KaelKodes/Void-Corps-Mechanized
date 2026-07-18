@@ -7,6 +7,9 @@ namespace Mechanize;
 /// </summary>
 public sealed class EscortMission : MissionBase
 {
+	/// <summary>Mission-exclusive haul-line corridor (see ClaimArenaLayout / VoidCorpsIdentity).</summary>
+	public const string ClaimCode = "VC-CLAIM DRIFT-HAUL";
+
 	private enum Phase
 	{
 		ToVein,
@@ -21,6 +24,8 @@ public sealed class EscortMission : MissionBase
 	private Phase _phase = Phase.ToVein;
 	private float _mineDuration = 48f;
 	private float _mineElapsed;
+	private bool _mounted;
+	private bool _awaitingDismountToDrill;
 
 	public EscortMission() : base(MissionType.Escort) { }
 
@@ -91,16 +96,31 @@ public sealed class EscortMission : MissionBase
 
 		if (_rig.IsDestroyed)
 		{
+			if (_mounted)
+				ForceDismount();
 			SfxService.Play("alarm");
 			Lose();
 			return;
 		}
 
+		HandleMountInput();
+
 		switch (_phase)
 		{
 			case Phase.ToVein:
 				if (_rig.HasArrived)
-					BeginMining();
+				{
+					if (_mounted)
+					{
+						// Rig parks at the vein but will not drill with a rider aboard.
+						_awaitingDismountToDrill = true;
+						_marker?.SetLabel("DISMOUNT");
+					}
+					else
+					{
+						BeginMining();
+					}
+				}
 				break;
 
 			case Phase.Mining:
@@ -159,6 +179,72 @@ public sealed class EscortMission : MissionBase
 		SfxService.Confirm();
 	}
 
+	private bool MountAllowed =>
+		_phase is Phase.ToVein or Phase.Returning && _rig is { IsDestroyed: false };
+
+	private void HandleMountInput()
+	{
+		var player = Host.Player;
+		if (_rig == null || player == null || !GodotObject.IsInstanceValid(player))
+			return;
+
+		// Pilot down while aboard — set them off so the collapse resolves normally.
+		if (_mounted && player.Integrity?.IsCollapsed == true)
+		{
+			ForceDismount();
+			return;
+		}
+
+		// Riding is a single-player feature for now; co-op is host-authoritative and
+		// doesn't replicate the interact tap.
+		var net = player.GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true })
+			return;
+
+		if (!Input.IsActionJustPressed("interact"))
+			return;
+
+		if (_mounted)
+			DoDismount();
+		else if (MountAllowed && _rig.CanMountFrom(player.GlobalPosition))
+			DoMount();
+	}
+
+	private void DoMount()
+	{
+		var mount = _rig?.MountPoint;
+		if (mount == null || Host.Player == null)
+			return;
+
+		Host.Player.MountToCarrier(mount);
+		_mounted = true;
+		SfxService.Confirm();
+	}
+
+	private void DoDismount()
+	{
+		if (_rig == null || Host.Player == null)
+			return;
+
+		Host.Player.DismountFromCarrier(_rig.SafeDismountPosition());
+		_mounted = false;
+		SfxService.Click();
+
+		// Dropped off at the vein — the drill can spin up now.
+		if (_awaitingDismountToDrill)
+		{
+			_awaitingDismountToDrill = false;
+			BeginMining();
+		}
+	}
+
+	private void ForceDismount()
+	{
+		if (Host.Player is { } player && GodotObject.IsInstanceValid(player) && _rig != null)
+			player.DismountFromCarrier(_rig.SafeDismountPosition());
+		_mounted = false;
+	}
+
 	public override string GetHudLine()
 	{
 		if (_rig == null)
@@ -169,19 +255,41 @@ public sealed class EscortMission : MissionBase
 			return "OBJECTIVE  Ore secured at drop beacon" + ExtractHudHint();
 
 		var hp = _rig.HealthRatio * 100f;
+
+		if (_awaitingDismountToDrill)
+			return $"OBJECTIVE  Dismount (E) to begin drilling  (HP {hp:0}%)";
+
+		if (_mounted)
+			return _phase == Phase.Returning
+				? $"OBJECTIVE  Riding rig home — Shift overdrive{OverdriveState()}  ·  E dismount  (HP {hp:0}%)"
+				: $"OBJECTIVE  Riding rig to vein — Shift overdrive{OverdriveState()}  ·  E dismount  (HP {hp:0}%)";
+
 		return _phase switch
 		{
 			Phase.ToVein =>
-				$"OBJECTIVE  Escort mining rig to the vein  (HP {hp:0}% — stay close)",
+				$"OBJECTIVE  Escort mining rig to the vein  (HP {hp:0}% — stay close){MountHint()}",
 			Phase.Mining when _rig.IsEscorted =>
 				$"OBJECTIVE  Guard the dig  ·  cargo {Mathf.RoundToInt(_rig.CargoFill * 100f)}%  (HP {hp:0}%)",
 			Phase.Mining =>
 				$"OBJECTIVE  Return to the rig — mining paused  ·  cargo {Mathf.RoundToInt(_rig.CargoFill * 100f)}%",
 			Phase.Returning =>
-				$"OBJECTIVE  Escort full rig back to drop beacon  (HP {hp:0}% — stay close)",
+				$"OBJECTIVE  Escort full rig back to drop beacon  (HP {hp:0}% — stay close){MountHint()}",
 			_ => "OBJECTIVE  Mining escort"
 		};
 	}
+
+	private string MountHint()
+	{
+		if (!MountAllowed || _rig == null || Host.Player is not { } player)
+			return "";
+		var net = player.GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true })
+			return "";
+		return _rig.CanMountFrom(player.GlobalPosition) ? "  |  E to mount & ride" : "";
+	}
+
+	private string OverdriveState() =>
+		Host.Player?.IsCarrierOverdriveActive == true ? " [ACTIVE]" : " (normal PWR / 2× HEAT)";
 
 	private Vector3 Offset(Vector3 from, float right, float forward)
 	{

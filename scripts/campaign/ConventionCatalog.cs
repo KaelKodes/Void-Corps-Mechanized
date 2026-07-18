@@ -5,11 +5,17 @@ namespace Mechanize;
 public sealed class ManufacturerTrialDef
 {
 	public required string ManufacturerId { get; init; }
+	public required string LiaisonName { get; init; }
+	public required string LiaisonShortName { get; init; }
+	public required string LiaisonTitle { get; init; }
 	public required string BannerSnippet { get; init; }
 	public required string[] PitchLines { get; init; }
 	public required string[] QualifiedReturnLines { get; init; }
 	public required string[] FailedReturnLines { get; init; }
 	public required string[] WithdrawnReturnLines { get; init; }
+	/// <summary>Use {0} for the rival manufacturer's display name.</summary>
+	public required string ForgivenessLine { get; init; }
+	public required string[] DepartureLines { get; init; }
 	public required MissionType TrialMission { get; init; }
 	public required LoadoutData DemoLoaner { get; init; }
 	public required LoadoutData SigningLoadout { get; init; }
@@ -17,6 +23,19 @@ public sealed class ManufacturerTrialDef
 	public int SigningBonusScrap { get; init; }
 	public int SigningBonusLives { get; init; }
 	public required string SigningBonusBlurb { get; init; }
+
+	public string SpeakerTag => LiaisonShortName.ToUpperInvariant();
+
+	public string FormatLine(string body) => $"{SpeakerTag}  ·  {body}";
+
+	public string FormatForgiveness(string rivalDisplayName) =>
+		FormatLine(string.Format(ForgivenessLine, rivalDisplayName));
+
+	public IEnumerable<string> FormatLines(IEnumerable<string> bodies)
+	{
+		foreach (var body in bodies)
+			yield return FormatLine(body);
+	}
 }
 
 /// <summary>Convention pitches, demo loaners, trial missions, and signing packages.</summary>
@@ -44,34 +63,45 @@ public static class ConventionCatalog
 			["brimforge"] = new ManufacturerTrialDef
 			{
 				ManufacturerId = "brimforge",
-				BannerSnippet = "Forge-slab armor. Kinetic iron. The claim goes to whoever is still standing.",
+				LiaisonName = "Garrick Holt",
+				LiaisonShortName = "Holt",
+				LiaisonTitle = "Field Contracts",
+				BannerSnippet = "Heavy frames, kinetic weapons, and armor that stays on when the lane gets ugly.",
 				PitchLines =
 				[
-					"RECRUITER  ·  Brimforge doesn't court poets. We court survivors.",
-					"RECRUITER  ·  Your academy toy got recalled. Cute. Out here the scrap is real and the rival doesn't clap when you extract.",
-					"RECRUITER  ·  Sign with us and you leave with iron that laughs at needles and vault toys.",
-					"RECRUITER  ·  Fail the trial and you waste a floor-model chassis. Three strikes — we stop writing checks.",
-					"RECRUITER  ·  Hold the pad. Deny the asset. Prove the iron trusts you."
+					"Garrick Holt, field contracts. I used to keep these frames running after people like you brought them home in pieces.",
+					"Your academy loaner got pulled. That's normal. Out here you're on a demo chassis, and the bill for wrecking it is real.",
+					"Trial's a hold. Keep the pad. Stop the other detachment from walking off with the site. Three attempts.",
+					"Pass, and Brimforge puts a starter MAP under you with scrap and spare plate. Fail all three and I close the offer.",
+					"If you're ready, take the slot. If you're not, don't burn a demo proving it."
 				],
 				QualifiedReturnLines =
 				[
-					"RECRUITER  ·  There you are. Pad held, asset denied, and the floor model came back earning its dents.",
-					"RECRUITER  ·  You didn't dance around the work. You stood where we put you and made the other side move.",
-					"RECRUITER  ·  Brimforge has a chassis with your name on the crate. Sign, and we'll put real iron under you."
+					"Pad held, opposing unit pushed off, and the demo still walks. That's the report I needed.",
+					"You didn't chase kills for the cameras. You stayed on the objective until it was finished.",
+					"Contract's ready. Sign it and the starter frame leaves with you."
 				],
 				FailedReturnLines =
 				[
-					"RECRUITER  ·  Back already? The pad report says somebody else wanted that ground more than you did.",
-					"RECRUITER  ·  Iron doesn't make a wall by itself, pilot. Plant your feet, control the lane, and finish the hold.",
-					"RECRUITER  ·  You've still got a demo slot. Use it better."
+					"You lost the pad. Doesn't matter how hard you hit if you leave without the ground.",
+					"Next run: hold the lane, protect the chassis, and finish the hold before the clock or the rival does.",
+					"You've still got attempts. Use one when you're ready to do the job as written."
 				],
 				WithdrawnReturnLines =
 				[
-					"RECRUITER  ·  Three floor models. Three empty pads.",
-					"RECRUITER  ·  Brimforge pays for survivors, not practice. Our offer is off the table."
+					"That's three demos and no secured pad.",
+					"I'm closing Brimforge's offer. I won't keep writing off chassis for practice."
+				],
+				ForgivenessLine =
+					"I saw what you did to {0}'s floor model. That bought you one more attempt with us. Don't spend it showing off.",
+				DepartureLines =
+				[
+					"There are unsettled sites past the core lanes. Other detachments will contest them.",
+					"Your corp files the claims. Brimforge keeps you supplied. Publicly, we aren't attached to the work.",
+					"Take the ground you can hold. Don't make me explain a burned frame to accounting."
 				],
 				TrialMission = MissionType.CaptureArea,
-				DemoLoaner = GameCatalog.SanitizeMounts(new LoadoutData
+				DemoLoaner = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_brin_bulwark",
 					TorsoId = "torso_brin_anvil",
@@ -84,7 +114,7 @@ public static class ConventionCatalog
 					BackpackId = "backpack_brin_plate",
 					SystemsId = "systems_brin_vent"
 				}),
-				SigningLoadout = GameCatalog.SanitizeMounts(new LoadoutData
+				SigningLoadout = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_brin_biped",
 					TorsoId = "torso_brin_anvil",
@@ -105,34 +135,45 @@ public static class ConventionCatalog
 			["ourotech"] = new ManufacturerTrialDef
 			{
 				ManufacturerId = "ourotech",
-				BannerSnippet = "Servo gimbals. Seekers. Surgical fire — waste is amateur.",
+				LiaisonName = "Selene Vey",
+				LiaisonShortName = "Vey",
+				LiaisonTitle = "Licensing Desk",
+				BannerSnippet = "Precision frames, seekers, and fire control built for clean engagements.",
 				PitchLines =
 				[
-					"RECRUITER  ·  OuroTech licenses precision. Corps that spray and pray don't get a second brochure.",
-					"RECRUITER  ·  You look like someone who can put a needle through a rivet head. Or you look expensive.",
-					"RECRUITER  ·  Our trial is simple: find the priority asset and unmake it. Clean. No theatrics.",
-					"RECRUITER  ·  Three demos. That's the budget. After that, the calipers close.",
-					"RECRUITER  ·  Sign, and you walk with a marksman's frame — and the spare glass to keep it honest."
+					"Selene Vey, licensing. I review the trial recordings myself, so please don't waste either of our time.",
+					"OuroTech isn't hiring a mascot. We need someone who can identify a priority target and finish it without emptying the magazine into the scenery.",
+					"Your evaluation is search and destroy. Locate the marked asset, eliminate it, extract. Three attempts on the demo budget.",
+					"If you qualify, you leave with a precision starter MAP and the spare systems to keep it honest.",
+					"When you're ready, take the trial. I'll be watching the telemetry, not the theatrics."
 				],
 				QualifiedReturnLines =
 				[
-					"RECRUITER  ·  Your telemetry has finished processing. Priority asset eliminated; expenditure remained within tolerance.",
-					"RECRUITER  ·  More importantly, you distinguished the target from the noise. That skill is considerably rarer than marksmanship.",
-					"RECRUITER  ·  Your licensing packet is ready. Sign it, and the marksman's frame leaves with you."
+					"Target down, ammunition within tolerance, and you didn't invent a second objective halfway through.",
+					"That kind of judgment is harder to hire than good aiming. I can work with it.",
+					"Licensing packet is ready. Sign, and the frame is yours."
 				],
 				FailedReturnLines =
 				[
-					"RECRUITER  ·  We reviewed the recording. Abundant motion, abundant ammunition, no completed objective.",
-					"RECRUITER  ·  Precision begins with deciding what not to shoot.",
-					"RECRUITER  ·  You retain another evaluation slot. Try to make the data less embarrassing."
+					"I watched the recording. Plenty of motion. The priority asset is still intact.",
+					"Next attempt: ignore the distractions, confirm the target, and finish the assignment as briefed.",
+					"You still have evaluation slots. Come back when you intend to use one properly."
 				],
 				WithdrawnReturnLines =
 				[
-					"RECRUITER  ·  The evaluation sample is now statistically sufficient.",
-					"RECRUITER  ·  OuroTech declines to extend a license. There is no appeal process."
+					"Three attempts. No completed objective.",
+					"OuroTech will not extend a license. I'm not going to debate the sample."
+				],
+				ForgivenessLine =
+					"Destroying {0}'s floor model was messy, but it cleared a political obstruction. One more attempt. Make the recording useful.",
+				DepartureLines =
+				[
+					"Your corp will operate as an independent acquisition concern. That is not a joke. Keep the paperwork clean.",
+					"When a claim is verified, OuroTech may license development rights. We are not obligated to, and you should not advertise otherwise.",
+					"Do the work carefully. I dislike revising projections after the fact."
 				],
 				TrialMission = MissionType.SearchAndDestroy,
-				DemoLoaner = GameCatalog.SanitizeMounts(new LoadoutData
+				DemoLoaner = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_ouro_duelist",
 					TorsoId = "torso_ouro_thin",
@@ -145,7 +186,7 @@ public static class ConventionCatalog
 					BackpackId = "backpack_ouro_cooler",
 					SystemsId = "systems_ouro_heatsink"
 				}),
-				SigningLoadout = GameCatalog.SanitizeMounts(new LoadoutData
+				SigningLoadout = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_ouro_duelist",
 					TorsoId = "torso_ouro_thin",
@@ -166,34 +207,45 @@ public static class ConventionCatalog
 			["trinova"] = new ManufacturerTrialDef
 			{
 				ManufacturerId = "trinova",
-				BannerSnippet = "Fleet logistics gone surface-side. Balanced frames. Mend when it matters.",
+				LiaisonName = "Mara Keel",
+				LiaisonShortName = "Keel",
+				LiaisonTitle = "Logistics Desk",
+				BannerSnippet = "Balanced frames, field repair systems, and support kit for newly formed corps.",
 				PitchLines =
 				[
-					"RECRUITER  ·  Trinova keeps wings flying. Heroes make good obituaries; logistics make payroll.",
-					"RECRUITER  ·  Your corps is young. Young corps die when the mend beacon is empty and the crawler is smoking.",
-					"RECRUITER  ·  Escort the mining rig. Guard the dig. Bring the ore home. That's the job behind the gun.",
-					"RECRUITER  ·  Three trial slots. After that we redirect the demo budget to someone who reads the brief.",
-					"RECRUITER  ·  Sign with us — hybrid kit, field mend, and scrap that actually restocks."
+					"Mara Keel, logistics. I handle trial slots, demo budgets, and the ugly part where a route fails and someone still expects delivery.",
+					"You're out of academy gear. If you sign with us, you'll be escorting work that pays for fuel and repairs, not collecting medals.",
+					"Trial is an escort. Keep the mining rig intact, get it through the site, and bring the load home. Three attempts.",
+					"Qualify and Trinova issues a hybrid starter MAP, field mend, and enough scrap to restock once you're out of the hall.",
+					"If that sounds like the job you want, take a slot. If you want glory work, try another booth."
 				],
 				QualifiedReturnLines =
 				[
-					"RECRUITER  ·  Rig made it home, ore aboard, crew accounted for. That's a clean manifest.",
-					"RECRUITER  ·  You kept the job moving when shooting would've been easier. Trinova notices that.",
-					"RECRUITER  ·  The contract is ready. Sign, and we'll make sure your corp has what it needs to keep moving."
+					"Rig arrived, cargo accounted for, crew still breathing. That's a clean delivery.",
+					"You stayed with the asset when peeling off for a fight would've been easier. I notice that.",
+					"Contract's ready. Sign and we'll get your corp supplied for the next leg."
 				],
 				FailedReturnLines =
 				[
-					"RECRUITER  ·  The rig didn't make delivery. Doesn't matter how many hostiles you dropped if the cargo never arrives.",
-					"RECRUITER  ·  Stay near the asset, watch its condition, and solve the problem that's actually on the invoice.",
-					"RECRUITER  ·  We can spare another slot. Bring the rig back next time."
+					"The rig didn't make delivery. Hostiles down don't count if the cargo never arrives.",
+					"Stay on the asset, watch its condition, and solve the problem on the invoice first.",
+					"You've got attempts left. Bring the load home next time."
 				],
 				WithdrawnReturnLines =
 				[
-					"RECRUITER  ·  We've written off the last demo slot and reassigned the equipment.",
-					"RECRUITER  ·  Logistics only works when we stop feeding resources into a failed route. This one is closed."
+					"I've written off the last demo slot and reassigned the equipment.",
+					"I'm not feeding more resources into a failed route. Trinova's offer is closed."
+				],
+				ForgivenessLine =
+					"You cost {0} a floor model. That makes my life easier for about five minutes. One more slot. Finish the escort.",
+				DepartureLines =
+				[
+					"Past the supported lanes, fuel and repairs stop being someone else's problem. They're yours.",
+					"Keep the corp solvent, file claims that hold, and the accounts stay open.",
+					"That's the arrangement. No speeches. Just keep the route alive."
 				],
 				TrialMission = MissionType.Escort,
-				DemoLoaner = GameCatalog.SanitizeMounts(new LoadoutData
+				DemoLoaner = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_tri_courier",
 					TorsoId = "torso_tri_fleet",
@@ -206,7 +258,7 @@ public static class ConventionCatalog
 					BackpackId = "backpack_tri_mend",
 					SystemsId = "systems_tri_coolant"
 				}),
-				SigningLoadout = GameCatalog.SanitizeMounts(new LoadoutData
+				SigningLoadout = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_tri_biped",
 					TorsoId = "torso_tri_fleet",
@@ -227,34 +279,45 @@ public static class ConventionCatalog
 			["lumina"] = new ManufacturerTrialDef
 			{
 				ManufacturerId = "lumina",
-				BannerSnippet = "Vault-lab experimental wing. Energy arcs. Shrouds. Don't ask what's classified.",
+				LiaisonName = "Ilyra Senn",
+				LiaisonShortName = "Senn",
+				LiaisonTitle = "Special Projects",
+				BannerSnippet = "Experimental energy systems and classified field kits. Details stay provisional.",
 				PitchLines =
 				[
-					"RECRUITER  ·  Lumina Vaultworks doesn't recruit. We curate.",
-					"RECRUITER  ·  The brief is sealed. The kit is provisional. The people who wash out forget the hallway.",
-					"RECRUITER  ·  Retrieve the package. Don't open it. Don't discuss it. Prove the shroud trusts your hands.",
-					"RECRUITER  ·  Three demos. After that the vault door remembers your face as a rejected key.",
-					"RECRUITER  ·  Sign — and you leave with arcs, a veil, and questions you will learn not to ask."
+					"Ilyra Senn, special projects. I can tell you what the trial requires. I cannot tell you what the package is.",
+					"Lumina issues provisional kit for evaluation. If you wash out, you leave without it and without a useful explanation.",
+					"Retrieve the sealed package. Do not open it. Do not discuss the contents. Three demo attempts.",
+					"If you qualify, you leave with an experimental starter MAP and systems you're not cleared to ask about yet.",
+					"Take the trial when you're prepared to follow the brief as written."
 				],
 				QualifiedReturnLines =
 				[
-					"RECRUITER  ·  The package is intact. Its seals indicate you resisted curiosity.",
-					"RECRUITER  ·  The shroud accepted your inputs. The vault has elected not to reject you.",
-					"RECRUITER  ·  Sign the sealed page. Do not concern yourself with the pages you cannot see."
+					"The package is intact and the seals are unbroken. That was the assignment.",
+					"You followed the brief without inventing exceptions. That matters more here than most people admit.",
+					"Sign the packet. You'll receive the frame and the clearance level that goes with it."
 				],
 				FailedReturnLines =
 				[
-					"RECRUITER  ·  The package did not arrive. The vault anticipated this outcome, though it hoped to be surprised.",
-					"RECRUITER  ·  Follow the signal. Trust the shroud. Leave unopened things unopened.",
-					"RECRUITER  ·  The corridor remains accessible—for now."
+					"The package did not arrive. Whatever else happened on site is secondary.",
+					"Follow the signal, protect the seal, and leave sealed material sealed.",
+					"You still have attempts. Use the next one carefully."
 				],
 				WithdrawnReturnLines =
 				[
-					"RECRUITER  ·  The corridor no longer recognizes your clearance.",
-					"RECRUITER  ·  You should leave before the rest of the building reaches the same conclusion."
+					"Your evaluation clearance is revoked.",
+					"I'm ending the offer. Please leave the booth before security has to."
+				],
+				ForgivenessLine =
+					"{0} lost a floor model. That created a scheduling gap I can use. One more attempt. Do not make me regret the paperwork.",
+				DepartureLines =
+				[
+					"The sector you're entering is not on public charts, and this assignment will not appear in them either.",
+					"Your corp will still file claims under its own name. Lumina's involvement stays off the record.",
+					"Acquire the sites. Report through the channels I give you. Do not improvise beyond that."
 				],
 				TrialMission = MissionType.DataRetrieval,
-				DemoLoaner = GameCatalog.SanitizeMounts(new LoadoutData
+				DemoLoaner = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_lum_phasehex",
 					TorsoId = "torso_lum_oracle",
@@ -267,7 +330,7 @@ public static class ConventionCatalog
 					BackpackId = "backpack_lum_shroud",
 					SystemsId = "systems_lum_cryo"
 				}),
-				SigningLoadout = GameCatalog.SanitizeMounts(new LoadoutData
+				SigningLoadout = GameCatalog.SanitizeLoadout(new LoadoutData
 				{
 					LegsId = "legs_lum_phasehex",
 					TorsoId = "torso_lum_oracle",
@@ -298,7 +361,7 @@ public static class ConventionCatalog
 	public static void ApplyPityPackage(PlayerProfile profile)
 	{
 		EnsureBuilt();
-		var loadout = GameCatalog.SanitizeMounts(new LoadoutData
+		var loadout = GameCatalog.SanitizeLoadout(new LoadoutData
 		{
 			LegsId = "legs_tri_biped",
 			TorsoId = "torso_tri_frame",

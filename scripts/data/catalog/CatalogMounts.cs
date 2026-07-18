@@ -84,13 +84,13 @@ public static class CatalogMounts
 		{
 			Id = "backpack_tri_aegis", DisplayName = "Aegis Cap", ManufacturerId = "trinova",
 			Slot = PartSlot.Backpack, Armor = 30, Tint = m["trinova"].AccentColor, VisualKind = "shield",
-			HullBonus = 12f, HeatCapBonus = 10f
+			StructureHp = 54f, HeatCapBonus = 10f
 		};
 		parts["backpack_tri_hauler"] = new PartData
 		{
 			Id = "backpack_tri_hauler", DisplayName = "Hauler Ballast", ManufacturerId = "trinova",
 			Slot = PartSlot.Backpack, Armor = 22, MaxSpeed = -0.6f, Tint = m["trinova"].AccentColor,
-			VisualKind = "shield", HullBonus = 18f, HeatCapBonus = 8f
+			VisualKind = "shield", StructureHp = 62f, HeatCapBonus = 8f
 		};
 
 		// OuroTech repair / pulse
@@ -132,20 +132,20 @@ public static class CatalogMounts
 		{
 			Id = "backpack_brin_plate", DisplayName = "Ballast Plates", ManufacturerId = "brimforge",
 			Slot = PartSlot.Backpack, Armor = 45, MaxSpeed = -1.5f, TurnRateDegrees = -15f,
-			Tint = m["brimforge"].AccentColor, VisualKind = "shield", HullBonus = 20f, IdleHeatPerSec = 0.5f
+			Tint = m["brimforge"].AccentColor, VisualKind = "shield", StructureHp = 70f, IdleHeatPerSec = 0.5f
 		};
 		parts["backpack_brin_citadel"] = new PartData
 		{
 			Id = "backpack_brin_citadel", DisplayName = "Citadel Shell", ManufacturerId = "brimforge",
 			Slot = PartSlot.Backpack, Armor = 55, MaxSpeed = -2.2f, TurnRateDegrees = -20f,
-			Tint = m["brimforge"].AccentColor, VisualKind = "shield", HullBonus = 28f, HeatCapBonus = 15f,
+			Tint = m["brimforge"].AccentColor, VisualKind = "shield", StructureHp = 85f, HeatCapBonus = 15f,
 			IdleHeatPerSec = 0.7f
 		};
 		parts["backpack_brin_slag"] = new PartData
 		{
 			Id = "backpack_brin_slag", DisplayName = "Slag Reservoir", ManufacturerId = "brimforge",
 			Slot = PartSlot.Backpack, Armor = 35, MaxSpeed = -1.0f, TurnRateDegrees = -10f,
-			Tint = m["brimforge"].AccentColor, VisualKind = "shield", HullBonus = 14f, HeatCapBonus = 35f,
+			Tint = m["brimforge"].AccentColor, VisualKind = "shield", StructureHp = 70f, HeatCapBonus = 35f,
 			HeatDissipation = 2f
 		};
 		parts["backpack_brin_mend"] = CatalogBuilders.AbilityPart("backpack_brin_mend", "Forge Patch Beacon", "brimforge", m,

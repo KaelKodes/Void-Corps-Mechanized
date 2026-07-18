@@ -52,6 +52,10 @@ public partial class ArenaController : Node3D, IMissionHost
 	private readonly HashSet<string> _enemyResolved = new();
 	private readonly Dictionary<string, LoadoutData> _enemyLoadouts = new();
 	private readonly HashSet<ulong> _telemetryDamageHooked = new();
+	private string _activeRivalPilotId = "";
+	private string _activeRivalEnemyName = "";
+	private bool _rivalAssigned;
+	private MechChassisClass _activeBossChassisClass = MechChassisClass.Standard;
 
 	private sealed class DropInSequence
 	{
@@ -82,7 +86,50 @@ public partial class ArenaController : Node3D, IMissionHost
 		_netCombat.EnsureUnder(this);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		_claim = session?.CurrentClaim ?? VoidCorpsIdentity.PickClaimSite();
+		if (session != null)
+		{
+			// Mission-exclusive corridors always win; never the other way around.
+			if (session.PendingMission == MissionType.Sabotage
+			    || session.Match.MissionType == MissionType.Sabotage)
+			{
+				_claim = VoidCorpsIdentity.FindClaim(SabotageMission.ClaimCode)
+				         ?? session.CurrentClaim;
+			}
+			else if (session.PendingMission == MissionType.Escort
+			         || session.Match.MissionType == MissionType.Escort)
+			{
+				_claim = VoidCorpsIdentity.FindClaim(EscortMission.ClaimCode)
+				         ?? session.CurrentClaim;
+			}
+			else if (session.CurrentClaim.SabotageOnly
+			         || session.CurrentClaim.MissionOnly
+			         || session.CurrentClaim.Code == SabotageMission.ClaimCode
+			         || session.CurrentClaim.Code == EscortMission.ClaimCode)
+			{
+				_claim = VoidCorpsIdentity.PickClaimSite();
+				session.SetClaim(_claim);
+			}
+			else
+			{
+				_claim = session.CurrentClaim;
+			}
+
+			if (session.PendingMission == MissionType.BossEncounter)
+			{
+				var encounter = BossEncounterCatalog.Get(session.PendingBossEncounter);
+				_activeRivalPilotId = encounter.RivalPilotId;
+				_activeBossChassisClass = encounter.ChassisClass;
+			}
+			else
+			{
+				_activeRivalPilotId = session.PendingRivalPilotId;
+				_activeBossChassisClass = MechChassisClass.Standard;
+			}
+		}
+		else
+		{
+			_claim = VoidCorpsIdentity.PickClaimSite();
+		}
 		SyncMatchFromSession(session);
 		ApplyClaimMap();
 		CreateMission();
@@ -107,6 +154,7 @@ public partial class ArenaController : Node3D, IMissionHost
 				_garage.LoadoutApplied += OnCoopReadyPressed;
 			else
 				_garage.LoadoutApplied += OnReadyPressed;
+			_garage.VisibilityChanged += OnGarageVisibilityChanged;
 			_garage.Visible = true;
 			_garage.MoveToFront();
 			_garage.RefreshFromSession();
@@ -195,6 +243,16 @@ public partial class ArenaController : Node3D, IMissionHost
 		GetTree().Paused = true;
 	}
 
+	private void OnGarageVisibilityChanged()
+	{
+		if (_garage == null || _phase != MatchPhase.Fighting)
+			return;
+
+		SetLocalWingControls(!_garage.Visible);
+		SetCombatHudVisible(!_garage.Visible);
+		UpdateHud();
+	}
+
 	private void SetCombatHudVisible(bool visible)
 	{
 		if (_hud != null)
@@ -267,11 +325,31 @@ public partial class ArenaController : Node3D, IMissionHost
 		brief.OffsetBottom = 62;
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		var corp = session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename;
-		var contract = session is { MatchFromCampaign: true, LastMissionManufacturerId.Length: > 0 }
-			? GameCatalog.GetManufacturer(session.LastMissionManufacturerId).DisplayName
-			: session?.Profile.AffiliatedManufacturerId is { Length: > 0 } id
-				? GameCatalog.GetManufacturer(id).DisplayName
-				: "open contract";
+		string contract;
+		if (session is { MatchFromCampaign: true, PendingMission: MissionType.BossEncounter })
+		{
+			var encounter = BossEncounterCatalog.Get(session.PendingBossEncounter);
+			contract = $"{encounter.Corp.ShortName} Titan contest";
+		}
+		else if (session is { MatchFromCampaign: true, LastMissionManufacturerId.Length: > 0 })
+		{
+			contract = GameCatalog.GetManufacturer(session.LastMissionManufacturerId).DisplayName;
+			if (!string.IsNullOrEmpty(session.PendingRivalPilotId))
+			{
+				var rival = RivalRosterCatalog.GetPilot(session.PendingRivalPilotId);
+				var rivalCorp = RivalRosterCatalog.GetCorp(rival.CorpId);
+				contract += $" vs {rival.Callsign}/{rivalCorp.ShortName}";
+			}
+		}
+		else if (session?.Profile.AffiliatedManufacturerId is { Length: > 0 } id)
+		{
+			contract = GameCatalog.GetManufacturer(id).DisplayName;
+		}
+		else
+		{
+			contract = "open contract";
+		}
+
 		brief.Text = $"{corp} // {contract}\n{_claim.Brief}";
 		brief.Modulate = new Color(0.72f, 0.8f, 0.86f, 0.9f);
 
@@ -333,28 +411,34 @@ public partial class ArenaController : Node3D, IMissionHost
 		_enemySpawnA = _layout.EnemySpawnA;
 		_enemySpawnB = _layout.EnemySpawnB;
 
-		ApplyArenaShell(_layout.Size);
+		ApplyArenaShell(_layout);
 		ApplyAtmosphere(_layout);
 		RebuildCover(_layout);
 		PlaceCrates(_layout);
 	}
 
-	/// <summary>Resize the shared floor/walls for Small / Medium / Large footprints.</summary>
-	private void ApplyArenaShell(ArenaSize size)
+	/// <summary>Resize the shared floor/walls. Supports rectangular sabotage corridors.</summary>
+	private void ApplyArenaShell(ClaimArenaLayout layout)
 	{
-		var extent = ArenaSizeUtil.Extent(size);
-		var half = ArenaSizeUtil.HalfExtent(size);
-		var floorSize = new Vector3(extent, 1f, extent);
-		var wallSize = new Vector3(extent, 4f, 1f);
+		var halfX = layout.HalfExtentX;
+		var halfZ = layout.HalfExtentZ;
+		var extentX = halfX * 2f;
+		var extentZ = halfZ * 2f;
+		var floorSize = new Vector3(extentX, 1f, extentZ);
+		// West/East are pre-rotated 90° in arena.tscn, so their local X maps to world Z.
+		var wallNS = new Vector3(extentX, 4f, 1f);
+		var wallEW = new Vector3(extentZ, 4f, 1f);
 
 		SetBoxMeshAndShape("World/Floor/Mesh", "World/Floor/Collision", floorSize);
-		foreach (var name in new[] { "WallNorth", "WallSouth", "WallWest", "WallEast" })
-			SetBoxMeshAndShape($"World/{name}/Mesh", $"World/{name}/Collision", wallSize);
+		SetBoxMeshAndShape("World/WallNorth/Mesh", "World/WallNorth/Collision", wallNS);
+		SetBoxMeshAndShape("World/WallSouth/Mesh", "World/WallSouth/Collision", wallNS);
+		SetBoxMeshAndShape("World/WallWest/Mesh", "World/WallWest/Collision", wallEW);
+		SetBoxMeshAndShape("World/WallEast/Mesh", "World/WallEast/Collision", wallEW);
 
-		SetNodePosition("World/WallNorth", new Vector3(0f, 2f, -half));
-		SetNodePosition("World/WallSouth", new Vector3(0f, 2f, half));
-		SetNodePosition("World/WallWest", new Vector3(-half, 2f, 0f));
-		SetNodePosition("World/WallEast", new Vector3(half, 2f, 0f));
+		SetNodePosition("World/WallNorth", new Vector3(0f, 2f, -halfZ));
+		SetNodePosition("World/WallSouth", new Vector3(0f, 2f, halfZ));
+		SetNodePosition("World/WallWest", new Vector3(-halfX, 2f, 0f));
+		SetNodePosition("World/WallEast", new Vector3(halfX, 2f, 0f));
 	}
 
 	private void SetBoxMeshAndShape(string meshPath, string collisionPath, Vector3 size)
@@ -622,14 +706,17 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (existing != null)
 		{
 			_playerDropBeacon = existing;
-			_playerDropBeacon.GlobalPosition = DropBeacon.PadBesideSpawn(_playerSpawn, limit: _layout.PadLimit);
+			_playerDropBeacon.GlobalPosition = DropBeacon.PadBesideSpawn(
+				_playerSpawn,
+				limit: _layout.PadLimitX,
+				limitZ: _layout.PadLimitZ);
 			_playerDropBeacon.SetState(DropBeaconState.Ready);
 			return;
 		}
 
 		_playerDropBeacon = DropBeacon.Create(
 			"PlayerDropBeacon",
-			DropBeacon.PadBesideSpawn(_playerSpawn, limit: _layout.PadLimit),
+			DropBeacon.PadBesideSpawn(_playerSpawn, limit: _layout.PadLimitX, limitZ: _layout.PadLimitZ),
 			TeamId.Player);
 		AddChild(_playerDropBeacon);
 	}
@@ -682,7 +769,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		ui.GetNodeOrNull("ComponentIntegrityHud")?.QueueFree();
 
 		_mechHud = ui.GetNodeOrNull<MechHud>("MechHud");
-		if (_mechHud != null)
+		if (_mechHud != null && GodotObject.IsInstanceValid(_mechHud))
 		{
 			_mechHud.ApplyLayout();
 			return;
@@ -718,10 +805,13 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		_objectivesComplete = true;
-		_playerDropBeacon?.ArmExtract();
+		var extract = ActiveExtractBeacon();
+		extract?.ArmExtract();
 		SfxService.Confirm();
 		SfxService.Play("alarm", 0.85f, -4f);
-		GD.Print("Objectives complete — return to drop beacon and hold Interact to extract.");
+		GD.Print(extract != null && extract != _playerDropBeacon
+			? "Objectives complete — hold Interact at the Exfil Uplink."
+			: "Objectives complete — return to drop beacon and hold Interact to extract.");
 	}
 
 	MechController? IMissionHost.SpawnEnemyMech(string name, Vector3 position, int variant, bool viaDropBeacon) =>
@@ -777,6 +867,23 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	private MechController? SpawnEnemyMech(string name, Vector3 position, int variant, bool viaDropBeacon = false)
 	{
+		RivalPilotDef? rivalPilot = null;
+		var chassisClass = MechChassisClass.Standard;
+		var shouldAssignRival = !_rivalAssigned && !string.IsNullOrEmpty(_activeRivalPilotId)
+			&& (name == "Boss_Detachment" || name.EndsWith("_Detachment"));
+		if (shouldAssignRival)
+		{
+			rivalPilot = RivalRosterCatalog.GetPilot(_activeRivalPilotId);
+			variant = rivalPilot.LoadoutVariant;
+			_rivalAssigned = true;
+			_activeRivalEnemyName = name;
+			if (name == "Boss_Detachment")
+				chassisClass = _activeBossChassisClass;
+			var corp = RivalRosterCatalog.GetCorp(rivalPilot.CorpId);
+			var chassisLabel = MechChassisClassUtil.Label(chassisClass);
+			GD.Print($"Rival contact: {rivalPilot.DisplayName}, {corp.DisplayName} — {chassisLabel}.");
+		}
+
 		MechController? enemy = GetNodeOrNull<MechController>(name);
 		var loadout = GameCatalog.CreateEnemyLoadout(variant);
 		_enemyLoadouts[name] = loadout;
@@ -793,16 +900,27 @@ public partial class ArenaController : Node3D, IMissionHost
 			enemy.IsPlayerControlled = false;
 			enemy.Team = TeamId.Enemy;
 			AddChild(enemy);
+			enemy.ApplyChassisClass(chassisClass);
 			enemy.RebuildFromLoadout(loadout);
 		}
 		else
 		{
+			enemy.ApplyChassisClass(chassisClass);
 			enemy.RebuildFromLoadout(loadout);
 		}
 
 		enemy.Team = TeamId.Enemy;
 		enemy.Visible = true;
 		enemy.ProcessMode = ProcessModeEnum.Inherit;
+		if (enemy.Health != null)
+		{
+			var hull = MechChassisClassUtil.HullMultiplier(chassisClass);
+			if (rivalPilot != null && chassisClass != MechChassisClass.Titan)
+				hull *= rivalPilot.HullMultiplier;
+			else if (rivalPilot != null)
+				hull *= Mathf.Lerp(1f, rivalPilot.HullMultiplier, 0.35f);
+			enemy.Health.ResetHealth(enemy.Health.MaxHealth * hull);
+		}
 		FaceToward(enemy, Vector3.Zero);
 		HookEnemyDeath(enemy);
 
@@ -817,6 +935,12 @@ public partial class ArenaController : Node3D, IMissionHost
 			pilot.ApplyDifficulty(EnemyDifficulty);
 			if (EnemyDifficulty == PilotDifficulty.Hard)
 				pilot.Aggression = variant == 0 ? 0.75f : 0.9f;
+			if (rivalPilot != null)
+			{
+				pilot.PreferredRange = rivalPilot.PreferredRange
+					+ MechChassisClassUtil.PreferredRangeBonus(chassisClass);
+				pilot.Aggression = rivalPilot.Aggression;
+			}
 			if (_mech != null)
 				pilot.SetTarget(PickAiTarget());
 		}
@@ -866,7 +990,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			var old = GetNodeOrNull<DropBeacon>(beaconName);
 			old?.QueueFree();
 
-			var pad = DropBeacon.PadBesideSpawn(landing, limit: _layout.PadLimit);
+			var pad = DropBeacon.PadBesideSpawn(landing, limit: _layout.PadLimitX, limitZ: _layout.PadLimitZ);
 			beacon = DropBeacon.Create(beaconName, pad, mech.Team);
 			landing = new Vector3(pad.X, 0f, pad.Z);
 			AddChild(beacon);
@@ -880,10 +1004,13 @@ public partial class ArenaController : Node3D, IMissionHost
 				landing = new Vector3(landing.X, 0f, landing.Z);
 		}
 
-		var duration = durationOverride ?? 1.35f;
+		var duration = durationOverride ?? (mech.ChassisClass == MechChassisClass.Titan ? 1.85f : 1.35f);
+		var dropHeight = mech.ChassisClass == MechChassisClass.Titan
+			? PlayerDropHeight * 1.75f
+			: PlayerDropHeight;
 		var startY = mech.GlobalPosition.Y > landing.Y + 4f
 			? mech.GlobalPosition.Y
-			: landing.Y + PlayerDropHeight;
+			: landing.Y + dropHeight;
 
 		SealMechInVessel(mech, beacon, landing, startY);
 
@@ -1015,18 +1142,25 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	private void TickExtraction(float dt)
 	{
-		if (!_objectivesComplete || _matchResolved || _playerDropBeacon == null || _mech == null)
+		if (!_objectivesComplete || _matchResolved || _mech == null)
 			return;
 		if (_phase != MatchPhase.Fighting)
 			return;
 
+		var beacon = ActiveExtractBeacon();
+		if (beacon == null)
+			return;
+
 		var holding = Input.IsActionPressed("interact");
-		if (_playerDropBeacon.TickExtract(dt, holding, _mech.GlobalPosition))
+		if (beacon.TickExtract(dt, holding, _mech.GlobalPosition))
 		{
 			SfxService.Confirm();
 			ResolveMatch(MatchOutcome.Victory);
 		}
 	}
+
+	private DropBeacon? ActiveExtractBeacon() =>
+		_mission?.ExtractBeaconOverride ?? _playerDropBeacon;
 
 	private void HookPlayerDeath()
 	{
@@ -1035,12 +1169,12 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_playerDeathHooked = true;
 		if (_mech.Health != null)
-		{
 			_mech.Health.Died += OnPlayerDown;
-			HookDamageTelemetry(_mech.Health, TelemetryTargetKind.Map, playerOwned: true);
-		}
 		if (_mech.Integrity != null)
+		{
 			_mech.Integrity.MechCollapsed += OnPlayerDown;
+			HookIntegrityTelemetry(_mech.Integrity, playerOwned: true);
+		}
 	}
 
 	private void HookMissionTelemetry()
@@ -1069,6 +1203,22 @@ public partial class ArenaController : Node3D, IMissionHost
 			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Telemetry.RecordDamageTaken(amount, kind);
 			if (kind == TelemetryTargetKind.Map)
 				SfxService.PlayDamageSustained();
+		};
+	}
+
+	private void HookIntegrityTelemetry(MechIntegrity integrity, bool playerOwned)
+	{
+		var id = integrity.GetInstanceId();
+		if (!_telemetryDamageHooked.Add(id))
+			return;
+
+		integrity.ComponentDamaged += (_, amount, _, _) =>
+		{
+			if (amount <= 0.01f || !playerOwned)
+				return;
+			GetNodeOrNull<GameSession>("/root/GameSession")
+				?.Match.Telemetry.RecordDamageTaken(amount, TelemetryTargetKind.Map);
+			SfxService.PlayDamageSustained();
 		};
 	}
 
@@ -1294,8 +1444,6 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			_garage.Visible = !_garage.Visible;
 			_garage.ConfigurePrepMode(false);
-			SetLocalWingControls(!_garage.Visible);
-			SetCombatHudVisible(!_garage.Visible);
 			if (_garage.Visible)
 			{
 				_garage.MoveToFront();
@@ -1389,7 +1537,9 @@ public partial class ArenaController : Node3D, IMissionHost
 		_countdownRemaining = 5.25f;
 		_lastCountdownSecond = -1;
 		_playerDropStarted = false;
-		MusicService.Cue(MusicCue.Combat);
+		// Sabotage starts its track on fight begin so the beat clock is at 0:00.
+		if (string.IsNullOrEmpty(_mission?.PreferredCombatTrack))
+			MusicService.Cue(MusicCue.Combat);
 		if (_countdownLabel != null)
 		{
 			_countdownLabel.Visible = true;
@@ -1587,6 +1737,15 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			var line = _mission?.GetHudLine() ?? "";
 			var sessionHud = GetNodeOrNull<GameSession>("/root/GameSession");
+			if (sessionHud?.PendingMission != MissionType.BossEncounter
+			    && !string.IsNullOrEmpty(_activeRivalPilotId)
+			    && !string.IsNullOrEmpty(_activeRivalEnemyName)
+			    && GetNodeOrNull<MechController>(_activeRivalEnemyName) is { Health.IsDead: false })
+			{
+				var rivalPilot = RivalRosterCatalog.GetPilot(_activeRivalPilotId);
+				var rivalCorp = RivalRosterCatalog.GetCorp(rivalPilot.CorpId);
+				line += $"  |  RIVAL CONTACT: {rivalPilot.Callsign.ToUpperInvariant()} · {rivalCorp.ShortName}";
+			}
 			if (sessionHud is { MatchFromConvention: true }
 			    && sessionHud.Campaign?.Convention.ActiveTrialSabotaged != true)
 			{
@@ -1602,14 +1761,18 @@ public partial class ArenaController : Node3D, IMissionHost
 				? "Skirmish complete — field exchange open"
 				: _phase switch
 				{
-					MatchPhase.Prep => "PREP SCREEN  |  assemble your MAP  |  press READY when staged",
+					MatchPhase.Prep => "HANGAR  |  pick a category, preview parts, EQUIP, then READY",
 					MatchPhase.Countdown => "Claim dispute commencing...",
-					_ when _garage.Visible => "T close garage  |  Deploy updates loadout",
-					_ when _objectivesComplete && _playerDropBeacon != null
-						&& _playerDropBeacon.Contains(_mech.GlobalPosition)
-						=> "Hold E — signal retrieval at drop beacon",
+					_ when _garage.Visible => "T / EXIT close hangar  |  Deploy updates loadout",
+					_ when _objectivesComplete && ActiveExtractBeacon() is { } extractPad
+						&& extractPad.Contains(_mech.GlobalPosition)
+						=> extractPad == _playerDropBeacon
+							? "Hold E — signal retrieval at drop beacon"
+							: "Hold E — signal retrieval at Exfil Uplink",
 					_ when _objectivesComplete
-						=> "OBJECTIVES COMPLETE — return to your drop beacon and hold E to extract",
+						=> _mission?.ExtractBeaconOverride != null
+							? "OBJECTIVES COMPLETE — hold E at the Exfil Uplink"
+							: "OBJECTIVES COMPLETE — return to your drop beacon and hold E to extract",
 					_ => "Shift sprint  |  LMB/RMB weapons  |  B buy life  |  E extract  |  1-6 modules  |  T field garage"
 				};
 		}

@@ -44,6 +44,7 @@ public partial class DropBeacon : Node3D
 	private StandardMaterial3D? _glowMat;
 	private StandardMaterial3D? _terminalMat;
 	private Color _teamColor = new(0.35f, 0.75f, 0.95f);
+	private string _readyLabel = "";
 
 	public static DropBeacon Create(string name, Vector3 position, TeamId team, float radius = DefaultRadius)
 	{
@@ -61,7 +62,7 @@ public partial class DropBeacon : Node3D
 	}
 
 	/// <summary>Pad beside spawn, nudged toward the map rim so drops stay off midfield.</summary>
-	public static Vector3 PadBesideSpawn(Vector3 spawn, float offset = 4f, float limit = -1f)
+	public static Vector3 PadBesideSpawn(Vector3 spawn, float offset = 4f, float limit = -1f, float limitZ = -1f)
 	{
 		var awayFromCenter = new Vector3(spawn.X, 0f, spawn.Z);
 		if (awayFromCenter.LengthSquared() < 0.01f)
@@ -71,8 +72,10 @@ public partial class DropBeacon : Node3D
 		var pad = spawn + awayFromCenter * offset;
 		if (limit < 0f)
 			limit = ArenaSizeUtil.PadLimit(ArenaSize.Small);
+		if (limitZ < 0f)
+			limitZ = limit;
 		pad.X = Mathf.Clamp(pad.X, -limit, limit);
-		pad.Z = Mathf.Clamp(pad.Z, -limit, limit);
+		pad.Z = Mathf.Clamp(pad.Z, -limitZ, limitZ);
 		pad.Y = 0f;
 		return pad;
 	}
@@ -290,6 +293,12 @@ public partial class DropBeacon : Node3D
 		AddChild(_label);
 	}
 
+	public void SetReadyLabel(string text)
+	{
+		_readyLabel = text ?? "";
+		RefreshVisual();
+	}
+
 	public bool Contains(Vector3 worldPoint)
 	{
 		var delta = worldPoint - GlobalPosition;
@@ -449,6 +458,7 @@ public partial class DropBeacon : Node3D
 			DropBeaconState.ExtractArmed => "HOLD [E] — SIGNAL RETRIEVAL",
 			DropBeaconState.Extracting => $"RETRIEVING {ExtractProgress * 100f:0}%",
 			DropBeaconState.Retrieved => "RETRIEVED",
+			DropBeaconState.Ready when !string.IsNullOrEmpty(_readyLabel) => _readyLabel,
 			DropBeaconState.Ready when Team == TeamId.Player => "RELAY TERMINAL",
 			_ => Team == TeamId.Player ? "DROP BEACON" : "DROP PAD"
 		};

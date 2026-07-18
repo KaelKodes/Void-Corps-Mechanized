@@ -18,7 +18,8 @@ public static class SectorGraphGenerator
 		MissionType.CaptureMultipleAreas,
 		MissionType.DataRetrieval,
 		MissionType.SwarmDefend,
-		MissionType.Escort
+		MissionType.Escort,
+		MissionType.Sabotage
 	];
 
 	/// <summary>Start, two location columns, warning. Five claim sites fill the location slots.</summary>
@@ -75,7 +76,7 @@ public static class SectorGraphGenerator
 		rng.Seed = (ulong)(uint)seed;
 		GameCatalog.EnsureBuilt();
 
-		var claims = VoidCorpsIdentity.ClaimSites.ToList();
+		var claims = VoidCorpsIdentity.StandardClaimSites.ToList();
 		Shuffle(claims, rng);
 
 		var graph = new SectorGraph
@@ -184,16 +185,23 @@ public static class SectorGraphGenerator
 				rivalPool = manufacturers.Where(id => id != mfg).ToList();
 			var rival = rivalPool[(int)(rng.Randi() % (uint)rivalPool.Count)];
 			usedRivals.Add(rival);
+			var difficulty = PickDifficulty(column, rng);
+			var offerSeed = (int)rng.Randi();
+			var recurringPilot = difficulty != PilotDifficulty.Easy && rng.Randf() < 0.35f
+				? RivalRosterCatalog.PickPilot(offerSeed)
+				: null;
 
 			offers.Add(new LocationMissionOffer
 			{
 				ManufacturerId = mfg,
 				RivalManufacturerId = rival,
 				MissionType = MissionPool[(int)(rng.Randi() % (uint)MissionPool.Length)],
-				Difficulty = PickDifficulty(column, rng),
+				Difficulty = difficulty,
 				RepGain = 3,
 				RepLoss = 2,
-				Seed = (int)rng.Randi()
+				Seed = offerSeed,
+				RivalPilotId = recurringPilot?.Id ?? "",
+				RivalCorpId = recurringPilot?.CorpId ?? ""
 			});
 		}
 
@@ -205,21 +213,20 @@ public static class SectorGraphGenerator
 		BossEncounterId bossId,
 		RandomNumberGenerator rng)
 	{
-		var manufacturers = GameCatalog.Manufacturers.Keys.ToList();
-		var mfg = manufacturers[(int)(rng.Randi() % (uint)manufacturers.Count)];
-		var rivalPool = manufacturers.Where(id => id != mfg).ToList();
-		var rival = rivalPool[(int)(rng.Randi() % (uint)rivalPool.Count)];
+		var encounter = BossEncounterCatalog.Get(bossId);
 
 		return new LocationMissionOffer
 		{
-			ManufacturerId = mfg,
-			RivalManufacturerId = rival,
+			ManufacturerId = "",
+			RivalManufacturerId = "",
 			MissionType = MissionType.BossEncounter,
 			Difficulty = PilotDifficulty.Hard,
-			RepGain = 5,
-			RepLoss = 3,
+			RepGain = 0,
+			RepLoss = 0,
 			Seed = (int)rng.Randi(),
-			BossEncounterId = bossId
+			BossEncounterId = bossId,
+			RivalPilotId = encounter.RivalPilotId,
+			RivalCorpId = encounter.Corp.Id
 		};
 	}
 
