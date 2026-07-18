@@ -101,7 +101,19 @@ Left flexible until implementation / playtest:
 6. Measure CPU / bandwidth / feel → decide when dedicated is required for bigger fights.
 7. Only then: lobby/relay ops and any mass-battle design pass.
 
+## Agent ownership
+
+Multiplayer work is owned by the **multiplayer specialist** agent (see `.cursor/rules/multiplayer-specialist.mdc`).
+
+That agent’s lane:
+
+- session host/join, authority, replication, co-op campaign wiring, skirmish lobbies/caps
+- keeping the combat pipe ready for larger skirmishes without stubbing MMO persistence
+
+Out of lane unless the user redirects: solo-only campaign/story work, catalogue/AI with no net impact, first-party server ops for v1.
+
 ## Relationship to other docs
 
 - `CAMPAIGN_FOUNDATION.md` — solo / co-op story spine and profile scaffolding.
 - `README.md` / lore rules — Mechanize product title; MAP/MAD; Corps vs manufacturers; MMO deferred.
+- `.cursor/rules/multiplayer-specialist.mdc` — agent mandate for multiplayer-focused chats.
