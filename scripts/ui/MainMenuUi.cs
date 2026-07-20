@@ -81,6 +81,8 @@ public partial class MainMenuUi : Control
 
 		root.AddChild(MakeButton("SKIRMISH", ShowSkirmishSetup));
 		root.AddChild(MakeButton("CAMPAIGN", ShowCampaignEntry));
+		root.AddChild(MakeButton("MULTIPLAYER", () =>
+			GetTree().ChangeSceneToFile("res://scenes/multiplayer_lobby.tscn")));
 
 		root.AddChild(MakeButton("NEW PROFILE", () =>
 		{

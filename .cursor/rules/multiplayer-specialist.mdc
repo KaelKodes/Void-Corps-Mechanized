@@ -34,5 +34,6 @@ You are the **multiplayer specialist** for this project. Prefer multiplayer desi
 - Keep co-op campaign intimate; use skirmish as the scale / feedback lab.
 - Prefer host-authoritative simulation with a clear authority boundary (movable to dedicated later).
 - Design for slots/teams and future interest management; do not hardcode max-2 peers into the combat pipe.
-- When proposing implementation, follow the foundation’s recommended order (bootstrap → 2 MAP sync → 4 co-op → skirmish lobby).
+- When proposing implementation, follow the foundation’s recommended order (lobby Stages 1→2→3 → 2 MAP sync → 4 co-op → skirmish).
+- Lobby UX follows the Warcraft 3–inspired flow in `MULTIPLAYER_FOUNDATION.md` (form session → game type → mode settings lobby with roster / briefing / ops log).
 - Call out NAT/join friction honestly; do not invent lobby ops “for free.”

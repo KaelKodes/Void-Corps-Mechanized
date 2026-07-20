@@ -41,6 +41,42 @@ When the user selects **HOST**:
 
 Copy target for v1 is the plain join string friends paste into **JOIN** (not a QR, not a cloud lobby code). Optional later: copy a slightly richer blurb (“Mechanize co-op — paste in Join”) if playtests want it; default remains the raw address.
 
+### Lobby navigation (Warcraft 3–inspired, locked)
+
+Reference pattern: form a session first, then choose what you’re playing, then configure that mode in a slot-heavy lobby (WC3 custom-game feel — riveted panels → our industrial `MechUiTheme` chrome, not fantasy stone).
+
+**Stage 1 — Form session**
+
+- Entry from main menu: **MULTIPLAYER**
+- **HOST** — open listen session; on success show join info + **Copy** (see Host lobby UX)
+- **JOIN** — paste `ip:port`, connect
+- Failure stays on this stage with a short error
+
+**Stage 2 — Pick game type** (only after session is live)
+
+- **Co-op campaign** — up to 4 wing MAPs; host owns campaign save
+- **Skirmish** — team slots; near-term cap 10v10
+- Host selects; guests see the host’s choice (read-only until we allow host transfer — not required for v1)
+- **Back** tears down or returns to Stage 1 only if we explicitly cancel the session (v1: Cancel session)
+
+**Stage 3 — Mode settings lobby** (WC3-style layout)
+
+Shared chrome:
+
+| Region | Contents |
+|--------|----------|
+| Left — roster | Slot rows: name / Open / Closed / Computer (where allowed), team (skirmish), color swatch optional |
+| Right — briefing | Mode title, claim/mission/difficulty (or campaign node context), slot count, join info + **Copy** for host |
+| Bottom — ops log | Lightweight chat / system log (“Pilot joined”, host errors). Full social chat can stay minimal. |
+| Actions | Host: **Start** / **Cancel**. Guests: **Ready** (later) / **Leave**. |
+
+Mode-specific:
+
+- **Co-op campaign:** one detachment group, max 4 Human slots; no opposing player team; settings lean on host campaign / claim offer
+- **Skirmish:** team groups (e.g. Alpha / Bravo), Open/Computer slots, claim + mission + difficulty; start with smaller defaults (e.g. 2v2 / 4v4) while allowing growth toward 10v10
+
+**Solo-friendly:** Stage 3 must be reviewable with only the host present (empty Open slots, system log). Lobby UX iteration does not require a second human.
+
 **Scale reality**
 
 | Mode | Cap (now) | Host model (now) | Later if needed |
@@ -108,11 +144,11 @@ Left flexible until implementation / playtest:
 
 ## Recommended implementation order
 
-1. Net bootstrap: host / join UI, peer IDs, disconnect handling; on successful HOST show join info + Copy.
+1. Lobby UI shell (Stages 1→2→3) + host/join bootstrap; on successful HOST show join info + Copy.
 2. Two MAPs in arena, same team, host-auth movement + weapons.
 3. Shared match phases (prep → countdown → fight → results).
 4. Stretch to **4** co-op + wire into campaign deploy (host map → shared arena).
-5. Skirmish lobby: team slots, **10v10** cap, PvE then PvP.
+5. Skirmish mode lobby: team slots, **10v10** cap, PvE then PvP; Start launches synced arena.
 6. Measure CPU / bandwidth / feel → decide when dedicated is required for bigger fights.
 7. Only then: lobby/relay ops and any mass-battle design pass.
 
