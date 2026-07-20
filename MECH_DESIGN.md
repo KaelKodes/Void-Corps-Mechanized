@@ -47,7 +47,7 @@ The torso determines shoulder mounts, backpack mounts, and supported power-core 
 ## System review order
 
 1. Durability and armor — **implemented; awaiting playtest validation**
-2. Mobility — **Weight / LoadRating soft overload implemented**
+2. Mobility — **Weight / LoadRating soft overload + FP body-cam controls + thruster/booster wiring**
 3. Heat
 4. Power — **hybrid preserved (build gate + combat pool)**
 5. Sensors and targeting
@@ -477,6 +477,44 @@ Dual-arm alpha on a starter core should drain the operational pool in a few seco
 
 ---
 
+# First-person controls and mobility modules (July 20, 2026)
+
+## Camera / control contract
+
+**First person (body window)**
+- Camera sits in the torso/upper-body window. The **head** remains a sensor/targeting component (not the camera mount).
+- Mouse is **captured**. Mouselook yaws/pitches the body view and drives torso aim.
+- Aim point = view-center ray (no on-screen cursor).
+- **WASD = legs** relative to body look. **LegMode does not change FP aim** and does not force tank-turn in FP.
+- Alt / arrows = small head-peek offset on top of body look.
+
+**Third person**
+- Cursor visible; aim from cursor ray.
+- **LegMode matters:** Locked = chassis turn + throttle; Gimbaled = strafe + independent torso aim.
+
+## Sprint / dash / jump
+
+| Input | Behavior |
+|-------|----------|
+| Tap `sprint` (under ~0.18s) | **Dash** if a living **Thruster** module is equipped |
+| Hold `sprint` | Sustained **sprint** from legs (`CanSprint` + power draw) |
+| `jump` (Space) | **Jump** if a living **Booster** module is equipped |
+
+Walk (biped/hex) uses lower acceleration; sprint/dash/tracks are snappier. Immobilized legs (`MobilityFactor` 0) block dash and jump.
+
+## Thruster / booster wiring (catalogue by other agent)
+
+Mount on **Backpack** and/or **Systems**. Set on `PartData`:
+
+- `MobilityModule = Thruster` → `DashSpeed`, `DashDuration`, `DashCooldown`, `DashPowerCost`, `DashHeat`
+- `MobilityModule = Booster` → `JumpImpulse`, `JumpPowerCost`, `JumpHeat`
+
+Assembler folds living modules into `MechStats` (best thruster / best booster wins). Destroyed modules drop capability.
+
+Example bands (guidance only): DashSpeed 28–40, DashDuration 0.15–0.25, DashCooldown 1.0–1.8; JumpImpulse 10–16.
+
+---
+
 # 5. Weight (soft mobility constraint)
 
 ## Design goals
@@ -538,6 +576,58 @@ Leg LoadRating targets keep stock kits near ~85–95% utilization (Stride 95, Fo
 ## Implementation status
 
 **Implemented.** `CatalogWeight`, assembler derivation, controller move/turn multipliers, garage/shop exposure.
+
+---
+
+# Mech 2.0 — visual assembly (planning)
+
+**Status: Open — design session before implementation.**
+
+This section captures visual/rig issues discovered during the Fleet cockpit pass. Goal: define how 2.0 mechs should be assembled, rigged, and authored so FP cockpits, leg animation, and part visuals stay coherent.
+
+## Known issue — legs clip into FP cockpit (July 20, 2026)
+
+**Observed:** On the Trinova Fleet Intermediate torso (`torso_fleet`), first-person walk + turn causes biped leg meshes to swing into the cockpit volume. Breaks immersion and reads as broken geometry.
+
+**Current stack (why it happens):**
+- Loadout still has **Legs → Torso** as adjacent slots; there is no pelvis part or mount between them.
+- Runtime sockets: legs hardpoint on `Sockets/Hips`, torso on `Sockets/UpperBody/Torso` (`MechAssembler.CacheSockets`).
+- Biped visuals are procedural: hip pivots at **y ≈ 0.85**, pelvis block at **y ≈ 0.9**, thighs swing from there (`PartVisualFactory.BuildBipedLegs`).
+- `MechLegAnimator` drives Hip/Knee rotation from leg-package root; gait is shared with FP cockpit bob (`TopDownCamera`).
+- Fleet torso is a hollow authored scene with dashboard + `CockpitAnchor`; leg socket transform does not account for the interior cavity.
+
+**Design intent for 2.0:** Add a **pelvis** structural segment between torso and legs so:
+1. Leg articulation pivots **below and aft** of the cockpit floor / pilot cell.
+2. Torso (especially cockpit torsos) owns the upper volume only; pelvis owns hip width and leg attachment.
+3. Walk/turn animation stays outside the viewport frustum in FP.
+
+## Proposed pelvis role (candidate — not decided)
+
+| Layer | Owns |
+|-------|------|
+| **Torso** | Pilot cell or drone core, shoulders, backpack mounts, power-core housing, upper collision |
+| **Pelvis** | Hip span, leg sockets, waist articulation (yaw for turn?), lower armor belt |
+| **Legs** | Thigh/shin/foot packages, gait rig, load rating |
+
+**Open questions for design session:**
+- **Loadout slot?** New `PartSlot.Pelvis` vs pelvis mesh baked into every torso/legs pair vs torso variant flag (`cockpit` torsos always spawn a pelvis child).
+- **Gameplay stats?** Structure HP / armor on pelvis, or purely visual spacer with legs+torso keeping current durability slots.
+- **Turn feel:** Does pelvis yaw independently in TP (gimbaled) while torso stays fixed in FP? How does this interact with `LegMode`?
+- **Manufacturer identity:** Pelvis as visible “waist” kit (Brimforge slab, Trinova ring, etc.) or hidden structural mount.
+- **Hex / tracks:** Same pelvis concept or leg-specific waist blocks only for bipeds?
+- **Titan tier:** Scale pelvis with 4× chassis; cockpit MAPs only on Standard unless Titan gets its own interior pass.
+
+## Related 2.0 visual targets (same session)
+
+- **Scene-authored parts over procedural** where the player sees them (Fleet torso already on `torso_tri_fleet.tscn`; legs/pelvis/head likely follow).
+- **Diegetic HUD** on cockpit screens — **shipped** for Fleet FP (threat/self/wing panels); tactical map slot reserved on `Screen_WingL`.
+- **Cockpit anchor contract:** `CockpitAnchor` + dashboard screen names stable for `CockpitDiegeticHud` binding.
+- **Power core placement:** encased aft cavity on fleet torso; pelvis must not reposition core glow into viewport.
+- **Hitboxes vs visuals:** pelvis may need collider separation so legs animating don’t read as hits on torso.
+
+## Implementation guardrail
+
+**Do not patch procedurally** (e.g. hiding legs in FP or nudging hip Y only on fleet) until pelvis + rig layout is decided — risks fighting 2.0 authoring and TP/FP parity.
 
 ---
 

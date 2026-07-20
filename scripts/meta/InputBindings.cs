@@ -29,7 +29,8 @@ public static class InputBindings
 		new("move_back", "Move Back", "Movement"),
 		new("turn_left", "Turn / Strafe Left", "Movement"),
 		new("turn_right", "Turn / Strafe Right", "Movement"),
-		new("sprint", "Sprint", "Movement"),
+		new("sprint", "Sprint / Dash", "Movement"),
+		new("jump", "Jump", "Movement"),
 		new("fire_primary", "Fire Primary", "Combat"),
 		new("fire_secondary", "Fire Secondary", "Combat"),
 		new("target_next", "Sensor Target Next", "Combat"),
@@ -73,6 +74,7 @@ public static class InputBindings
 		EnsureAction("target_next", Key.Tab);
 		EnsureAction("target_clear", Key.X);
 		EnsureAction("target_focus_cycle", Key.C);
+		EnsureAction("jump", Key.Space);
 		MigrateInteractDefaultToF();
 	}
 

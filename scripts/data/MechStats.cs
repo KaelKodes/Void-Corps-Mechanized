@@ -47,6 +47,20 @@ public sealed class MechStats
 	public LegMode LegMode { get; init; } = LegMode.Locked;
 	public LegType LegType { get; init; } = LegType.Bipedal;
 
+	// Thruster (dash)
+	public bool HasThruster { get; init; }
+	public float DashSpeed { get; init; }
+	public float DashDuration { get; init; } = 0.18f;
+	public float DashCooldown { get; init; } = 1.2f;
+	public float DashPowerCost { get; init; }
+	public float DashHeat { get; init; }
+
+	// Booster (jump)
+	public bool HasBooster { get; init; }
+	public float JumpImpulse { get; init; }
+	public float JumpPowerCost { get; init; }
+	public float JumpHeat { get; init; }
+
 	/// <summary>Sum of installed non-empty part weights (includes destroyed parts).</summary>
 	public float TotalWeight { get; init; }
 	/// <summary>Living legs LoadRating. Zero when legs are missing/destroyed.</summary>

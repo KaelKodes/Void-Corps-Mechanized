@@ -6,6 +6,8 @@ public partial class Hardpoint : Node3D
 {
 	[Export] public PartSlot Slot { get; set; } = PartSlot.WeaponL;
 
+	private static readonly RandomNumberGenerator SpreadRng = new();
+
 	public PartData? EquippedPart { get; private set; }
 	public AimMode EffectiveAimMode { get; private set; } = AimMode.Fixed;
 	public bool IsWeapon => Slot is PartSlot.WeaponL or PartSlot.WeaponR;
@@ -431,6 +433,27 @@ public partial class Hardpoint : Node3D
 			direction.X * s + direction.Z * c).Normalized();
 	}
 
+	private static Vector3 ApplyAimSpread(Vector3 direction, float spreadRadians)
+	{
+		if (direction.LengthSquared() < 0.0001f)
+			return Vector3.Forward;
+
+		direction = direction.Normalized();
+		var yaw = SpreadRng.RandfRange(-spreadRadians, spreadRadians);
+		var pitch = SpreadRng.RandfRange(-spreadRadians * 0.55f, spreadRadians * 0.55f);
+
+		var flat = new Vector3(direction.X, 0f, direction.Z);
+		if (flat.LengthSquared() > 0.0001f)
+		{
+			flat = flat.Normalized();
+			direction = RotateFlat(flat, yaw);
+			direction = new Vector3(direction.X, Mathf.Clamp(direction.Y + pitch, -0.35f, 0.25f), direction.Z)
+				.Normalized();
+		}
+
+		return direction;
+	}
+
 	public bool TryFire(
 		Node source,
 		Node parentForProjectile,
@@ -505,6 +528,9 @@ public partial class Hardpoint : Node3D
 				}
 			}
 		}
+
+		if (source is MechController mechSpread && mechSpread.AimSpreadRadians > 0.0001f)
+			direction = ApplyAimSpread(direction, mechSpread.AimSpreadRadians);
 
 		var speed = EquippedPart.ProjectileSpeed;
 		var velocity = direction * speed;
@@ -933,6 +959,11 @@ public partial class Hardpoint : Node3D
 
 	private void RebuildVisual()
 	{
+		RebuildVisualForCockpit(UsesEncasedPowerCore());
+	}
+
+	public void RebuildVisualForCockpit(bool encasedPowerCore)
+	{
 		if (_visual != null)
 			MeshMat.QueueFreeSafe(_visual);
 		_visual = null;
@@ -940,8 +971,27 @@ public partial class Hardpoint : Node3D
 		if (EquippedPart == null || EquippedPart.VisualKind == "empty" || IsDestroyed)
 			return;
 
-		_visual = PartVisualFactory.Create(EquippedPart, ResolveChassisClass());
+		_visual = PartVisualFactory.Create(EquippedPart, ResolveChassisClass(), encasedPowerCore);
 		AddChild(_visual);
+	}
+
+	private bool UsesEncasedPowerCore()
+	{
+		if (Slot != PartSlot.PowerCore)
+			return false;
+
+		var node = GetParent();
+		while (node != null)
+		{
+			if (node is MechController mech && mech.Assembler != null)
+			{
+				var torso = mech.Assembler.Hardpoints.GetValueOrDefault(PartSlot.Torso)?.EquippedPart;
+				return torso?.VisualKind == "torso_fleet";
+			}
+			node = node.GetParent();
+		}
+
+		return false;
 	}
 
 	private MechChassisClass ResolveChassisClass()

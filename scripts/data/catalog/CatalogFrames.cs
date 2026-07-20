@@ -74,6 +74,34 @@ public static class CatalogFrames
 		parts["legs_lum_magbelt"] = CatalogBuilders.Leg("legs_lum_magbelt", "Magbelt Cradle", "lumina", m,
 			24, 10.8f, 65f, "legs_tracks", LegMode.Locked, LegType.Tracks,
 			canSprint: false, moveHeat: 2.2f, idleHeat: 0.85f);
+
+		// --- Boosters (jump) — bipedal; no sprint; MobilityModule.Booster ---
+		parts["legs_tri_jumpjack"] = CatalogBuilders.BoosterLegs("legs_tri_jumpjack", "Jumpjack Struts", "trinova", m,
+			20, 11.2f, 100f, jumpImpulse: 11f, jumpPower: 14f, jumpHeat: 10f, moveHeat: 1.9f, idleHeat: 0.45f);
+		parts["legs_lum_boosters"] = CatalogBuilders.BoosterLegs("legs_lum_boosters", "Vault Boosters", "lumina", m,
+			13, 11.8f, 118f, jumpImpulse: 14.5f, jumpPower: 16f, jumpHeat: 9f, moveHeat: 1.6f, idleHeat: 0.55f);
+		parts["legs_brin_pilejack"] = CatalogBuilders.BoosterLegs("legs_brin_pilejack", "Pilejack Pedestals", "brimforge", m,
+			42, 7.8f, 55f, jumpImpulse: 16f, jumpPower: 22f, jumpHeat: 18f, moveHeat: 3.6f, idleHeat: 0.85f);
+		parts["legs_ouro_ascender"] = CatalogBuilders.BoosterLegs("legs_ouro_ascender", "Ascender Spurs", "ourotech", m,
+			12, 12.5f, 135f, jumpImpulse: 13f, jumpPower: 12f, jumpHeat: 8f, moveHeat: 1.7f, idleHeat: 0.4f);
+
+		// --- Thrusters (dash) — bipedal; no sprint; MobilityModule.Thruster ---
+		parts["legs_ouro_thrusters"] = CatalogBuilders.ThrusterLegs("legs_ouro_thrusters", "Rail Thrusters", "ourotech", m,
+			15, 12.2f, 130f, LegMode.Gimbaled,
+			dashSpeed: 28f, dashDuration: 0.18f, dashCooldown: 1.1f, dashPower: 14f, dashHeat: 9f,
+			moveHeat: 1.9f, idleHeat: 0.4f);
+		parts["legs_lum_vector"] = CatalogBuilders.ThrusterLegs("legs_lum_vector", "Vector Skates", "lumina", m,
+			12, 12f, 122f, LegMode.Gimbaled,
+			dashSpeed: 32f, dashDuration: 0.16f, dashCooldown: 0.95f, dashPower: 15f, dashHeat: 8f,
+			moveHeat: 1.7f, idleHeat: 0.5f);
+		parts["legs_tri_slide"] = CatalogBuilders.ThrusterLegs("legs_tri_slide", "Slide Rails", "trinova", m,
+			22, 11f, 95f, LegMode.Locked,
+			dashSpeed: 24f, dashDuration: 0.2f, dashCooldown: 1.35f, dashPower: 12f, dashHeat: 11f,
+			moveHeat: 2.1f, idleHeat: 0.45f);
+		parts["legs_brin_charge"] = CatalogBuilders.ThrusterLegs("legs_brin_charge", "Charge Pedestals", "brimforge", m,
+			48, 7.2f, 50f, LegMode.Locked,
+			dashSpeed: 22f, dashDuration: 0.22f, dashCooldown: 1.6f, dashPower: 20f, dashHeat: 16f,
+			moveHeat: 3.8f, idleHeat: 0.9f);
 	}
 
 	private static void RegisterTorsos(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)
@@ -94,7 +122,8 @@ public static class CatalogFrames
 			48, housing: 2, structureHp: 68, shoulders: 1, backs: 1,
 			scale: new Vector3(1.1f, 1.05f, 1.15f), heatCap: 18, idleHeat: 1.1f);
 		parts["torso_tri_fleet"] = CatalogBuilders.Torso("torso_tri_fleet", "Fleet Intermediate", "trinova", m,
-			55, housing: 2, structureHp: 75, shoulders: 2, backs: 1, heatCap: 20, idleHeat: 1.15f);
+			55, housing: 2, structureHp: 75, shoulders: 2, backs: 1, heatCap: 20, idleHeat: 1.15f,
+			visualKind: "torso_fleet");
 
 		parts["torso_ouro_thin"] = CatalogBuilders.Torso("torso_ouro_thin", "Thinspine Chassis", "ourotech", m,
 			32, housing: 2, structureHp: 55, shoulders: 2, backs: 1,

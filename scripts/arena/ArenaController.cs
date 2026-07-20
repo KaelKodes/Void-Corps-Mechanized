@@ -27,6 +27,7 @@ public partial class ArenaController : Node3D, IMissionHost
 	private ClaimArenaLayout _layout = ClaimArenaLayout.All[0];
 	private Label? _missionHud;
 	private MechHud? _mechHud;
+	private AimCrosshair? _aimCrosshair;
 	private MissionBase? _mission;
 
 	private MechController? _mech;
@@ -154,6 +155,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		EnsurePauseMenu();
 		EnsureMissionHud();
 		EnsureMechHud();
+		EnsureAimCrosshair();
 		SetupCoopWings();
 		PlaceCombatants();
 		if (IsCoopMatch)
@@ -161,6 +163,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		else
 			HookPlayerDeath();
 
+		var skipHangarPrep = session is { MatchFromAcademy: true } && !IsCoopMatch;
 		if (_garage != null)
 		{
 			_garage.ConfigurePrepMode(true);
@@ -170,14 +173,26 @@ public partial class ArenaController : Node3D, IMissionHost
 				_garage.LoadoutApplied += OnReadyPressed;
 			_garage.FieldDeliveryRequested += OnFieldDeliveryRequested;
 			_garage.VisibilityChanged += OnGarageVisibilityChanged;
-			_garage.Visible = true;
-			_garage.MoveToFront();
-			_garage.RefreshFromSession();
+			_garage.Visible = !skipHangarPrep;
+			if (!skipHangarPrep)
+			{
+				_garage.MoveToFront();
+				_garage.RefreshFromSession();
+			}
 		}
 
 		SetCombatActive(false);
-		_phase = MatchPhase.Prep;
 		SetCombatHudVisible(false);
+
+		if (skipHangarPrep)
+		{
+			// Cadet tutorials use a fixed loaner — skip hangar and drop straight into the match.
+			BeginCountdown(session!.CurrentLoadout.Clone());
+			UpdateHud();
+			return;
+		}
+
+		_phase = MatchPhase.Prep;
 		MusicService.Cue(MusicCue.Hangar);
 		UpdateHud();
 	}
@@ -247,7 +262,9 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			_pauseMenu.Close();
 			GetTree().Paused = false;
+			SetCameraUiCaptureBlocked(false);
 			_mechHud?.Refresh(_mech);
+		_aimCrosshair?.Refresh(_mech);
 			return;
 		}
 
@@ -260,7 +277,9 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_pauseMenu.Open();
 		GetTree().Paused = true;
+		SetCameraUiCaptureBlocked(true);
 		_mechHud?.Refresh(_mech);
+		_aimCrosshair?.Refresh(_mech);
 	}
 
 	private void OnGarageVisibilityChanged()
@@ -270,7 +289,14 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		SetLocalWingControls(!_garage.Visible);
 		SetCombatHudVisible(!_garage.Visible);
+		SetCameraUiCaptureBlocked(_garage.Visible);
 		UpdateHud();
+	}
+
+	private void SetCameraUiCaptureBlocked(bool blocked)
+	{
+		if (GetViewport()?.GetCamera3D() is TopDownCamera camera)
+			camera.SetUiBlocksCapture(blocked);
 	}
 
 	private void SetCombatHudVisible(bool visible)
@@ -296,6 +322,8 @@ public partial class ArenaController : Node3D, IMissionHost
 				_mechHud.QueueApplyLayout();
 			}
 		}
+		if (_aimCrosshair != null)
+			_aimCrosshair.Visible = visible;
 
 		var brief = GetNodeOrNull<Label>("UI/ClaimBrief");
 		if (brief != null)
@@ -625,7 +653,11 @@ public partial class ArenaController : Node3D, IMissionHost
 					{
 						var origin = capturedBody.GlobalPosition + Vector3.Up * (capturedSize.Y * 0.5f);
 						ShatterBurst.Spawn(parent, origin, shatterColor, capturedSize, 18);
-						LootService.SpawnWorldDrops(parent, origin, LootService.ScrapForCover());
+						LootService.SpawnWorldDrops(
+							parent,
+							origin,
+							LootService.ScrapForCover(),
+							materials: LootService.RollMaterials(LootSource.Cover));
 					}
 
 					MeshMat.QueueFreeSafe(capturedBody);
@@ -819,6 +851,28 @@ public partial class ArenaController : Node3D, IMissionHost
 		};
 		ui.AddChild(_mechHud);
 		_mechHud.QueueApplyLayout();
+	}
+
+	private void EnsureAimCrosshair()
+	{
+		var ui = GetNodeOrNull("UI");
+		if (ui == null)
+			return;
+
+		_aimCrosshair = ui.GetNodeOrNull<AimCrosshair>("AimCrosshair");
+		if (_aimCrosshair != null && GodotObject.IsInstanceValid(_aimCrosshair))
+		{
+			if (_aimCrosshair.GetParent() != ui)
+				_aimCrosshair.Reparent(ui);
+			return;
+		}
+
+		_aimCrosshair = new AimCrosshair
+		{
+			Name = "AimCrosshair",
+			Visible = false
+		};
+		ui.AddChild(_aimCrosshair);
 	}
 
 	// --- IMissionHost ---
@@ -1721,7 +1775,8 @@ public partial class ArenaController : Node3D, IMissionHost
 				parent,
 				enemy.GlobalPosition,
 				LootService.ScrapForEnemyMech(),
-				LootService.RollEnemyMechPartDrop(loadout, maxTier));
+				LootService.RollEnemyMechPartDrop(loadout, maxTier),
+				LootService.RollMaterials(LootSource.EnemyMech, maxTier));
 		}
 
 		enemy.Visible = false;
@@ -2188,6 +2243,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		_mechHud?.Refresh(_mech);
+		_aimCrosshair?.Refresh(_mech);
 
 		if (_hud == null)
 			return;
@@ -2257,7 +2313,7 @@ public partial class ArenaController : Node3D, IMissionHost
 						=> _mission?.ExtractBeaconOverride != null
 							? "OBJECTIVES COMPLETE — hold F at the Exfil Uplink"
 							: "OBJECTIVES COMPLETE — return to your drop beacon and hold F to extract",
-					_ => "Shift sprint  |  LMB/RMB weapons  |  TAB sensor lock  |  C focus band  |  B buy life  |  F extract  |  1-6 modules  |  T field garage"
+					_ => "WASD move  |  mouse look (FP)  |  tap Shift dash / hold sprint  |  Space jump  |  LMB/RMB weapons  |  TAB lock  |  1-6 modules  |  P camera  |  Esc pause"
 				};
 		}
 	}

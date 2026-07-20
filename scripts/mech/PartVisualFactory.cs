@@ -4,7 +4,8 @@ namespace Mechanize;
 
 public static class PartVisualFactory
 {
-	public static Node3D Create(PartData part, MechChassisClass chassisClass = MechChassisClass.Standard)
+	public static Node3D Create(PartData part, MechChassisClass chassisClass = MechChassisClass.Standard,
+		bool encasedPowerCore = false)
 	{
 		if (chassisClass == MechChassisClass.Titan)
 			return TitanPartVisualFactory.Create(part);
@@ -39,6 +40,10 @@ public static class PartVisualFactory
 				AddWheel(root, light, new Vector3(0.7f, 0.18f, 0.5f));
 				break;
 
+			case "torso_fleet":
+				AttachFleetTorsoScene(root, part);
+				break;
+
 			case "torso":
 				AddBox(root, mat, new Vector3(1.4f, 1.05f, 1.0f) * part.VisualScale, new Vector3(0f, 0.55f, 0f));
 				AddBox(root, dark, new Vector3(1.15f, 0.18f, 0.85f), new Vector3(0f, 0.95f, 0.05f));
@@ -61,10 +66,15 @@ public static class PartVisualFactory
 				break;
 
 			case "core":
-				AddCylinder(root, mat, 0.28f, 0.5f, new Vector3(0f, 0.28f, 0f), Vector3.Zero);
-				AddCylinder(root, dark, 0.32f, 0.1f, new Vector3(0f, 0.08f, 0f), Vector3.Zero);
-				AddSphere(root, glow, 0.16f, new Vector3(0f, 0.52f, 0f));
-				AddBox(root, dark, new Vector3(0.55f, 0.08f, 0.55f), new Vector3(0f, 0.04f, 0f));
+				if (encasedPowerCore)
+					BuildEncasedCore(root, mat, dark, glow);
+				else
+				{
+					AddCylinder(root, mat, 0.28f, 0.5f, new Vector3(0f, 0.28f, 0f), Vector3.Zero);
+					AddCylinder(root, dark, 0.32f, 0.1f, new Vector3(0f, 0.08f, 0f), Vector3.Zero);
+					AddSphere(root, glow, 0.16f, new Vector3(0f, 0.52f, 0f));
+					AddBox(root, dark, new Vector3(0.55f, 0.08f, 0.55f), new Vector3(0f, 0.04f, 0f));
+				}
 				break;
 
 			case "cannon":
@@ -179,6 +189,24 @@ public static class PartVisualFactory
 			mat.EmissionEnergyMultiplier = emissionEnergy;
 		}
 		return mat;
+	}
+
+	/// <summary>Loads scenes/parts/torso_tri_fleet.tscn — edit cockpit layout in the Godot editor.</summary>
+	public static void AttachFleetTorsoScene(Node3D root, PartData part)
+	{
+		root.SetMeta("CockpitTorso", true);
+		var scene = GD.Load<PackedScene>("res://scenes/parts/torso_tri_fleet.tscn");
+		var fleet = scene.Instantiate<FleetTorsoVisual>();
+		fleet.ApplyPart(part);
+		root.AddChild(fleet);
+	}
+
+	private static void BuildEncasedCore(Node3D root, Material mat, Material dark, Material glow)
+	{
+		// Recessed in the aft cavity — no overhead glow sphere in the viewport.
+		AddCylinder(root, mat, 0.2f, 0.28f, new Vector3(0f, 0.12f, 0.04f), Vector3.Zero);
+		AddBox(root, dark, new Vector3(0.42f, 0.07f, 0.42f), new Vector3(0f, 0.02f, 0.02f));
+		AddSphere(root, glow, 0.06f, new Vector3(0f, 0.16f, 0.06f));
 	}
 
 	/// <summary>

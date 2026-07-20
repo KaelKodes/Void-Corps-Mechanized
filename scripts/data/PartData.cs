@@ -98,6 +98,17 @@ public partial class PartData : Resource
 	[Export] public float SprintHeatPerSec { get; set; }
 	[Export] public float SprintPowerLoad { get; set; }
 
+	// --- Leg mobility modules (Boosters = jump, Thrusters = dash) ---
+	[Export] public MobilityModuleKind MobilityModule { get; set; } = MobilityModuleKind.None;
+	[Export] public float DashSpeed { get; set; }
+	[Export] public float DashDuration { get; set; } = 0.18f;
+	[Export] public float DashCooldown { get; set; } = 1.2f;
+	[Export] public float DashPowerCost { get; set; }
+	[Export] public float DashHeat { get; set; }
+	[Export] public float JumpImpulse { get; set; }
+	[Export] public float JumpPowerCost { get; set; }
+	[Export] public float JumpHeat { get; set; }
+
 	public bool GrantsActiveAbility => AbilityKind == AbilityKind.Active && AbilityId != AbilityId.None;
 
 	public bool ProvidesMount(PartSlot mount) => Slot == PartSlot.Torso && mount switch

@@ -19,6 +19,13 @@ public partial class MechLegAnimator : Node
 	private readonly List<HexLimb> _hexes = new();
 	private float _phase;
 	private float _bindCooldown;
+	private float _pace;
+	private bool _gaitMoving;
+
+	/// <summary>Shared with FP cockpit bob so the camera feels the same footsteps as the legs.</summary>
+	public float GaitPhase => _phase;
+	public float GaitPace => _pace;
+	public bool GaitMoving => _gaitMoving;
 
 	private struct BipedLimb
 	{
@@ -91,21 +98,21 @@ public partial class MechLegAnimator : Node
 		var planar = new Vector3(_mech.Velocity.X, 0f, _mech.Velocity.Z);
 		var speed = planar.Length();
 		var maxSpeed = Mathf.Max(1f, _assembler?.MaxSpeed ?? 10f);
-		var pace = Mathf.Clamp(speed / maxSpeed, 0f, 1.35f);
-		var moving = pace > 0.04f;
+		_pace = Mathf.Clamp(speed / maxSpeed, 0f, 1.35f);
+		_gaitMoving = _pace > 0.04f;
 
-		if (moving)
-			_phase += dt * Mathf.Lerp(4.5f, 9.5f, pace);
+		if (_gaitMoving)
+			_phase += dt * Mathf.Lerp(4.5f, 9.5f, _pace);
 		else
 			_phase = Mathf.MoveToward(_phase, Mathf.Snapped(_phase, Mathf.Pi), dt * 6f);
 
 		switch (_rigKind)
 		{
 			case "biped":
-				AnimateBiped(pace, moving);
+				AnimateBiped(_pace, _gaitMoving);
 				break;
 			case "hex":
-				AnimateHex(pace, moving);
+				AnimateHex(_pace, _gaitMoving);
 				break;
 		}
 	}

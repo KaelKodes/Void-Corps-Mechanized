@@ -63,6 +63,7 @@ public partial class MechAssembler : Node
 		}
 
 		FitMountSocketsToTorso(GameCatalog.GetPart(loadout.TorsoId));
+		RefreshCockpitDependentVisuals(GameCatalog.GetPart(loadout.TorsoId));
 		Stats = DeriveStats();
 	}
 
@@ -95,6 +96,28 @@ public partial class MechAssembler : Node
 
 		if (_socketNodes.TryGetValue(PartSlot.ShoulderR, out var shoulderR))
 			shoulderR.Position = new Vector3(halfW + 0.08f, bodyCenter.Y + halfH * 0.5f, bodyCenter.Z + halfD * 0.12f);
+
+		if (_socketNodes.TryGetValue(PartSlot.PowerCore, out var core))
+		{
+			if (torso?.VisualKind == "torso_fleet")
+			{
+				// Aft cavity mount — keeps the core glow out of the viewport.
+				core.Position = torsoSocket.Position + new Vector3(0f, 0.12f, 0.38f);
+			}
+			else
+				core.Position = new Vector3(0f, 1.15f, -0.15f);
+		}
+	}
+
+	/// <summary>Power-core mesh depends on whether the torso exposes a cockpit cavity.</summary>
+	private void RefreshCockpitDependentVisuals(PartData? torso)
+	{
+		if (!_hardpoints.TryGetValue(PartSlot.PowerCore, out var coreHp))
+			return;
+
+		var encased = torso?.VisualKind == "torso_fleet";
+		if (coreHp.EquippedPart != null)
+			coreHp.RebuildVisualForCockpit(encased);
 	}
 
 	public MechStats DeriveStats()
@@ -129,6 +152,16 @@ public partial class MechAssembler : Node
 		var headAlive = true;
 		float totalWeight = 0f;
 		float loadRating = 0f;
+		var hasThruster = false;
+		float dashSpeed = 0f;
+		float dashDuration = 0.18f;
+		float dashCooldown = 1.2f;
+		float dashPower = 0f;
+		float dashHeat = 0f;
+		var hasBooster = false;
+		float jumpImpulse = 0f;
+		float jumpPower = 0f;
+		float jumpHeat = 0f;
 
 		foreach (var slot in EquipOrder)
 		{
@@ -190,6 +223,29 @@ public partial class MechAssembler : Node
 				sprintLoad = p.SprintPowerLoad;
 				loadRating = Mathf.Max(0f, p.LoadRating);
 			}
+
+			if (p.MobilityModule == MobilityModuleKind.Thruster && p.DashSpeed > 0.1f)
+			{
+				hasThruster = true;
+				if (p.DashSpeed >= dashSpeed)
+				{
+					dashSpeed = p.DashSpeed;
+					dashDuration = Mathf.Max(0.08f, p.DashDuration);
+					dashCooldown = Mathf.Max(0.2f, p.DashCooldown);
+					dashPower = Mathf.Max(0f, p.DashPowerCost);
+					dashHeat = Mathf.Max(0f, p.DashHeat);
+				}
+			}
+			else if (p.MobilityModule == MobilityModuleKind.Booster && p.JumpImpulse > 0.1f)
+			{
+				hasBooster = true;
+				if (p.JumpImpulse >= jumpImpulse)
+				{
+					jumpImpulse = p.JumpImpulse;
+					jumpPower = Mathf.Max(0f, p.JumpPowerCost);
+					jumpHeat = Mathf.Max(0f, p.JumpHeat);
+				}
+			}
 		}
 
 		if (!headAlive || !_hardpoints.ContainsKey(PartSlot.Head))
@@ -242,6 +298,16 @@ public partial class MechAssembler : Node
 			SprintPowerLoad = sprintLoad,
 			LegMode = legMode,
 			LegType = legType,
+			HasThruster = hasThruster,
+			DashSpeed = dashSpeed,
+			DashDuration = dashDuration,
+			DashCooldown = dashCooldown,
+			DashPowerCost = dashPower,
+			DashHeat = dashHeat,
+			HasBooster = hasBooster,
+			JumpImpulse = jumpImpulse,
+			JumpPowerCost = jumpPower,
+			JumpHeat = jumpHeat,
 			TotalWeight = totalWeight,
 			LoadRating = loadRating,
 			LoadRatio = loadRatio,

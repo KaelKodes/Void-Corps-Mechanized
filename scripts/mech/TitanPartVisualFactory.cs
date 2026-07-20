@@ -42,6 +42,9 @@ public static class TitanPartVisualFactory
 			case "legs_tracks":
 				BuildTracks(root, mat, dark, light, plate, glow, threat);
 				break;
+			case "torso_fleet":
+				PartVisualFactory.AttachFleetTorsoScene(root, part);
+				break;
 			case "torso":
 				BuildTorso(root, part, mat, dark, light, plate, glow, threat);
 				break;

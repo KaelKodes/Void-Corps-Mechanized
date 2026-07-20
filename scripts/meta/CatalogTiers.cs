@@ -53,6 +53,7 @@ public static class CatalogTiers
 		// Frames
 		"legs_tri_courier", "legs_brin_biped", "legs_ouro_hex", "legs_ouro_duelist",
 		"legs_lum_hex", "legs_tri_packhex", "legs_tri_tracks", "legs_ouro_rail", "legs_lum_magbelt",
+		"legs_tri_jumpjack", "legs_lum_boosters", "legs_ouro_thrusters", "legs_tri_slide",
 		"torso_brin_slab", "torso_tri_cargo", "torso_ouro_thin", "torso_ouro_caliper",
 		"torso_lum_shell", "torso_lum_prism",
 		"head_tri_logistics", "head_tri_convoy", "head_brin_helm", "head_ouro_scope",
@@ -80,6 +81,7 @@ public static class CatalogTiers
 		// Frames
 		"legs_brin_bulwark", "legs_ouro_razorhex", "legs_lum_glasswalk", "legs_lum_phasehex",
 		"legs_brin_siegehex", "legs_brin_tracks", "legs_brin_fortress", "legs_tri_hauler",
+		"legs_brin_pilejack", "legs_ouro_ascender", "legs_lum_vector", "legs_brin_charge",
 		"torso_brin_anvil", "torso_brin_citadel", "torso_ouro_apex", "torso_lum_oracle",
 		"head_brin_visor", "head_brin_warface", "head_ouro_reticle", "head_ouro_whisper",
 		"head_lum_oracle",

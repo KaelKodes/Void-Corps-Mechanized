@@ -41,6 +41,15 @@ public partial class MechController : CharacterBody3D
 	private bool _shieldRaisedR;
 	private bool _shieldBrokenL;
 	private bool _shieldBrokenR;
+
+	// FP / mobility
+	private Vector3 _moveVelocity;
+	private float _sprintPressTime = -1f;
+	private bool _sprintHoldCommitted;
+	private float _dashRemaining;
+	private float _dashCooldown;
+	private Vector3 _dashDirection = Vector3.Forward;
+	private const float SprintTapThreshold = 0.18f;
 	private Node3D? _carrierMount;
 	private EscortAsset? _carrierAsset;
 	private bool _carrierOverdrive;
@@ -267,6 +276,15 @@ public partial class MechController : CharacterBody3D
 	public bool SensorLockInVision => _sensorLockInVision;
 	public bool ControlsEnabled => _controlsEnabled;
 	public bool IsSprinting => _sprinting;
+	public bool IsDashing => _dashRemaining > 0.01f;
+	/// <summary>Locomotion spread tier — wide reticle + projectile cone while moving or dashing.</summary>
+	public bool IsWideFire => _wasMoving || IsDashing || IsSprinting;
+	/// <summary>Planted aim — tight reticle and no ballistic spread.</summary>
+	public bool IsStationaryAim => !IsWideFire;
+	/// <summary>Sprint blocks weapon discharge.</summary>
+	public bool CanFireWeapons => !IsSprinting;
+	/// <summary>Ballistic spread applied per shot while <see cref="IsWideFire"/>.</summary>
+	public float AimSpreadRadians => IsStationaryAim ? 0f : 0.075f;
 	/// <summary>True while riding an escort carrier (no steering; aim + weapons stay live).</summary>
 	public bool IsCarrierMounted => _carrierMount != null && GodotObject.IsInstanceValid(_carrierMount);
 	/// <summary>
@@ -537,7 +555,8 @@ public partial class MechController : CharacterBody3D
 				ReadPlayerMove(out turn, out throttle, out move, out strafe);
 				firePrimary = Input.IsActionPressed("fire_primary");
 				fireSecondary = Input.IsActionPressed("fire_secondary");
-				wantSprint = Input.IsActionPressed("sprint");
+				wantSprint = UpdateSprintGesture(dt);
+				TryJumpInput();
 				abilityIndex = ReadPlayerAbilityInput();
 			}
 			else if (_hasNetInput)
@@ -570,7 +589,8 @@ public partial class MechController : CharacterBody3D
 			ReadPlayerMove(out turn, out throttle, out move, out strafe);
 			firePrimary = Input.IsActionPressed("fire_primary");
 			fireSecondary = Input.IsActionPressed("fire_secondary");
-			wantSprint = Input.IsActionPressed("sprint");
+			wantSprint = UpdateSprintGesture(dt);
+			TryJumpInput();
 			abilityIndex = ReadPlayerAbilityInput();
 		}
 		else if (_pilot != null)
@@ -601,9 +621,17 @@ public partial class MechController : CharacterBody3D
 		var remotePilot = online && OwningPeerId != 0 && OwningPeerId != Multiplayer.GetUniqueId();
 		UpdateFireElevationState(firePrimary || fireSecondary, fromRemotePeer: remotePilot);
 
-		var horizontal = _assembler?.LegMode == LegMode.Gimbaled
-			? ProcessGimbaledLegMovement(dt, move)
-			: ProcessLockedLegMovement(dt, turn, throttle, remotePilot ? move.X : strafe);
+		TickDashCooldown(dt);
+		Vector3 desiredHorizontal;
+		if (IsLocalFirstPerson() && IsPlayerControlled && !remotePilot)
+			desiredHorizontal = ProcessFirstPersonLegMovement(dt, move);
+		else if (_assembler?.LegMode == LegMode.Gimbaled)
+			desiredHorizontal = ProcessGimbaledLegMovement(dt, move);
+		else
+			desiredHorizontal = ProcessLockedLegMovement(dt, turn, throttle, remotePilot ? move.X : strafe);
+
+		var horizontal = ApplyMoveAcceleration(desiredHorizontal, dt);
+		horizontal = ApplyDashOverride(horizontal, dt);
 
 		var moving = horizontal.LengthSquared() > 0.05f;
 		if (moving)
@@ -662,7 +690,8 @@ public partial class MechController : CharacterBody3D
 			ApplySensorAimAssist();
 			firePrimary = Input.IsActionPressed("fire_primary");
 			fireSecondary = Input.IsActionPressed("fire_secondary");
-			wantOverdrive = Input.IsActionPressed("sprint");
+			wantOverdrive = UpdateSprintGesture(dt);
+			TryJumpInput();
 			abilityIndex = ReadPlayerAbilityInput();
 			UpdateFireElevationState(firePrimary || fireSecondary);
 		}
@@ -868,6 +897,197 @@ public partial class MechController : CharacterBody3D
 		if (_sprinting)
 			_powerHeat?.Release("sprint");
 		_sprinting = false;
+	}
+
+	/// <summary>
+	/// Tap sprint (under threshold) = thruster dash. Hold past threshold = sustained sprint.
+	/// </summary>
+	private bool UpdateSprintGesture(float dt)
+	{
+		var pressed = Input.IsActionPressed("sprint");
+		if (Input.IsActionJustPressed("sprint"))
+		{
+			_sprintPressTime = 0f;
+			_sprintHoldCommitted = false;
+		}
+
+		if (pressed && _sprintPressTime >= 0f)
+		{
+			_sprintPressTime += dt;
+			if (_sprintPressTime >= SprintTapThreshold)
+				_sprintHoldCommitted = true;
+		}
+
+		if (Input.IsActionJustReleased("sprint"))
+		{
+			var tap = _sprintPressTime >= 0f && !_sprintHoldCommitted && _sprintPressTime < SprintTapThreshold;
+			_sprintPressTime = -1f;
+			_sprintHoldCommitted = false;
+			if (tap)
+				TryStartDash();
+			return false;
+		}
+
+		return pressed && _sprintHoldCommitted;
+	}
+
+	private void TickDashCooldown(float dt)
+	{
+		if (dt > 0f && _dashCooldown > 0f)
+			_dashCooldown = Mathf.Max(0f, _dashCooldown - dt);
+		if (_dashRemaining > 0f)
+			_dashRemaining = Mathf.Max(0f, _dashRemaining - dt);
+	}
+
+	private void TryStartDash()
+	{
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var mobility = _integrity?.LegMobilityFactor ?? 1f;
+		if (!stats.HasThruster || stats.DashSpeed <= 0.1f || mobility <= 0.001f)
+			return;
+		if (_dashCooldown > 0.01f || _dashRemaining > 0.01f)
+			return;
+		if (_powerHeat != null && stats.DashPowerCost > 0.01f && !_powerHeat.CanSpend(stats.DashPowerCost))
+			return;
+
+		var dir = ResolveDashDirection();
+		if (dir.LengthSquared() < 0.01f)
+			return;
+
+		if (_powerHeat != null && stats.DashPowerCost > 0.01f)
+			_powerHeat.TrySpend(stats.DashPowerCost);
+		_powerHeat?.AddHeat(stats.DashHeat);
+
+		_dashDirection = dir.Normalized();
+		_dashRemaining = Mathf.Max(0.08f, stats.DashDuration);
+		_dashCooldown = Mathf.Max(0.2f, stats.DashCooldown);
+		StopSprint();
+	}
+
+	private Vector3 ResolveDashDirection()
+	{
+		var move = Vector2.Zero;
+		if (Input.IsActionPressed("move_forward")) move.Y += 1f;
+		if (Input.IsActionPressed("move_back")) move.Y -= 1f;
+		if (Input.IsActionPressed("turn_left")) move.X -= 1f;
+		if (Input.IsActionPressed("turn_right")) move.X += 1f;
+		if (IsLocalFirstPerson())
+		{
+			if (Input.IsPhysicalKeyPressed(Key.Q)) move.X -= 1f;
+			if (Input.IsPhysicalKeyPressed(Key.E)) move.X += 1f;
+		}
+
+		Basis basis;
+		if (IsLocalFirstPerson() && GetViewport()?.GetCamera3D() is TopDownCamera cam)
+		{
+			var yaw = cam.BodyLookYaw;
+			basis = Basis.FromEuler(new Vector3(0f, yaw, 0f));
+		}
+		else
+		{
+			basis = GlobalTransform.Basis;
+		}
+
+		var forward = -basis.Z;
+		forward.Y = 0f;
+		forward = forward.Normalized();
+		var right = basis.X;
+		right.Y = 0f;
+		right = right.Normalized();
+
+		if (move.LengthSquared() > 0.01f)
+			return (right * move.X + forward * move.Y).Normalized();
+		return forward;
+	}
+
+	private Vector3 ApplyDashOverride(Vector3 horizontal, float dt)
+	{
+		if (_dashRemaining <= 0f)
+			return horizontal;
+
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var speed = stats.DashSpeed * (_integrity?.LegMobilityFactor ?? 1f);
+		var dashVel = _dashDirection * speed;
+		_moveVelocity = dashVel;
+		return dashVel;
+	}
+
+	private void TryJumpInput()
+	{
+		if (!Input.IsActionJustPressed("jump"))
+			return;
+
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var mobility = _integrity?.LegMobilityFactor ?? 1f;
+		if (!stats.HasBooster || stats.JumpImpulse <= 0.1f || mobility <= 0.001f)
+			return;
+		if (!IsOnFloor())
+			return;
+		if (_powerHeat != null && stats.JumpPowerCost > 0.01f && !_powerHeat.CanSpend(stats.JumpPowerCost))
+			return;
+
+		if (_powerHeat != null && stats.JumpPowerCost > 0.01f)
+			_powerHeat.TrySpend(stats.JumpPowerCost);
+		_powerHeat?.AddHeat(stats.JumpHeat);
+		Velocity = new Vector3(Velocity.X, stats.JumpImpulse, Velocity.Z);
+	}
+
+	private Vector3 ApplyMoveAcceleration(Vector3 desired, float dt)
+	{
+		var legType = _assembler?.LegType ?? LegType.Bipedal;
+		// Lower = massier. Walk should feel like hauling chassis; sprint/dash snap.
+		float accel;
+		if (_dashRemaining > 0f)
+			accel = 40f;
+		else if (_sprinting)
+			accel = 22f;
+		else if (legType == LegType.Tracks)
+			accel = 16f;
+		else if (legType == LegType.Hexapod)
+			accel = 3.2f;
+		else
+			accel = 3.8f; // biped walk — deliberately sluggish
+
+		var t = 1f - Mathf.Exp(-accel * dt);
+		_moveVelocity = _moveVelocity.Lerp(desired, t);
+		if (desired.LengthSquared() < 0.01f && _moveVelocity.LengthSquared() < 0.04f)
+			_moveVelocity = Vector3.Zero;
+		return _moveVelocity;
+	}
+
+	/// <summary>
+	/// FP: WASD legs relative to body look. LegMode does not tank-turn or change aim here.
+	/// </summary>
+	private Vector3 ProcessFirstPersonLegMovement(float dt, Vector2 moveInput)
+	{
+		var mobility = _integrity?.LegMobilityFactor ?? 1f;
+		if (mobility <= 0.001f)
+			return Vector3.Zero;
+
+		if (GetViewport()?.GetCamera3D() is not TopDownCamera cam)
+			return Vector3.Zero;
+
+		var yaw = cam.BodyLookYaw;
+		var forward = new Vector3(-Mathf.Sin(yaw), 0f, -Mathf.Cos(yaw));
+		var right = new Vector3(Mathf.Cos(yaw), 0f, -Mathf.Sin(yaw));
+
+		if (moveInput.LengthSquared() < 0.01f)
+			return Vector3.Zero;
+
+		var moveDirection = (right * moveInput.X + forward * moveInput.Y);
+		if (moveDirection.LengthSquared() < 0.01f)
+			return Vector3.Zero;
+		moveDirection = moveDirection.Normalized();
+
+		// Legs slowly face travel direction under the look-driven torso (clunky walk turn-in).
+		var targetYaw = Mathf.Atan2(-moveDirection.X, -moveDirection.Z);
+		var turnScale = _sprinting ? 1.1f : 0.45f;
+		var turnRateRadians = Mathf.DegToRad(
+			(_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier() * GetWeightTurnMultiplier() * mobility)
+			* dt * turnScale;
+		Rotation = new Vector3(Rotation.X, Mathf.RotateToward(Rotation.Y, targetYaw, turnRateRadians), Rotation.Z);
+
+		return moveDirection * GetCurrentSpeed() * mobility;
 	}
 
 	private void ClearHeldShieldBattleState()
@@ -1238,13 +1458,14 @@ public partial class MechController : CharacterBody3D
 		if (camera == null)
 			return;
 
-		var mouse = camera.GetViewport().GetMousePosition();
-		var from = camera.ProjectRayOrigin(mouse);
-		var dir = camera.ProjectRayNormal(mouse);
-
+		Vector3 from;
+		Vector3 dir;
 		if (IsLocalFirstPerson())
 		{
-			// Full mouse aim: weapons track the 3D cursor ray (pitch included).
+			// Captured mouselook: aim from view center, not a screen cursor.
+			var center = camera.GetViewport().GetVisibleRect().Size * 0.5f;
+			from = camera.ProjectRayOrigin(center);
+			dir = camera.ProjectRayNormal(center);
 			var space = GetWorld3D().DirectSpaceState;
 			var query = PhysicsRayQueryParameters3D.Create(from, from + dir * 480f);
 			query.CollideWithAreas = false;
@@ -1253,6 +1474,10 @@ public partial class MechController : CharacterBody3D
 			_aimPoint = hit.Count > 0 ? (Vector3)hit["position"] : from + dir * 120f;
 			return;
 		}
+
+		var mouse = camera.GetViewport().GetMousePosition();
+		from = camera.ProjectRayOrigin(mouse);
+		dir = camera.ProjectRayNormal(mouse);
 
 		var planeY = GlobalPosition.Y - CarrierCombatLift + 1.0f;
 		var plane = new Plane(Vector3.Up, planeY);
@@ -1741,6 +1966,22 @@ public partial class MechController : CharacterBody3D
 		if (_upperBody == null)
 			return;
 
+		// FP: torso follows body look yaw (mouse). Legs stay independent under it.
+		if (IsLocalFirstPerson() && IsPlayerControlled
+		    && GetViewport()?.GetCamera3D() is TopDownCamera fpCam)
+		{
+			var desiredWorldYaw = fpCam.BodyLookYaw;
+			var chassisYaw = GlobalRotation.Y;
+			var desiredLocalYaw = desiredWorldYaw - chassisYaw;
+			var currentYaw = _upperBody.Rotation.Y;
+			var rotateSpeed = Mathf.DegToRad((_assembler?.TurnRateDegrees ?? 80f) * 2.4f) * dt;
+			_upperBody.Rotation = new Vector3(
+				_upperBody.Rotation.X,
+				Mathf.RotateToward(currentYaw, desiredLocalYaw, rotateSpeed),
+				_upperBody.Rotation.Z);
+			return;
+		}
+
 		if (_assembler?.LegMode == LegMode.Gimbaled)
 		{
 			var localTarget = ToLocal(_aimPoint);
@@ -1812,6 +2053,8 @@ public partial class MechController : CharacterBody3D
 	private void FireWeapon(PartSlot slot)
 	{
 		if (_assembler == null)
+			return;
+		if (_sprinting)
 			return;
 		if (!_assembler.Hardpoints.TryGetValue(slot, out var hardpoint))
 			return;

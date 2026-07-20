@@ -34,6 +34,8 @@ public partial class MechHud : Control
 
 	private readonly List<ModuleRow> _weaponRows = new();
 	private readonly List<ModuleRow> _abilityRows = new();
+	private CockpitDiegeticHud? _cockpitHud;
+	private Control? _weaponModulesColumn;
 
 	private static readonly Color EmptyColor = new(0.82f, 0.18f, 0.16f);
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
@@ -205,7 +207,8 @@ public partial class MechHud : Control
 		root.AddChild(_powerColumn);
 		root.AddChild(BuildEnemySchematicColumn());
 		root.AddChild(BuildSchematicColumn());
-		root.AddChild(BuildModulesColumn());
+		_weaponModulesColumn = BuildModulesColumn();
+		root.AddChild(_weaponModulesColumn);
 		_heatColumn = BuildMeterColumn("HEAT", HeatFill, out _heatBar, out _heatLabel);
 		root.AddChild(_heatColumn);
 		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel);
@@ -557,10 +560,17 @@ public partial class MechHud : Control
 		_trackedMech = mech;
 		if (mech == null)
 		{
+			_cockpitHud?.ApplyActive(false);
+			SyncDiegeticLayout(false);
 			if (_flankRoot != null)
 				_flankRoot.Visible = false;
 			return;
 		}
+
+		var useDiegetic = IsFirstPersonHud(mech) && CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		EnsureCockpitHud(mech);
+		_cockpitHud?.Refresh(mech, useDiegetic);
+		SyncDiegeticLayout(useDiegetic);
 
 		RefreshMeters(mech);
 		_schematic?.Refresh(mech);
@@ -673,6 +683,35 @@ public partial class MechHud : Control
 
 	private static bool IsFirstPersonHud(MechController mech) =>
 		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
+
+	private void EnsureCockpitHud(MechController mech)
+	{
+		if (_cockpitHud != null && GodotObject.IsInstanceValid(_cockpitHud))
+			return;
+
+		var host = GetParent();
+		if (host == null)
+			return;
+
+		_cockpitHud = new CockpitDiegeticHud { Name = "CockpitDiegeticHud" };
+		host.AddChild(_cockpitHud);
+	}
+
+	private void SyncDiegeticLayout(bool useDiegetic)
+	{
+		var hidePanels = useDiegetic && _cockpitHud is { HasScreens: true };
+		if (_enemySchematic != null)
+			_enemySchematic.Visible = !hidePanels;
+		if (_schematic != null)
+			_schematic.Visible = !hidePanels;
+		if (_weaponModulesColumn != null)
+			_weaponModulesColumn.Visible = !hidePanels;
+
+		if (_rootRow == null)
+			return;
+
+		_rootRow.Visible = !(hidePanels && GameSettings.MetersBesideMech);
+	}
 
 	private void RefreshWeapons(MechController mech)
 	{

@@ -15,7 +15,7 @@ public static class VoidCorpsIdentity
 	public const string ProductTitle = "Void Corps: Mechanize";
 	public const string ShortTitle = "MECHANIZE";
 	/// <summary>Player-facing build label (semver).</summary>
-	public const string GameVersion = "0.2.1";
+	public const string GameVersion = "0.2.2";
 
 	/// <summary>Manned combat chassis — Mechanized Armor Pilot.</summary>
 	public const string MapAcronym = "MAP";
@@ -49,7 +49,7 @@ public static class VoidCorpsIdentity
 		"After graduation, the Big Four court new pilots with mock missions, sparse part pools, and trial scoring.";
 
 	public const string Tagline =
-		"When the claim isn't settled in orbit, MAPs settle it on the surface.";
+		"Surface warfare for unclaimed territory. Pilot a licensed MAP for your corp, deny rival assets, hold the claim.";
 	public const string OpsBrief =
 		"Surface warfare for unclaimed territory. Pilot a licensed MAP for your corp, deny rival assets, hold the claim.";
 

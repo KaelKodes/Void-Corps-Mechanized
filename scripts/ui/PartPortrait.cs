@@ -79,16 +79,16 @@ public static class PartPortrait
 				FillOval(image, 0.76f, 0.63f, 0.08f, 0.08f, light);
 				break;
 			case "torso":
+			case "torso_fleet":
 				FillRect(image, 0.2f, 0.16f, 0.6f, 0.66f, accent);
 				// Shoulder plates
 				FillRect(image, 0.12f, 0.2f, 0.14f, 0.22f, mid);
 				FillRect(image, 0.74f, 0.2f, 0.14f, 0.22f, mid);
 				FillRect(image, 0.28f, 0.24f, 0.44f, 0.14f, shade);
 				FillRect(image, 0.32f, 0.28f, 0.36f, 0.04f, light);
-				// Cockpit / chest vent
-				FillRect(image, 0.36f, 0.48f, 0.28f, 0.2f, mid);
-				FillRect(image, 0.4f, 0.52f, 0.2f, 0.04f, glow);
-				FillRect(image, 0.4f, 0.6f, 0.2f, 0.04f, glow);
+				// Hollow view panel
+				FillRect(image, 0.32f, 0.42f, 0.36f, 0.28f, glow);
+				FillRect(image, 0.36f, 0.46f, 0.28f, 0.2f, mid);
 				break;
 			case "head":
 				FillRect(image, 0.28f, 0.22f, 0.44f, 0.42f, accent);

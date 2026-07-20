@@ -1,6 +1,6 @@
 # Void Corps: Mechanize
 
-**Version 0.2.2** — Surface warfare in the Void Corps universe.
+**Version 0.2.2.1** — Surface warfare in the Void Corps universe.
 
 **Corps** are organizations — guild-scale to large businesses — fighting for territory. You join an upstart corp, rise with it, and share in its wins.
 
@@ -8,9 +8,16 @@
 
 When orbital claims stall, corps deploy **MAP** detachments — Mechanized Armor Pilots in licensed chassis. Unmanned **MAD** chassis (Mechanized Armor Drones) fill cheaper kill-slots.
 
-> *When the claim isn't settled in orbit, MAPs settle it on the surface.*
-
 North star: territory control facilitated by mechanized battles (Foxhole-like). Campaign is linear with branching paths; a later persistent seasonal MMO layer for player-run corps is deferred.
+
+## What's new in 0.2.2.1
+
+### Fleet cockpit & diegetic HUD
+- Trinova **Fleet Intermediate** torso (`torso_fleet`) — authored hollow cockpit scene with dashboard CRTs.
+- **First person:** dashboard screens show sensor lock, integrity schematic, and weapons/modules; flat HUD columns hide while PWR/HEAT stay on flank meters.
+- **Crosshair** styles (cross / chevron / X) from weapon type; wide while moving, precise when planted; sprint blocks fire.
+- Cockpit camera anchors to `CockpitAnchor`; encased power core stays out of the viewport.
+- **Mech 2.0 planning:** pelvis buffer between torso and legs noted in `MECH_DESIGN.md` (legs clipping into FP cockpit — design pass deferred).
 
 ## What's new in 0.2.2
 
@@ -41,6 +48,9 @@ North star: territory control facilitated by mechanized battles (Foxhole-like). 
 
 ## Run
 
+**Preferred:** download a build from [Releases](https://github.com/KaelKodes/Void-Corps-Mechanized/releases), unzip, and run the executable.
+
+**From source (development):**
 1. Open this folder in **Godot 4.6** (C# / .NET).
 2. Let it restore NuGet / build the `Mechanize` solution.
 3. Press Play — main scene is the **main menu** (`scenes/main_menu.tscn`); claims run in `scenes/arena.tscn`.

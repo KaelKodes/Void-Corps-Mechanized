@@ -902,6 +902,33 @@ public partial class GarageUi : Control
 			AppendPartStat(sb, "Turn", selected.TurnRateDegrees, equipped?.TurnRateDegrees, compare, "0");
 			AppendPartStat(sb, "Load rating", selected.LoadRating, equipped?.LoadRating, compare, "0");
 			sb.AppendLine($"  Sprint {(selected.CanSprint ? $"Yes ×{selected.SprintMultiplier:0.00}" : "No")}");
+			if (selected.MobilityModule == MobilityModuleKind.Booster || equipped?.MobilityModule == MobilityModuleKind.Booster)
+			{
+				sb.AppendLine($"  Boosters  {(selected.MobilityModule == MobilityModuleKind.Booster ? "Yes" : "No")}");
+				if (selected.MobilityModule == MobilityModuleKind.Booster)
+				{
+					AppendPartStat(sb, "Jump impulse", selected.JumpImpulse, equipped?.JumpImpulse, compare, "0.0");
+					AppendPartStat(sb, "Jump power", selected.JumpPowerCost, equipped?.JumpPowerCost, compare, "0",
+						invertGood: true);
+					AppendPartStat(sb, "Jump heat", selected.JumpHeat, equipped?.JumpHeat, compare, "0",
+						invertGood: true);
+				}
+			}
+			if (selected.MobilityModule == MobilityModuleKind.Thruster || equipped?.MobilityModule == MobilityModuleKind.Thruster)
+			{
+				sb.AppendLine($"  Thrusters  {(selected.MobilityModule == MobilityModuleKind.Thruster ? "Yes" : "No")}");
+				if (selected.MobilityModule == MobilityModuleKind.Thruster)
+				{
+					AppendPartStat(sb, "Dash speed", selected.DashSpeed, equipped?.DashSpeed, compare, "0.0");
+					AppendPartStat(sb, "Dash dur", selected.DashDuration, equipped?.DashDuration, compare, "0.00");
+					AppendPartStat(sb, "Dash CD", selected.DashCooldown, equipped?.DashCooldown, compare, "0.00",
+						invertGood: true);
+					AppendPartStat(sb, "Dash power", selected.DashPowerCost, equipped?.DashPowerCost, compare, "0",
+						invertGood: true);
+					AppendPartStat(sb, "Dash heat", selected.DashHeat, equipped?.DashHeat, compare, "0",
+						invertGood: true);
+				}
+			}
 		}
 
 		if (selected.Slot == PartSlot.Head)
@@ -1098,6 +1125,10 @@ public partial class GarageUi : Control
 			preview.TurnRateDegrees * preview.WeightTurnMultiplier,
 			previewing, "0");
 		sb.AppendLine($"  Sprint {(preview.CanSprint ? $"Yes ×{preview.SprintMultiplier:0.00}" : "No")}");
+		if (preview.HasBooster)
+			sb.AppendLine($"  Boosters  jump {preview.JumpImpulse:0.0}  (P {preview.JumpPowerCost:0} / H {preview.JumpHeat:0})");
+		if (preview.HasThruster)
+			sb.AppendLine($"  Thrusters  dash {preview.DashSpeed:0.0}  ({preview.DashDuration:0.00}s / CD {preview.DashCooldown:0.00}s)");
 		sb.AppendLine();
 		sb.AppendLine("MOUNTS");
 		sb.AppendLine($"  {preview.ShoulderMounts} shoulder / {preview.BackMounts} back");
@@ -1161,6 +1192,10 @@ public partial class GarageUi : Control
 		var legMode = LegMode.Locked;
 		var legType = LegType.Bipedal;
 		float totalWeight = 0f, loadRating = 0f;
+		var hasThruster = false;
+		float dashSpeed = 0f, dashDuration = 0.18f, dashCooldown = 1.2f, dashPower = 0f, dashHeat = 0f;
+		var hasBooster = false;
+		float jumpImpulse = 0f, jumpPower = 0f, jumpHeat = 0f;
 
 		foreach (PartSlot slot in Enum.GetValues(typeof(PartSlot)))
 		{
@@ -1183,6 +1218,29 @@ public partial class GarageUi : Control
 			dissipate += p.HeatDissipation;
 			idle += p.IdleHeatPerSec;
 			moveHeat += p.MoveHeatPerSec;
+
+			if (p.MobilityModule == MobilityModuleKind.Thruster && p.DashSpeed > 0.1f)
+			{
+				hasThruster = true;
+				if (p.DashSpeed >= dashSpeed)
+				{
+					dashSpeed = p.DashSpeed;
+					dashDuration = Math.Max(0.08f, p.DashDuration);
+					dashCooldown = Math.Max(0.2f, p.DashCooldown);
+					dashPower = Math.Max(0f, p.DashPowerCost);
+					dashHeat = Math.Max(0f, p.DashHeat);
+				}
+			}
+			else if (p.MobilityModule == MobilityModuleKind.Booster && p.JumpImpulse > 0.1f)
+			{
+				hasBooster = true;
+				if (p.JumpImpulse >= jumpImpulse)
+				{
+					jumpImpulse = p.JumpImpulse;
+					jumpPower = Math.Max(0f, p.JumpPowerCost);
+					jumpHeat = Math.Max(0f, p.JumpHeat);
+				}
+			}
 
 			switch (slot)
 			{
@@ -1257,6 +1315,16 @@ public partial class GarageUi : Control
 			SprintPowerLoad = sprintLoad,
 			LegMode = legMode,
 			LegType = legType,
+			HasThruster = hasThruster,
+			DashSpeed = dashSpeed,
+			DashDuration = dashDuration,
+			DashCooldown = dashCooldown,
+			DashPowerCost = dashPower,
+			DashHeat = dashHeat,
+			HasBooster = hasBooster,
+			JumpImpulse = jumpImpulse,
+			JumpPowerCost = jumpPower,
+			JumpHeat = jumpHeat,
 			TotalWeight = totalWeight,
 			LoadRating = loadRating,
 			LoadRatio = loadRatio,

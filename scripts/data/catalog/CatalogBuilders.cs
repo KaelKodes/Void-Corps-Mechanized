@@ -29,12 +29,43 @@ public static class CatalogBuilders
 		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
 	};
 
+	/// <summary>Bipedal jump package — replaces sprint with a vertical Boosters module.</summary>
+	public static PartData BoosterLegs(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		float armor, float speed, float turn,
+		float jumpImpulse, float jumpPower, float jumpHeat,
+		float moveHeat = 2f, float idleHeat = 0.5f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+		VisualKind = "legs_biped", LegMode = LegMode.Locked, LegType = LegType.Bipedal,
+		CanSprint = false,
+		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat,
+		MobilityModule = MobilityModuleKind.Booster,
+		JumpImpulse = jumpImpulse, JumpPowerCost = jumpPower, JumpHeat = jumpHeat
+	};
+
+	/// <summary>Agile dash package — replaces sprint with a horizontal Thrusters module.</summary>
+	public static PartData ThrusterLegs(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
+		float armor, float speed, float turn, LegMode mode,
+		float dashSpeed, float dashDuration, float dashCooldown, float dashPower, float dashHeat,
+		float moveHeat = 2f, float idleHeat = 0.5f) => new()
+	{
+		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+		VisualKind = "legs_biped", LegMode = mode, LegType = LegType.Bipedal,
+		CanSprint = false,
+		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat,
+		MobilityModule = MobilityModuleKind.Thruster,
+		DashSpeed = dashSpeed, DashDuration = dashDuration, DashCooldown = dashCooldown,
+		DashPowerCost = dashPower, DashHeat = dashHeat
+	};
+
 	public static PartData Torso(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, int housing, float structureHp, int shoulders, int backs, Vector3? scale = null,
-		float heatCap = 10f, float idleHeat = 1f) => new()
+		float heatCap = 10f, float idleHeat = 1f, string visualKind = "torso") => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Torso,
-		Armor = armor, Tint = m[mfg].AccentColor, VisualKind = "torso",
+		Armor = armor, Tint = m[mfg].AccentColor, VisualKind = visualKind,
 		VisualScale = scale ?? Vector3.One, PowerCoreHousing = housing, StructureHp = structureHp,
 		ShoulderMountCount = shoulders, BackpackMountCount = backs,
 		HeatCapBonus = heatCap, IdleHeatPerSec = idleHeat

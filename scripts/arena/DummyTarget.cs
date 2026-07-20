@@ -156,7 +156,11 @@ public partial class DummyTarget : StaticBody3D
 				AliveColor,
 				_visualSize,
 				ShatterPieces);
-			LootService.SpawnWorldDrops(parent, origin, LootService.ScrapForCover());
+			LootService.SpawnWorldDrops(
+				parent,
+				origin,
+				LootService.ScrapForCover(),
+				materials: LootService.RollMaterials(LootSource.Cover));
 		}
 
 		CollisionLayer = 0;

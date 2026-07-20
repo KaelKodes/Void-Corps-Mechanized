@@ -435,7 +435,8 @@ public partial class SupportUnit : CharacterBody3D
 					parent,
 					GlobalPosition,
 					LootService.ScrapForSupport(_data.Kind),
-					LootService.RollSupportPartDrop(maxTier));
+					LootService.RollSupportPartDrop(maxTier),
+					LootService.RollMaterials(LootSource.Support, maxTier));
 			}
 		}
 
