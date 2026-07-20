@@ -31,6 +31,10 @@ public partial class DeepSpaceDepartureUi : Control
 		public bool IsHouse { get; init; }
 		/// <summary>Title card for the house name (larger mark, no quote body).</summary>
 		public bool IsHouseTitle { get; init; }
+		/// <summary>Anonymous sector-relay coms — shows a generic oscilloscope.</summary>
+		public bool IsRelayComs { get; init; }
+		/// <summary>Spoken line for TextVoice when this card uses the relay scope.</summary>
+		public string SpokenText { get; init; } = "";
 	}
 
 	private readonly RandomNumberGenerator _rng = new();
@@ -41,6 +45,7 @@ public partial class DeepSpaceDepartureUi : Control
 	private float _time;
 
 	private string _mfgId = "trinova";
+	private FrontierCompanyData? _company;
 	private Color _accent = new(0.35f, 0.72f, 0.42f);
 	private float _houseChrome; // 0..1 — fades with manufacturer opening
 	private float _housePulse;
@@ -51,6 +56,7 @@ public partial class DeepSpaceDepartureUi : Control
 	private ColorRect? _wash;
 	private ColorRect? _veil;
 	private Control? _emblemRoot;
+	private VoiceOscilloscope? _relayScope;
 
 	private bool _advance;
 	private bool _skipAll;
@@ -64,13 +70,36 @@ public partial class DeepSpaceDepartureUi : Control
 		ResolveManufacturer();
 		SeedStars();
 		Build();
+		TextVoiceService.TokenSpoken -= OnRelayTokenSpoken;
+		TextVoiceService.TokenSpoken += OnRelayTokenSpoken;
 		MusicService.CueTrack(DepartureTrack);
 		_ = RunSequenceAsync();
+	}
+
+	public override void _ExitTree()
+	{
+		TextVoiceService.TokenSpoken -= OnRelayTokenSpoken;
+		TextVoiceService.Stop();
+		base._ExitTree();
+	}
+
+	private void OnRelayTokenSpoken(bool vowel, float pitchScale)
+	{
+		if (_relayScope is not { Visible: true })
+			return;
+		_relayScope.NotifyToken(vowel, pitchScale);
 	}
 
 	private void ResolveManufacturer()
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		_company = session?.SolarCampaign.SelectedCompany;
+		if (_company != null)
+		{
+			_mfgId = _company.Id;
+			_accent = _company.AccentColor;
+			return;
+		}
 		_mfgId = session?.Profile.AffiliatedManufacturerId ?? "";
 		if (string.IsNullOrEmpty(_mfgId))
 			_mfgId = "trinova";
@@ -166,6 +195,23 @@ public partial class DeepSpaceDepartureUi : Control
 		_speaker.OffsetBottom = -18f;
 		AddChild(_speaker);
 
+		_relayScope = new VoiceOscilloscope
+		{
+			Visible = false,
+			MouseFilter = MouseFilterEnum.Ignore,
+			Modulate = new Color(1f, 1f, 1f, 0f)
+		};
+		_relayScope.Style = VoiceOscilloscopeStyle.Relay;
+		_relayScope.AnchorLeft = 0.5f;
+		_relayScope.AnchorTop = 0.5f;
+		_relayScope.AnchorRight = 0.5f;
+		_relayScope.AnchorBottom = 0.5f;
+		_relayScope.OffsetLeft = -120f;
+		_relayScope.OffsetRight = 120f;
+		_relayScope.OffsetTop = -268f;
+		_relayScope.OffsetBottom = -48f;
+		AddChild(_relayScope);
+
 		_card = new Label
 		{
 			Text = "",
@@ -217,6 +263,7 @@ public partial class DeepSpaceDepartureUi : Control
 		if (@event.IsActionPressed("ui_cancel") || @event.IsActionPressed("pause"))
 		{
 			_skipAll = true;
+			TextVoiceService.Stop();
 			GetViewport().SetInputAsHandled();
 			return;
 		}
@@ -426,9 +473,11 @@ public partial class DeepSpaceDepartureUi : Control
 	private List<Card> BuildScript()
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		var mfg = GameCatalog.GetManufacturer(_mfgId);
-		var liaison = ConventionCatalog.Get(_mfgId);
-		var corp = session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename;
+		var mfg = _company == null ? GameCatalog.GetManufacturer(_mfgId) : null;
+		var liaison = _company?.TrialTemplate ?? ConventionCatalog.Get(_mfgId);
+		var clearance = _company?.ShortName
+			?? session?.Profile.MercCorpName
+			?? VoidCorpsIdentity.PlayerCorpCodename;
 
 		var cards = new List<Card>();
 
@@ -443,7 +492,7 @@ public partial class DeepSpaceDepartureUi : Control
 
 		cards.Add(new Card
 		{
-			Text = mfg.DisplayName.ToUpperInvariant(),
+			Text = (_company?.DisplayName ?? mfg!.DisplayName).ToUpperInvariant(),
 			Color = _accent.Lightened(0.2f),
 			FontSize = 36,
 			HoldBonus = 0.8f,
@@ -451,16 +500,26 @@ public partial class DeepSpaceDepartureUi : Control
 			IsHouseTitle = true
 		});
 
-		foreach (var line in liaison.DepartureLines)
+		var departureLines = _company?.DepartureLines() ?? liaison.DepartureLines;
+		foreach (var line in departureLines)
 			House($"\"{line}\"");
 
 		cards.Add(new Card { Text = "YOU GRADUATED AS A PILOT.\nYOU LEAVE AS A MERCENARY.", Color = Gold, FontSize = 30, HoldBonus = 1.6f });
 		cards.Add(new Card { Text = "Your MAP is locked into a freight cradle.\nThe convention lights fall away behind the ship.", HoldBonus = 0.8f });
 		cards.Add(new Card { Text = "Beyond the core systems lie thousands of unregistered worlds.\nNew routes. New resources. New claims.", HoldBonus = 1f });
-		cards.Add(new Card { Text = "The Big Four cannot move openly.\nSo they fund those who can.", FontSize = 26, HoldBonus = 1.2f });
 		cards.Add(new Card
 		{
-			Text = "Your corp is independent.\nYour equipment is licensed.\nYour orders are deniable.",
+			Text = _company == null
+				? "The Big Four cannot move openly.\nSo they fund those who can."
+				: $"{_company.DisplayName} is not a manufacturer.\nIts frontier claim will stand or fall on your corp's work.",
+			FontSize = 26,
+			HoldBonus = 1.2f
+		});
+		cards.Add(new Card
+		{
+			Text = _company == null
+				? "Your corp is independent.\nYour equipment is licensed.\nYour orders are deniable."
+				: $"Your corp is contracted.\nYour equipment comes from open licenses.\nYour first obligation is {_company.SettlementVision.ToLowerInvariant()}.",
 			Color = Gold,
 			FontSize = 25,
 			HoldBonus = 1.4f
@@ -468,17 +527,21 @@ public partial class DeepSpaceDepartureUi : Control
 		cards.Add(new Card { Text = "The jumps blur together. Frost creeps across the hull. The lanes empty out.", HoldBonus = 0.8f });
 		cards.Add(new Card
 		{
-			Text = $"UNKNOWN RELAY\n\"Unregistered transport — transmit corp identification.\"",
+			Text = "SECTOR RELAY\n\"Unregistered transport. Transmit identification.\"",
 			Color = RelayCyan,
 			FontSize = 22,
-			HoldBonus = 1f
+			HoldBonus = 0.6f,
+			IsRelayComs = true,
+			SpokenText = "Unregistered transport. Transmit identification."
 		});
 		cards.Add(new Card
 		{
-			Text = $"{corp.ToUpperInvariant()}\n\"...Logged. Welcome to the frontier.\"",
+			Text = $"CLEARANCE  ·  {clearance.ToUpperInvariant()}\n\"Identification accepted. Proceed to the marked approach.\"",
 			Color = RelayCyan,
 			FontSize = 22,
-			HoldBonus = 1.2f
+			HoldBonus = 0.8f,
+			IsRelayComs = true,
+			SpokenText = "Identification accepted. Proceed to the marked approach."
 		});
 		cards.Add(new Card
 		{
@@ -491,8 +554,10 @@ public partial class DeepSpaceDepartureUi : Control
 		return cards;
 	}
 
-	private static string SpeakerLine(string mfgId)
+	private string SpeakerLine(string mfgId)
 	{
+		if (_company != null)
+			return $"{_company.DisplayName.ToUpperInvariant()}  ·  {_company.LiaisonName.ToUpperInvariant()}  ·  {_company.LiaisonTitle.ToUpperInvariant()}";
 		var mfg = GameCatalog.GetManufacturer(mfgId);
 		var liaison = ConventionCatalog.Get(mfgId);
 		return $"{mfg.DisplayName.ToUpperInvariant()}  ·  {liaison.LiaisonName.ToUpperInvariant()}  ·  {liaison.LiaisonTitle.ToUpperInvariant()}";
@@ -574,22 +639,93 @@ public partial class DeepSpaceDepartureUi : Control
 			_card.OffsetTop = -20f;
 			_card.OffsetBottom = 200f;
 		}
+		else if (card.IsRelayComs)
+		{
+			_card.OffsetTop = -20f;
+			_card.OffsetBottom = 180f;
+		}
 		else
 		{
 			_card.OffsetTop = -140f;
 			_card.OffsetBottom = 140f;
 		}
 
+		if (card.IsRelayComs)
+			await ShowRelayScopeAsync(true);
+		else
+			await ShowRelayScopeAsync(false);
+
 		await FadeCard(card.Color, 0.9f);
 		if (_skipAll)
+		{
+			TextVoiceService.Stop();
 			return;
+		}
 
-		var hold = 1.9f + card.Text.Length * 0.018f + card.HoldBonus;
+		if (card.IsRelayComs && !string.IsNullOrEmpty(card.SpokenText))
+		{
+			TextVoiceService.Speak(card.SpokenText, TextVoiceService.CorpOpsProfile);
+			while (TextVoiceService.IsSpeaking && !_skipAll && !_advance && GodotObject.IsInstanceValid(this))
+				await ToSignal(GetTree().CreateTimer(0.05), SceneTreeTimer.SignalName.Timeout);
+			if (_advance || _skipAll)
+			{
+				TextVoiceService.Stop();
+				_relayScope?.NotifySilence();
+				_advance = false;
+			}
+			if (_skipAll)
+				return;
+		}
+
+		var hold = card.IsRelayComs
+			? 0.85f + card.HoldBonus
+			: 1.9f + card.Text.Length * 0.018f + card.HoldBonus;
 		await WaitCard(hold);
 		if (_skipAll)
+		{
+			TextVoiceService.Stop();
+			return;
+		}
+
+		TextVoiceService.Stop();
+		await FadeCard(card.Color with { A = 0f }, 0.6f);
+	}
+
+	private async Task ShowRelayScopeAsync(bool visible)
+	{
+		if (_relayScope == null)
 			return;
 
-		await FadeCard(card.Color with { A = 0f }, 0.6f);
+		if (visible)
+		{
+			_relayScope.Visible = true;
+			_relayScope.Style = VoiceOscilloscopeStyle.Relay;
+			_relayScope.NotifySilence();
+		}
+
+		var start = _relayScope.Modulate.A;
+		var target = visible ? 1f : 0f;
+		if (Mathf.IsEqualApprox(start, target))
+		{
+			if (!visible)
+				_relayScope.Visible = false;
+			return;
+		}
+
+		var elapsed = 0.0;
+		const double seconds = 0.35;
+		while (elapsed < seconds && !_skipAll && GodotObject.IsInstanceValid(this))
+		{
+			elapsed += 0.04;
+			var t = Mathf.Clamp((float)(elapsed / seconds), 0f, 1f);
+			t = t * t * (3f - 2f * t);
+			_relayScope.Modulate = new Color(1f, 1f, 1f, Mathf.Lerp(start, target, t));
+			await ToSignal(GetTree().CreateTimer(0.04), SceneTreeTimer.SignalName.Timeout);
+		}
+
+		_relayScope.Modulate = new Color(1f, 1f, 1f, target);
+		if (!visible)
+			_relayScope.Visible = false;
 	}
 
 	private async Task FadeCard(Color target, double seconds)
@@ -637,6 +773,13 @@ public partial class DeepSpaceDepartureUi : Control
 			return;
 		_finished = true;
 
+		TextVoiceService.Stop();
+		if (_relayScope != null)
+		{
+			_relayScope.Visible = false;
+			_relayScope.Modulate = new Color(1f, 1f, 1f, 0f);
+		}
+
 		if (_skipHint != null)
 			_skipHint.Visible = false;
 
@@ -649,7 +792,10 @@ public partial class DeepSpaceDepartureUi : Control
 			await ToSignal(fade, Tween.SignalName.Finished);
 		}
 
-		GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		GetTree().ChangeSceneToFile(session?.SolarCampaign.OnboardingComplete == true
+			? "res://scenes/solar_system_map.tscn"
+			: "res://scenes/campaign_map.tscn");
 	}
 }
 

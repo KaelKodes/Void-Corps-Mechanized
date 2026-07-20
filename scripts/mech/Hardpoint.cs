@@ -16,6 +16,11 @@ public partial class Hardpoint : Node3D
 	public int LimbCount { get; private set; } = 1;
 	public int LimbsAlive { get; private set; } = 1;
 	public bool IsLegPackage => Slot == PartSlot.Legs;
+	/// <summary>Active part mesh root, if any (never a QueueFree'd leftover).</summary>
+	public Node3D? Visual =>
+		_visual != null && GodotObject.IsInstanceValid(_visual) && !_visual.IsQueuedForDeletion()
+			? _visual
+			: null;
 	/// <summary>
 	/// Power cores are encased in the torso — they are not a separate hit location.
 	/// Core loss only happens when the torso collapses (MAP defeat).
@@ -35,32 +40,13 @@ public partial class Hardpoint : Node3D
 		{
 			if (!IsLegPackage)
 				return IsDestroyed ? 0f : 1f;
-			if (LimbCount <= 0 || LimbsAlive <= 0)
+			if (IsDestroyed || LimbsAlive <= 0 || MaxHp <= 0.01f)
 				return 0f;
 
-			var type = EquippedPart?.LegType ?? LegType.Bipedal;
-			if (type is LegType.Bipedal or LegType.Tracks)
-			{
-				// 2 limbs: both = full, one = crawl, zero = stuck
-				return LimbsAlive switch
-				{
-					2 => 1f,
-					1 => 0.28f,
-					_ => 0f
-				};
-			}
-
-			// Hexapod: each lost leg slows harder; 1 left is a pathetic crawl.
-			return LimbsAlive switch
-			{
-				6 => 1f,
-				5 => 0.82f,
-				4 => 0.62f,
-				3 => 0.42f,
-				2 => 0.26f,
-				1 => 0.12f,
-				_ => 0f
-			};
+			// Shared package pool (no per-limb hitboxes yet): limp with damage,
+			// immobilize only when the whole package is wrecked.
+			var ratio = Mathf.Clamp(CurrentHp / MaxHp, 0f, 1f);
+			return Mathf.Lerp(0.4f, 1f, ratio);
 		}
 	}
 
@@ -68,9 +54,14 @@ public partial class Hardpoint : Node3D
 	private Vector3 _previousMeleeForward;
 	private bool _hasPreviousMeleeForward;
 	private ulong _latchedMeleeContactId;
+	private bool _forcedMeleeSwing;
+	private bool _forcedMeleeDamageActive;
+	private bool _suppressMeleeDamageThisFrame;
+	private float _forcedMeleeTime;
+	private float _forcedMeleeDuration;
+	private Vector3 _forcedMeleeBaseForward = Vector3.Forward;
+	private Vector3 _forcedMeleeStartForward = Vector3.Forward;
 	private Node3D? _visual;
-	private float[] _limbHp = System.Array.Empty<float>();
-	private float _limbMaxHp;
 	private float _currentHp;
 	private float _maxHp;
 	private Damageable? _externalHealth;
@@ -91,6 +82,14 @@ public partial class Hardpoint : Node3D
 		RebuildVisual();
 	}
 
+	/// <summary>Equip and immediately apply a stored condition snapshot.</summary>
+	public void Equip(PartData? part, PartCondition? condition)
+	{
+		Equip(part);
+		if (condition != null)
+			RestoreCondition(condition);
+	}
+
 	public void InitializeIntegrity()
 	{
 		_externalHealth = null;
@@ -102,34 +101,67 @@ public partial class Hardpoint : Node3D
 			ComponentArmor = 0f;
 			LimbCount = 0;
 			LimbsAlive = 0;
-			_limbHp = System.Array.Empty<float>();
 			return;
 		}
 
 		ComponentArmor = Mathf.Max(0f, EquippedPart.Armor);
 
-		if (IsLegPackage)
+		// Legs keep a visual limb count (biped/tracks/hex) but one shared structure pool.
+		// StructureHp is the per-limb budget; package MaxHp = StructureHp × limbs.
+		LimbCount = IsLegPackage
+			? (EquippedPart.LegType == LegType.Hexapod ? 6 : 2)
+			: 1;
+		_maxHp = Mathf.Max(1f, EquippedPart.StructureHp) * LimbCount;
+		_currentHp = _maxHp;
+		LimbsAlive = LimbCount;
+		IsDestroyed = false;
+	}
+
+	public PartCondition CaptureCondition()
+	{
+		if (EquippedPart == null || EquippedPart.VisualKind == "empty" || MaxHp <= 0.01f)
+			return PartCondition.Full();
+
+		if (IsDestroyed)
+			return PartCondition.DestroyedState();
+
+		var ratio = Mathf.Clamp(CurrentHp / MaxHp, 0f, 1f);
+		return new PartCondition { Segments = [ratio], Destroyed = ratio <= 0.001f };
+	}
+
+	public void RestoreCondition(PartCondition condition)
+	{
+		if (EquippedPart == null || EquippedPart.VisualKind == "empty" || MaxHp <= 0.01f)
+			return;
+
+		// Legacy multi-limb saves collapse via AverageRatio into the shared package pool.
+		condition.EnsureSegmentCount(1);
+
+		if (condition.Destroyed || condition.AverageRatio <= 0.001f)
 		{
-			LimbCount = EquippedPart.LegType == LegType.Hexapod ? 6 : 2;
-			_limbMaxHp = Mathf.Max(1f, EquippedPart.StructureHp);
-			_limbHp = new float[LimbCount];
-			for (var i = 0; i < LimbCount; i++)
-				_limbHp[i] = _limbMaxHp;
-			LimbsAlive = LimbCount;
-			_maxHp = _limbMaxHp * LimbCount;
-			_currentHp = _maxHp;
-		}
-		else
-		{
-			LimbCount = 1;
-			LimbsAlive = 1;
-			_maxHp = Mathf.Max(1f, EquippedPart.StructureHp);
-			_limbMaxHp = _maxHp;
-			_limbHp = new[] { _maxHp };
-			_currentHp = _maxHp;
+			MarkDestroyed();
+			return;
 		}
 
 		IsDestroyed = false;
+		var hp = Mathf.Clamp(condition.AverageRatio, 0.01f, 1f) * MaxHp;
+		if (_externalHealth != null)
+		{
+			_externalHealth.ResetHealth(MaxHp);
+			var missing = MaxHp - hp;
+			if (missing > 0.01f)
+				_externalHealth.ApplyDamage(missing);
+		}
+		else
+		{
+			_currentHp = hp;
+		}
+
+		LimbsAlive = CurrentHp > 0f ? LimbCount : 0;
+		if (CurrentHp <= 0.01f)
+			MarkDestroyed();
+		else
+			RebuildVisual();
 	}
 
 	/// <summary>
@@ -139,7 +171,13 @@ public partial class Hardpoint : Node3D
 	public void BindExternalHealth(Damageable health)
 	{
 		_externalHealth = health;
-		health.ResetHealth(_maxHp);
+		// Preserve whatever InitializeIntegrity / RestoreCondition already set.
+		var target = Mathf.Max(1f, _maxHp);
+		var current = Mathf.Clamp(_currentHp > 0f ? _currentHp : target, 0f, target);
+		health.ResetHealth(target);
+		var missing = target - current;
+		if (missing > 0.01f)
+			health.ApplyDamage(missing);
 	}
 
 	public void Clear()
@@ -153,13 +191,12 @@ public partial class Hardpoint : Node3D
 		_maxHp = 0f;
 		LimbCount = 0;
 		LimbsAlive = 0;
-		_limbHp = System.Array.Empty<float>();
 		RebuildVisual();
 	}
 
 	/// <summary>
 	/// Returns true if the whole hardpoint/package was destroyed.
-	/// For legs, also reports how many individual limbs were lost this hit.
+	/// <paramref name="limbsLostThisHit"/> is 1 only when the package collapses (legacy signal).
 	/// </summary>
 	public bool ApplyComponentDamage(float rawDamage, out int limbsLostThisHit)
 	{
@@ -169,118 +206,37 @@ public partial class Hardpoint : Node3D
 
 		var mitigated = rawDamage * (50f / (50f + Mathf.Max(0f, ComponentArmor)));
 
-		if (!IsLegPackage || _limbHp.Length == 0)
-		{
-			if (_externalHealth != null)
-				_externalHealth.ApplyDamage(mitigated);
-			else
-				_currentHp = Mathf.Max(0f, _currentHp - mitigated);
+		if (_externalHealth != null)
+			_externalHealth.ApplyDamage(mitigated);
+		else
+			_currentHp = Mathf.Max(0f, _currentHp - mitigated);
 
-			if (CurrentHp > 0f)
-				return false;
-			LimbsAlive = 0;
-			limbsLostThisHit = 1;
-			return true;
+		if (CurrentHp > 0f)
+		{
+			LimbsAlive = LimbCount;
+			return false;
 		}
 
-		// Concentrate fire on one living limb (sharpshooter / nearest-limb fantasy).
-		var index = FindMostDamagedLivingLimb();
-		if (index < 0)
-			return true;
-
-		var beforeAlive = LimbsAlive;
-		_limbHp[index] = Mathf.Max(0f, _limbHp[index] - mitigated);
-		RecalculateLegTotals();
-		limbsLostThisHit = beforeAlive - LimbsAlive;
-		return LimbsAlive <= 0;
+		LimbsAlive = 0;
+		limbsLostThisHit = IsLegPackage ? LimbCount : 1;
+		return true;
 	}
 
 	public bool ApplyComponentDamage(float rawDamage) => ApplyComponentDamage(rawDamage, out _);
 
-	/// <summary>Restore package / limb HP. Does not revive fully destroyed hardpoints.</summary>
+	/// <summary>Restore package HP. Does not revive fully destroyed hardpoints.</summary>
 	public float ApplyHeal(float amount)
 	{
 		if (EquippedPart == null || EquippedPart.VisualKind == "empty" || IsDestroyed || amount <= 0f || MaxHp <= 0f)
 			return 0f;
 
-		if (!IsLegPackage || _limbHp.Length == 0)
-		{
-			var before = CurrentHp;
-			if (_externalHealth != null)
-				_externalHealth.ApplyHeal(amount);
-			else
-				_currentHp = Mathf.Min(_maxHp, _currentHp + amount);
-			if (_limbHp.Length > 0)
-				_limbHp[0] = CurrentHp;
-			return CurrentHp - before;
-		}
-
-		var healed = 0f;
-		var remaining = amount;
-		while (remaining > 0.01f)
-		{
-			var index = FindMostDamagedLivingLimb();
-			if (index < 0)
-				break;
-			var space = _limbMaxHp - _limbHp[index];
-			if (space <= 0.01f)
-			{
-				// All living limbs full — stop.
-				var anyDamaged = false;
-				for (var i = 0; i < _limbHp.Length; i++)
-				{
-					if (_limbHp[i] > 0f && _limbHp[i] < _limbMaxHp - 0.01f)
-					{
-						anyDamaged = true;
-						break;
-					}
-				}
-				if (!anyDamaged)
-					break;
-				continue;
-			}
-
-			var add = Mathf.Min(remaining, space);
-			_limbHp[index] += add;
-			remaining -= add;
-			healed += add;
-		}
-
-		RecalculateLegTotals();
-		return healed;
-	}
-
-	private int FindMostDamagedLivingLimb()
-	{
-		var best = -1;
-		var bestHp = float.MaxValue;
-		for (var i = 0; i < _limbHp.Length; i++)
-		{
-			if (_limbHp[i] <= 0f)
-				continue;
-			if (_limbHp[i] < bestHp)
-			{
-				bestHp = _limbHp[i];
-				best = i;
-			}
-		}
-
-		return best;
-	}
-
-	private void RecalculateLegTotals()
-	{
-		var alive = 0;
-		var sum = 0f;
-		foreach (var hp in _limbHp)
-		{
-			if (hp > 0f)
-				alive++;
-			sum += hp;
-		}
-
-		LimbsAlive = alive;
-		_currentHp = sum;
+		var before = CurrentHp;
+		if (_externalHealth != null)
+			_externalHealth.ApplyHeal(amount);
+		else
+			_currentHp = Mathf.Min(_maxHp, _currentHp + amount);
+		LimbsAlive = CurrentHp > 0f ? LimbCount : 0;
+		return CurrentHp - before;
 	}
 
 	public void MarkDestroyed()
@@ -290,8 +246,6 @@ public partial class Hardpoint : Node3D
 			_externalHealth.ApplyDamage(_externalHealth.CurrentHealth + 1f);
 		_currentHp = 0f;
 		LimbsAlive = 0;
-		for (var i = 0; i < _limbHp.Length; i++)
-			_limbHp[i] = 0f;
 		if (_visual != null)
 		{
 			MeshMat.QueueFreeSafe(_visual);
@@ -299,24 +253,182 @@ public partial class Hardpoint : Node3D
 		}
 	}
 
-	public void AimAt(Vector3 worldPoint, Vector3 chassisForward)
+	public void AimAt(Vector3 worldPoint, Vector3 chassisForward, float elevationPitchRadians = 0f)
 	{
 		if (!CanFire)
 			return;
 
+		if (EquippedPart?.WeaponFamily == WeaponFamily.Melee && _forcedMeleeSwing)
+		{
+			AimForcedMeleeSwing();
+			return;
+		}
+
+		var allowsElevation = EquippedPart is { AllowsFireElevation: true };
+		var appliedPitch = allowsElevation ? elevationPitchRadians : 0f;
+
 		if (EffectiveAimMode == AimMode.Gimbaled)
 		{
-			var flat = worldPoint;
-			flat.Y = GlobalPosition.Y;
-			if (GlobalPosition.DistanceSquaredTo(flat) > 0.01f)
-				LookAt(flat, Vector3.Up);
+			var to = worldPoint - GlobalPosition;
+			if (to.LengthSquared() <= 0.01f)
+				return;
+
+			var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
+			var flat = horiz > 0.001f
+				? new Vector3(to.X, 0f, to.Z).Normalized()
+				: Flatten(chassisForward);
+			var pitch = horiz > 0.001f ? Mathf.Atan2(to.Y, horiz) : 0f;
+			// Scroll elev (3rd person) stacks on mouse/world aim pitch.
+			pitch = Mathf.Clamp(pitch + appliedPitch, -0.55f, 0.45f);
+			LookAt(GlobalPosition + PitchedForward(flat, pitch) * 10f, Vector3.Up);
 		}
 		else
 		{
-			var target = GlobalPosition + chassisForward;
-			target.Y = GlobalPosition.Y;
-			LookAt(target, Vector3.Up);
+			var forward = Flatten(chassisForward);
+			if (forward.LengthSquared() < 0.001f)
+				forward = Flatten(-GlobalTransform.Basis.Z);
+			if (forward.LengthSquared() < 0.001f)
+				forward = Vector3.Forward;
+
+			var pitch = appliedPitch;
+			if (allowsElevation)
+			{
+				var to = worldPoint - GlobalPosition;
+				var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
+				if (horiz > 0.01f)
+					pitch = Mathf.Clamp(Mathf.Atan2(to.Y, horiz) + appliedPitch, -0.55f, 0.45f);
+			}
+
+			LookAt(GlobalPosition + PitchedForward(forward, pitch) * 10f, Vector3.Up);
 		}
+	}
+
+	private static Vector3 Flatten(Vector3 v)
+	{
+		v.Y = 0f;
+		return v.LengthSquared() > 0.001f ? v.Normalized() : Vector3.Zero;
+	}
+
+	private static Vector3 PitchedForward(Vector3 flatForward, float pitchRadians)
+	{
+		flatForward.Y = 0f;
+		if (flatForward.LengthSquared() < 0.001f)
+			flatForward = Vector3.Forward;
+		flatForward = flatForward.Normalized();
+		var right = flatForward.Cross(Vector3.Up).Normalized();
+		return flatForward.Rotated(right, pitchRadians).Normalized();
+	}
+
+	/// <summary>
+	/// Starts the fire-button melee attack. The attack captures its heading so this arm
+	/// can wind back and sweep while another gimbaled arm continues following the cursor.
+	/// Passive cursor flailing remains available whenever this animation is idle.
+	/// </summary>
+	public bool TryStartMeleeSwing(Vector3 aimPoint, float fireRateMultiplier, float heatThrottle)
+	{
+		if (!CanFire
+		    || EquippedPart == null
+		    || EquippedPart.WeaponFamily != WeaponFamily.Melee
+		    || _forcedMeleeSwing
+		    || _cooldown > 0f)
+			return false;
+
+		var baseForward = aimPoint - GlobalPosition;
+		baseForward.Y = 0f;
+		if (baseForward.LengthSquared() < 0.01f)
+			baseForward = -GlobalTransform.Basis.Z;
+		baseForward.Y = 0f;
+		if (baseForward.LengthSquared() < 0.01f)
+			baseForward = Vector3.Forward;
+
+		var startForward = -GlobalTransform.Basis.Z;
+		startForward.Y = 0f;
+		if (startForward.LengthSquared() < 0.01f)
+			startForward = baseForward;
+
+		var rate = EquippedPart.FireRate
+		           * Mathf.Max(0.1f, fireRateMultiplier)
+		           * Mathf.Max(0.2f, heatThrottle);
+		_forcedMeleeDuration = Mathf.Clamp(0.82f / Mathf.Max(0.1f, rate), 0.5f, 1.25f);
+		_forcedMeleeTime = 0f;
+		_forcedMeleeBaseForward = baseForward.Normalized();
+		_forcedMeleeStartForward = startForward.Normalized();
+		_forcedMeleeDamageActive = false;
+		_suppressMeleeDamageThisFrame = true;
+		_forcedMeleeSwing = true;
+		return true;
+	}
+
+	/// <summary>Advances the click attack from the owning mech's physics tick.</summary>
+	public void AdvanceMeleeSwing(float dt)
+	{
+		if (!_forcedMeleeSwing)
+			return;
+		_forcedMeleeTime += Mathf.Max(0f, dt);
+	}
+
+	private void AimForcedMeleeSwing()
+	{
+		var progress = Mathf.Clamp(
+			_forcedMeleeTime / Mathf.Max(0.01f, _forcedMeleeDuration),
+			0f,
+			1f);
+		var windupDir = RotateFlat(_forcedMeleeBaseForward, Mathf.DegToRad(-78f));
+		var finishDir = RotateFlat(_forcedMeleeBaseForward, Mathf.DegToRad(82f));
+		Vector3 direction;
+
+		if (progress < 0.24f)
+		{
+			var t = SmoothStep(progress / 0.24f);
+			direction = _forcedMeleeStartForward.Slerp(windupDir, t).Normalized();
+			_forcedMeleeDamageActive = false;
+			_suppressMeleeDamageThisFrame = true;
+		}
+		else if (progress < 0.78f)
+		{
+			var wasActive = _forcedMeleeDamageActive;
+			var t = SmoothStep((progress - 0.24f) / 0.54f);
+			direction = windupDir.Slerp(finishDir, t).Normalized();
+			_forcedMeleeDamageActive = true;
+			_suppressMeleeDamageThisFrame = false;
+			if (!wasActive)
+			{
+				_previousMeleeForward = windupDir;
+				_hasPreviousMeleeForward = true;
+				_latchedMeleeContactId = 0;
+			}
+		}
+		else
+		{
+			var t = SmoothStep((progress - 0.78f) / 0.22f);
+			direction = finishDir.Slerp(_forcedMeleeBaseForward, t).Normalized();
+			_forcedMeleeDamageActive = false;
+			_suppressMeleeDamageThisFrame = true;
+		}
+
+		LookAt(GlobalPosition + direction, Vector3.Up);
+
+		if (progress >= 1f)
+		{
+			_forcedMeleeSwing = false;
+			_forcedMeleeDamageActive = false;
+		}
+	}
+
+	private static float SmoothStep(float t)
+	{
+		t = Mathf.Clamp(t, 0f, 1f);
+		return t * t * (3f - 2f * t);
+	}
+
+	private static Vector3 RotateFlat(Vector3 direction, float radians)
+	{
+		var c = Mathf.Cos(radians);
+		var s = Mathf.Sin(radians);
+		return new Vector3(
+			direction.X * c - direction.Z * s,
+			0f,
+			direction.X * s + direction.Z * c).Normalized();
 	}
 
 	public bool TryFire(
@@ -327,7 +439,8 @@ public partial class Hardpoint : Node3D
 		Vector3 aimPoint,
 		PartSlot? aimedSlot,
 		out float damageDealt,
-		out float heatGenerated)
+		out float heatGenerated,
+		bool forcePreferredSlot = false)
 	{
 		damageDealt = 0f;
 		heatGenerated = 0f;
@@ -339,6 +452,8 @@ public partial class Hardpoint : Node3D
 		var rate = EquippedPart.FireRate * Mathf.Max(0.1f, fireRateMultiplier) * Mathf.Max(0.05f, heatThrottle);
 		_cooldown = 1f / Mathf.Max(0.1f, rate);
 
+		var allowsElevation = EquippedPart.AllowsFireElevation;
+
 		var muzzle = GlobalPosition + (-GlobalTransform.Basis.Z) * 1.2f;
 		// Riding a tall carrier: keep the visual mount elevated, but spawn shots at the
 		// height they'd have on the ground so they still meet tanks / other MAPs.
@@ -346,7 +461,16 @@ public partial class Hardpoint : Node3D
 			muzzle.Y -= rider.CarrierCombatLift;
 
 		Vector3 direction;
-		if (EffectiveAimMode == AimMode.Fixed)
+		if (allowsElevation)
+		{
+			// Fire down the pitched barrel — elevation comes from gun aim, not a spawn-plane cheat.
+			direction = -GlobalTransform.Basis.Z;
+			if (direction.LengthSquared() < 0.001f)
+				direction = Vector3.Forward;
+			else
+				direction = direction.Normalized();
+		}
+		else if (EffectiveAimMode == AimMode.Fixed)
 		{
 			// Fixed mounts fire down the barrel. Cursor aim must never bend their shot.
 			direction = -GlobalTransform.Basis.Z;
@@ -385,13 +509,15 @@ public partial class Hardpoint : Node3D
 		var speed = EquippedPart.ProjectileSpeed;
 		var velocity = direction * speed;
 		var lifetime = EquippedPart.Range / Mathf.Max(1f, speed);
-		var preferred = EffectiveAimMode == AimMode.Gimbaled
-			&& EquippedPart.TargetingMode == TargetingMode.AimedComponent
-			&& aimedSlot.HasValue
-			? (int)aimedSlot.Value
-			: -1;
+		var preferSlot = aimedSlot.HasValue
+			&& (forcePreferredSlot
+			    || (EffectiveAimMode == AimMode.Gimbaled
+			        && EquippedPart.TargetingMode == TargetingMode.AimedComponent));
+		var preferred = preferSlot && aimedSlot.HasValue ? (int)aimedSlot.Value : -1;
+		var targeting = preferSlot ? TargetingMode.AimedComponent : EquippedPart.TargetingMode;
 		var team = source is MechController mechSource ? mechSource.Team : TeamUtil.GetTeam(source);
 
+		var style = ProjectileStyleUtil.FromPart(EquippedPart);
 		var bus = NetCombatBus.Find(parentForProjectile);
 		if (bus != null && parentForProjectile.GetTree()?.GetMultiplayer().MultiplayerPeer != null)
 		{
@@ -403,20 +529,21 @@ public partial class Hardpoint : Node3D
 				EquippedPart.Damage,
 				lifetime,
 				team,
-				EquippedPart.TargetingMode,
+				targeting,
 				preferred,
-				ballistic: false,
-				gravity: 0f);
+				style,
+				gravity: 0f,
+				visualScale: Projectile.MechVisualScale);
 		}
 		else
 		{
-			var projectile = Projectile.Create();
+			var projectile = Projectile.Create(style, Projectile.MechVisualScale);
 			projectile.Source = source;
 			projectile.SourceTeam = team;
 			projectile.Damage = EquippedPart.Damage;
 			projectile.Velocity = velocity;
 			projectile.Lifetime = lifetime;
-			projectile.TargetingMode = EquippedPart.TargetingMode;
+			projectile.TargetingMode = targeting;
 			projectile.PreferredSlot = preferred >= 0 ? (PartSlot)preferred : null;
 			parentForProjectile.AddChild(projectile);
 			projectile.GlobalPosition = muzzle;
@@ -455,21 +582,34 @@ public partial class Hardpoint : Node3D
 			return false;
 		currentForward = currentForward.Normalized();
 
+		// The click attack's windup/recovery are animation only. Its forward sweep
+		// uses the same physical contact tracing as free cursor flailing.
+		if (_forcedMeleeSwing && !_forcedMeleeDamageActive || _suppressMeleeDamageThisFrame)
+		{
+			_previousMeleeForward = currentForward;
+			_hasPreviousMeleeForward = true;
+			_latchedMeleeContactId = 0;
+			_suppressMeleeDamageThisFrame = false;
+			return false;
+		}
+
 		if (!_hasPreviousMeleeForward)
 		{
 			_previousMeleeForward = currentForward;
 			_hasPreviousMeleeForward = true;
 		}
 
-		var origin = GlobalPosition;
-		var reach = Mathf.Max(1.25f, EquippedPart.Range);
+		var origin = GetMeleeOrigin(source);
+		var reach = Mathf.Max(2.6f, EquippedPart.Range);
 		var sweepHit = TraceMeleeSweep(source, origin, _previousMeleeForward, currentForward, reach);
 		var currentHit = TraceMeleeBlade(source, origin, currentForward, reach);
+		// Prefer the contact the blade is actively crossing; fall back to where it rests.
+		var contactHit = sweepHit.Count > 0 ? sweepHit : currentHit;
 		_previousMeleeForward = currentForward;
 
 		var currentId = ContactId(currentHit);
-		var sweepId = ContactId(sweepHit);
-		var isNewContact = sweepId != 0 && sweepId != _latchedMeleeContactId;
+		var contactId = ContactId(contactHit);
+		var isNewContact = contactId != 0 && contactId != _latchedMeleeContactId;
 		var canDriveCut = _cooldown <= 0f;
 
 		if (isNewContact && canDriveCut)
@@ -477,14 +617,23 @@ public partial class Hardpoint : Node3D
 			var rate = Mathf.Max(0.1f, EquippedPart.FireRate);
 			_cooldown = 1f / rate;
 			heatGenerated = EquippedPart.HeatPerShot;
-			dealtDamage = ApplyMeleeContact(source, sweepHit, aimedSlot);
+			dealtDamage = ApplyMeleeContact(source, contactHit, aimedSlot);
 			SfxService.Play("weapon_hit", (float)GD.RandRange(0.88, 1.06), dealtDamage ? -1f : -5f);
 		}
 
 		// Remaining in contact cannot machine-gun damage. Pull the blade clear, then
 		// cross the object again (subject to contact cadence) to cut again.
-		_latchedMeleeContactId = currentId;
+		_latchedMeleeContactId = currentId != 0 ? currentId : contactId;
 		return isNewContact && canDriveCut;
+	}
+
+	private Vector3 GetMeleeOrigin(Node source)
+	{
+		var origin = GlobalPosition;
+		// Same height correction as gun muzzles: visual ride height shouldn't miss MAP hulls.
+		if (source is MechController { IsCarrierMounted: true } rider)
+			origin.Y -= rider.CarrierCombatLift;
+		return origin;
 	}
 
 	private Godot.Collections.Dictionary TraceMeleeSweep(
@@ -515,30 +664,111 @@ public partial class Hardpoint : Node3D
 		Vector3 direction,
 		float reach)
 	{
-		// Three parallel traces approximate the visible blade width while preserving
-		// first-solid blocking. Pick the nearest physical contact across them.
+		// Volume approx of the visible blade: width, thickness, and a downward bias so
+		// elevated sockets still meet MAP hulls / short cover instead of only tall props.
 		var right = direction.Cross(Vector3.Up);
 		if (right.LengthSquared() < 0.001f)
 			right = GlobalTransform.Basis.X;
 		right = right.Normalized();
+		var up = Vector3.Up;
 
 		Godot.Collections.Dictionary? closest = null;
 		var closestDistance = float.MaxValue;
-		foreach (var offset in new[] { 0f, -0.18f, 0.18f })
+		foreach (var along in new[] { 0.15f, 0.45f, 0.75f })
 		{
-			var rayOrigin = origin + right * offset;
-			var hit = TraceMeleeRay(source, rayOrigin, direction, reach);
-			if (hit.Count == 0)
-				continue;
-			var impact = hit["position"].AsVector3();
-			var distance = rayOrigin.DistanceSquaredTo(impact);
-			if (distance >= closestDistance)
-				continue;
-			closestDistance = distance;
-			closest = hit;
+			foreach (var lateral in new[] { 0f, -0.28f, 0.28f })
+			{
+				foreach (var vertical in new[] { 0.15f, -0.35f, -0.75f })
+				{
+					var rayOrigin = origin
+						+ direction * (along * 0.45f * reach)
+						+ right * lateral
+						+ up * vertical;
+					var to = origin + direction * reach + right * lateral + up * (vertical * 0.35f);
+					var rayDir = to - rayOrigin;
+					if (rayDir.LengthSquared() < 0.01f)
+						continue;
+					var rayLength = rayDir.Length();
+					rayDir /= rayLength;
+
+					var hit = TraceMeleeRay(source, rayOrigin, rayDir, rayLength);
+					if (hit.Count == 0)
+						continue;
+					var impact = hit["position"].AsVector3();
+					var distance = rayOrigin.DistanceSquaredTo(impact);
+					if (distance >= closestDistance)
+						continue;
+					closestDistance = distance;
+					closest = hit;
+				}
+			}
 		}
 
-		return closest ?? new Godot.Collections.Dictionary();
+		if (closest != null)
+			return closest;
+
+		// Forgiving fallback: any hostile MAP inside a short forward capsule.
+		return TraceMeleeProximity(source, origin, direction, reach);
+	}
+
+	private Godot.Collections.Dictionary TraceMeleeProximity(
+		Node source,
+		Vector3 origin,
+		Vector3 direction,
+		float reach)
+	{
+		var space = GetWorld3D()?.DirectSpaceState;
+		if (space == null)
+			return new Godot.Collections.Dictionary();
+
+		var tip = origin + direction * reach;
+		var excludes = new Godot.Collections.Array<Rid>();
+		if (source is CollisionObject3D sourceBody)
+			excludes.Add(sourceBody.GetRid());
+
+		var query = new PhysicsShapeQueryParameters3D
+		{
+			CollisionMask = PhysicsLayers.Mechs,
+			CollideWithAreas = false,
+			CollideWithBodies = true,
+			Exclude = excludes,
+			Transform = new Transform3D(Basis.Identity, tip),
+			Shape = new SphereShape3D { Radius = 0.85f }
+		};
+
+		var hits = space.IntersectShape(query, 8);
+		Godot.Collections.Dictionary? best = null;
+		var bestDist = float.MaxValue;
+		foreach (var hit in hits)
+		{
+			var collider = hit["collider"].AsGodotObject() as Node;
+			if (collider == null)
+				continue;
+			if (collider == source || source.IsAncestorOf(collider) || collider.IsAncestorOf(source))
+				continue;
+
+			var mech = FindMech(collider);
+			if (mech == null)
+				continue;
+
+			var sourceTeam = source is MechController sm ? sm.Team : TeamUtil.GetTeam(source);
+			if (sourceTeam != TeamId.Neutral && mech.Team != TeamId.Neutral
+			    && !TeamUtil.IsHostile(sourceTeam, mech.Team))
+				continue;
+
+			var point = TeamUtil.GetAimPoint(mech);
+			var dist = tip.DistanceSquaredTo(point);
+			if (dist >= bestDist)
+				continue;
+			bestDist = dist;
+			best = new Godot.Collections.Dictionary
+			{
+				["collider"] = collider,
+				["position"] = point
+			};
+		}
+
+		return best ?? new Godot.Collections.Dictionary();
 	}
 
 	private Godot.Collections.Dictionary TraceMeleeRay(Node source, Vector3 origin, Vector3 direction, float reach)
@@ -670,6 +900,10 @@ public partial class Hardpoint : Node3D
 		_hasPreviousMeleeForward = false;
 		_previousMeleeForward = Vector3.Zero;
 		_latchedMeleeContactId = 0;
+		_forcedMeleeSwing = false;
+		_forcedMeleeDamageActive = false;
+		_suppressMeleeDamageThisFrame = false;
+		_forcedMeleeTime = 0f;
 	}
 
 	public override void _Process(double delta)

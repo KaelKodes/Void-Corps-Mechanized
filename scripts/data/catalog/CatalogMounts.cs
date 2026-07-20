@@ -29,19 +29,23 @@ public static class CatalogMounts
 			PartSlot.ShoulderL, "missile", armor: 10, AbilityId.MissileSalvo, cd: 11f, power: 6f,
 			heatBurst: 32f, powerLoad: 40f, damage: 22, range: 50f, proj: 24f);
 
-		// OuroTech — seekers / precision
+		// OuroTech — seekers / precision (sensor-lock fire; contact vs vision is per kit)
 		parts["shoulder_ouro_tracker"] = CatalogBuilders.AbilityPart("shoulder_ouro_tracker", "Seeker Rack", "ourotech", m,
 			PartSlot.ShoulderR, "missile", armor: 0, AbilityId.MissileSalvo, cd: 5.5f, power: 3f,
-			heatBurst: 16f, powerLoad: 24f, damage: 10, range: 55f, proj: 36f);
+			heatBurst: 16f, powerLoad: 24f, damage: 10, range: 55f, proj: 36f,
+			missileGuidance: MissileGuidanceMode.SensorVision);
 		parts["shoulder_ouro_needle"] = CatalogBuilders.AbilityPart("shoulder_ouro_needle", "Needle Swarm", "ourotech", m,
 			PartSlot.ShoulderL, "missile", armor: 2, AbilityId.MissileSalvo, cd: 4.5f, power: 2.5f,
-			heatBurst: 12f, powerLoad: 20f, damage: 7, range: 60f, proj: 42f);
+			heatBurst: 12f, powerLoad: 20f, damage: 7, range: 60f, proj: 42f,
+			missileGuidance: MissileGuidanceMode.SensorVision);
 		parts["shoulder_ouro_caliper"] = CatalogBuilders.AbilityPart("shoulder_ouro_caliper", "Caliper Pods", "ourotech", m,
 			PartSlot.ShoulderR, "missile", armor: 1, AbilityId.MissileSalvo, cd: 6.5f, power: 3.5f,
-			heatBurst: 14f, powerLoad: 22f, damage: 12, range: 65f, proj: 40f);
+			heatBurst: 14f, powerLoad: 22f, damage: 12, range: 65f, proj: 40f,
+			missileGuidance: MissileGuidanceMode.SensorContact);
 		parts["shoulder_ouro_whisper"] = CatalogBuilders.AbilityPart("shoulder_ouro_whisper", "Whisper Salvo", "ourotech", m,
 			PartSlot.ShoulderL, "missile", armor: 0, AbilityId.MissileSalvo, cd: 5f, power: 2.8f,
-			heatBurst: 11f, powerLoad: 18f, damage: 8, range: 58f, proj: 38f);
+			heatBurst: 11f, powerLoad: 18f, damage: 8, range: 58f, proj: 38f,
+			missileGuidance: MissileGuidanceMode.SensorVision);
 
 		// Trinova — logistics / balanced
 		parts["shoulder_tri_fleet"] = CatalogBuilders.AbilityPart("shoulder_tri_fleet", "Fleet Rockets", "trinova", m,

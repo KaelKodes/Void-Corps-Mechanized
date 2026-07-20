@@ -184,10 +184,17 @@ public partial class ArenaController
 	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true)]
 	private void RpcApplyWingLoadout(int peerId, Godot.Collections.Dictionary loadoutDict)
 	{
+		// Mid-fight full rebuilds are no longer allowed (field logistics only).
+		if (_phase != MatchPhase.Prep)
+			return;
+		var sender = Multiplayer.GetRemoteSenderId();
+		if (sender != 0 && sender != peerId && !Multiplayer.IsServer())
+			return;
 		var loadout = LoadoutData.FromDict(loadoutDict);
 		_wingLoadouts[peerId] = loadout;
 		if (_wingByPeer.TryGetValue(peerId, out var mech))
-			mech.RebuildFromLoadout(loadout);
+			mech.RebuildFromLoadout(loadout, BuildProfileConditions(
+				GetNodeOrNull<GameSession>("/root/GameSession")?.Profile));
 	}
 
 	private void HostBeginCoopCountdown()
@@ -232,7 +239,6 @@ public partial class ArenaController
 		SetCombatHudVisible(false);
 		_enemyResolved.Clear();
 		_objectivesComplete = false;
-		_dropIns.Clear();
 		PlaceCombatants();
 		StagePlayerDropHold();
 		SetCombatActive(false);
@@ -252,7 +258,7 @@ public partial class ArenaController
 	private void DropAllWings(float fallTime)
 	{
 		foreach (var (_, mech) in _wingByPeer)
-			BeginDropIn(mech, mech.GlobalPosition with { Y = 0f }, enableAiWhenDone: false, createBeacon: false, fallTime);
+			BeginDropIn(mech, mech.GlobalPosition with { Y = 0f }, enableAiWhenDone: false, createBeacon: false, fallTime, warningSeconds: 0.05f);
 	}
 
 	private void HookAllWingDeaths()

@@ -19,31 +19,11 @@ public static class PartVisualFactory
 		{
 			case "legs":
 			case "legs_biped":
-				AddBox(root, mat, new Vector3(1.15f, 0.22f, 0.7f), new Vector3(0f, 0.9f, 0f));
-				AddBox(root, dark, new Vector3(0.9f, 0.1f, 0.5f), new Vector3(0f, 0.82f, 0.05f));
-				// Thighs
-				AddBox(root, mat, new Vector3(0.3f, 0.45f, 0.3f), new Vector3(-0.4f, 0.62f, 0f));
-				AddBox(root, mat, new Vector3(0.3f, 0.45f, 0.3f), new Vector3(0.4f, 0.62f, 0f));
-				// Knees
-				AddBox(root, light, new Vector3(0.34f, 0.16f, 0.34f), new Vector3(-0.4f, 0.4f, 0.02f));
-				AddBox(root, light, new Vector3(0.34f, 0.16f, 0.34f), new Vector3(0.4f, 0.4f, 0.02f));
-				// Shins
-				AddBox(root, dark, new Vector3(0.28f, 0.38f, 0.28f), new Vector3(-0.4f, 0.22f, 0f));
-				AddBox(root, dark, new Vector3(0.28f, 0.38f, 0.28f), new Vector3(0.4f, 0.22f, 0f));
-				// Feet
-				AddBox(root, mat, new Vector3(0.45f, 0.14f, 0.58f), new Vector3(-0.4f, 0.07f, 0.06f));
-				AddBox(root, mat, new Vector3(0.45f, 0.14f, 0.58f), new Vector3(0.4f, 0.07f, 0.06f));
+				BuildBipedLegs(root, mat, dark, light);
 				break;
 
 			case "legs_hex":
-				AddBox(root, mat, new Vector3(0.9f, 0.22f, 0.9f), new Vector3(0f, 0.55f, 0f));
-				AddCylinder(root, dark, 0.28f, 0.18f, new Vector3(0f, 0.62f, 0f), Vector3.Zero);
-				AddLeg(root, mat, dark, new Vector3(-0.7f, 0.35f, -0.45f), new Vector3(0.6f, 0f, 0.4f));
-				AddLeg(root, mat, dark, new Vector3(0.7f, 0.35f, -0.45f), new Vector3(0.6f, 0f, -0.4f));
-				AddLeg(root, mat, dark, new Vector3(-0.85f, 0.35f, 0.1f), new Vector3(0.15f, 0f, 0.55f));
-				AddLeg(root, mat, dark, new Vector3(0.85f, 0.35f, 0.1f), new Vector3(0.15f, 0f, -0.55f));
-				AddLeg(root, mat, dark, new Vector3(-0.65f, 0.35f, 0.55f), new Vector3(-0.45f, 0f, 0.4f));
-				AddLeg(root, mat, dark, new Vector3(0.65f, 0.35f, 0.55f), new Vector3(-0.45f, 0f, -0.4f));
+				BuildHexLegs(root, mat, dark);
 				break;
 
 			case "legs_tracks":
@@ -201,10 +181,122 @@ public static class PartVisualFactory
 		return mat;
 	}
 
-	private static void AddLeg(Node3D parent, Material mat, Material dark, Vector3 position, Vector3 rotation)
+	/// <summary>
+	/// Articulated biped: Hip → Knee → Foot pivots the walk animator can drive.
+	/// </summary>
+	private static void BuildBipedLegs(Node3D root, Material mat, Material dark, Material light)
 	{
-		AddCylinder(parent, mat, 0.08f, 0.85f, position, rotation);
-		AddSphere(parent, dark, 0.1f, new Vector3(position.X * 1.2f, 0.08f, position.Z * 1.2f));
+		root.SetMeta("LegRig", "biped");
+		AddBox(root, mat, new Vector3(1.15f, 0.22f, 0.7f), new Vector3(0f, 0.9f, 0f));
+		AddBox(root, dark, new Vector3(0.9f, 0.1f, 0.5f), new Vector3(0f, 0.82f, 0.05f));
+		AddBipedLeg(root, mat, dark, light, "Leg_L", -0.4f);
+		AddBipedLeg(root, mat, dark, light, "Leg_R", 0.4f);
+	}
+
+	private static void AddBipedLeg(
+		Node3D root, Material mat, Material dark, Material light, string name, float hipX)
+	{
+		const float thighLen = 0.45f;
+		const float shinLen = 0.38f;
+
+		var hip = new Node3D { Name = name, Position = new Vector3(hipX, 0.85f, 0f) };
+		hip.SetMeta("RestRotation", Vector3.Zero);
+		root.AddChild(hip);
+
+		var thigh = MeshMat.Make(new BoxMesh { Size = new Vector3(0.3f, thighLen, 0.3f) }, mat,
+			new Vector3(0f, -thighLen * 0.5f, 0f));
+		thigh.Name = "Thigh";
+		hip.AddChild(thigh);
+
+		var knee = new Node3D { Name = "Knee", Position = new Vector3(0f, -thighLen, 0f) };
+		knee.SetMeta("RestRotation", Vector3.Zero);
+		hip.AddChild(knee);
+
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.34f, 0.16f, 0.34f) }, light,
+			new Vector3(0f, 0f, 0.02f)));
+
+		var shin = MeshMat.Make(new BoxMesh { Size = new Vector3(0.28f, shinLen, 0.28f) }, dark,
+			new Vector3(0f, -shinLen * 0.5f, 0f));
+		shin.Name = "Shin";
+		knee.AddChild(shin);
+
+		var foot = MeshMat.Make(new BoxMesh { Size = new Vector3(0.45f, 0.14f, 0.58f) }, mat,
+			new Vector3(0f, -shinLen - 0.07f, 0.06f));
+		foot.Name = "Foot";
+		knee.AddChild(foot);
+	}
+
+	/// <summary>
+	/// Grounded two-link spider rig. Feet are authored on the ground plane first;
+	/// upper/lower struts are then fitted between hull, knee, and foot.
+	/// </summary>
+	private static void BuildHexLegs(Node3D root, Material mat, Material dark)
+	{
+		root.SetMeta("LegRig", "hex");
+		AddBox(root, mat, new Vector3(0.9f, 0.22f, 0.9f), new Vector3(0f, 0.55f, 0f));
+		AddCylinder(root, dark, 0.28f, 0.18f, new Vector3(0f, 0.62f, 0f), Vector3.Zero);
+
+		AddSpiderLeg(root, mat, dark, 0, new Vector3(-0.42f, 0.58f, -0.34f), new Vector3(-1.12f, 0.1f, -0.82f));
+		AddSpiderLeg(root, mat, dark, 1, new Vector3(0.42f, 0.58f, -0.34f), new Vector3(1.12f, 0.1f, -0.82f));
+		AddSpiderLeg(root, mat, dark, 2, new Vector3(-0.46f, 0.58f, 0f), new Vector3(-1.28f, 0.1f, 0f));
+		AddSpiderLeg(root, mat, dark, 3, new Vector3(0.46f, 0.58f, 0f), new Vector3(1.28f, 0.1f, 0f));
+		AddSpiderLeg(root, mat, dark, 4, new Vector3(-0.42f, 0.58f, 0.34f), new Vector3(-1.12f, 0.1f, 0.82f));
+		AddSpiderLeg(root, mat, dark, 5, new Vector3(0.42f, 0.58f, 0.34f), new Vector3(1.12f, 0.1f, 0.82f));
+	}
+
+	private static void AddSpiderLeg(
+		Node3D parent, Material mat, Material dark, int index, Vector3 hip, Vector3 foot)
+	{
+		var leg = new Node3D { Name = $"HexLeg_{index}" };
+		leg.SetMeta("LegIndex", index);
+		leg.SetMeta("Hip", hip);
+		leg.SetMeta("RestFoot", foot);
+		parent.AddChild(leg);
+
+		var upper = MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.075f, BottomRadius = 0.09f, Height = 1f },
+			mat);
+		upper.Name = "Upper";
+		leg.AddChild(upper);
+
+		var lower = MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.065f, BottomRadius = 0.08f, Height = 1f },
+			dark);
+		lower.Name = "Lower";
+		leg.AddChild(lower);
+
+		var knee = MeshMat.Make(
+			new SphereMesh { Radius = 0.1f, Height = 0.2f },
+			dark);
+		knee.Name = "Knee";
+		leg.AddChild(knee);
+
+		var footBall = MeshMat.Make(
+			new SphereMesh { Radius = 0.1f, Height = 0.2f },
+			dark);
+		footBall.Name = "Foot";
+		leg.AddChild(footBall);
+
+		PoseSpiderLeg(leg, hip, foot);
+	}
+
+	private static void PoseSpiderLeg(Node3D leg, Vector3 hip, Vector3 foot)
+	{
+		var outward = new Vector3(foot.X - hip.X, 0f, foot.Z - hip.Z).Normalized();
+		var knee = hip.Lerp(foot, 0.52f) + outward * 0.18f + Vector3.Up * 0.24f;
+		PoseStrut(leg.GetNode<MeshInstance3D>("Upper"), hip, knee);
+		PoseStrut(leg.GetNode<MeshInstance3D>("Lower"), knee, foot);
+		leg.GetNode<MeshInstance3D>("Knee").Position = knee;
+		leg.GetNode<MeshInstance3D>("Foot").Position = foot;
+	}
+
+	private static void PoseStrut(MeshInstance3D strut, Vector3 from, Vector3 to)
+	{
+		var delta = to - from;
+		var length = Mathf.Max(0.001f, delta.Length());
+		strut.Position = (from + to) * 0.5f;
+		strut.Quaternion = new Quaternion(Vector3.Up, delta / length);
+		strut.Scale = new Vector3(1f, length, 1f);
 	}
 
 	private static void AddWheel(Node3D parent, Material mat, Vector3 position)

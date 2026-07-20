@@ -70,6 +70,41 @@ public partial class VoiceOscilloscope : Control
 		}
 	}
 
+	public void SetCompany(FrontierCompanyData company)
+	{
+		var basis = VoiceOscilloscopeStyle.ForManufacturer(company.TrialTemplateId);
+		Style = new VoiceOscilloscopeStyle
+		{
+			Id = company.Id,
+			Accent = company.AccentColor,
+			Caption = company.LiaisonName.ToUpperInvariant(),
+			Trace = basis.Trace,
+			Ghost = basis.Ghost,
+			Grid = basis.Grid,
+			Panel = basis.Panel,
+			Bezel = company.AccentColor,
+			LineWidth = basis.LineWidth,
+			GhostWidth = basis.GhostWidth,
+			Amplitude = basis.Amplitude,
+			Frequency = basis.Frequency,
+			Decay = basis.Decay,
+			IdleHum = basis.IdleHum,
+			GlowStrength = basis.GlowStrength,
+			Squareness = basis.Squareness,
+			Harmonic = basis.Harmonic,
+			GhostLag = basis.GhostLag,
+			ShowReticles = basis.ShowReticles,
+			ShowHexFrame = basis.ShowHexFrame,
+			EmberFloor = basis.EmberFloor,
+			ScanSweep = basis.ScanSweep
+		};
+		if (_caption != null)
+		{
+			_caption.Text = company.LiaisonName.ToUpperInvariant();
+			_caption.Modulate = company.AccentColor;
+		}
+	}
+
 	public void NotifyToken(bool vowel, float pitchScale)
 	{
 		_vowelBias = vowel;

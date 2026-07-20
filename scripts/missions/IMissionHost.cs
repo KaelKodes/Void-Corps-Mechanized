@@ -23,7 +23,7 @@ public interface IMissionHost
 	void NotifyObjectivesComplete();
 	MechController? SpawnEnemyMech(string name, Vector3 position, int variant, bool viaDropBeacon = false);
 	void DespawnEnemyMech(string name);
-	SupportUnit SpawnSupport(string name, string unitId, TeamId team, Vector3 position);
+	SupportUnit SpawnSupport(string name, string unitId, TeamId team, Vector3 position, bool viaTelegraph = false);
 	void DespawnSupport(string name);
 	bool AllEnemyMechsDown();
 	void FaceToward(Node3D body, Vector3 worldPoint);

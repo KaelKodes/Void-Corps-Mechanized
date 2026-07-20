@@ -12,6 +12,10 @@ public partial class Projectile : Area3D
 	public TeamId SourceTeam { get; set; } = TeamId.Neutral;
 	public TargetingMode TargetingMode { get; set; } = TargetingMode.Standard;
 	public PartSlot? PreferredSlot { get; set; }
+	/// <summary>Optional seeker track — steers toward lock while the target remains valid.</summary>
+	public MechController? HomingTarget { get; set; }
+	public float HomingSpeed { get; set; }
+	public float HomingTurnRate { get; set; } = 4.5f;
 	/// <summary>False on client replicas — they show the shot but never apply damage.</summary>
 	public bool DealsDamage { get; set; } = true;
 	/// <summary>Disable for dense hazards so misses against cover do not flood the mix.</summary>
@@ -32,6 +36,8 @@ public partial class Projectile : Area3D
 		var dt = (float)delta;
 		var from = GlobalPosition;
 
+		UpdateHoming(dt);
+
 		if (GravityAccel > 0f)
 			Velocity = new Vector3(Velocity.X, Velocity.Y - GravityAccel * dt, Velocity.Z);
 
@@ -47,6 +53,83 @@ public partial class Projectile : Area3D
 		_age += dt;
 		if (_age >= Lifetime)
 			MeshMat.QueueFreeSafe(this);
+	}
+
+	private void UpdateHoming(float dt)
+	{
+		if (HomingTarget == null || HomingSpeed <= 0.01f)
+			return;
+
+		if (!GodotObject.IsInstanceValid(HomingTarget)
+		    || HomingTarget.Integrity?.IsCollapsed == true
+		    || HomingTarget.Health?.IsDead == true)
+		{
+			// Lock broken mid-flight — keep last velocity (no more steer).
+			HomingTarget = null;
+			return;
+		}
+
+		var aim = ResolveHomingAim(HomingTarget, PreferredSlot);
+		var toAim = aim - GlobalPosition;
+		if (toAim.LengthSquared() < 0.01f)
+			return;
+
+		var desired = toAim.Normalized() * HomingSpeed;
+		var turn = Mathf.Clamp(HomingTurnRate * dt, 0f, 1f);
+		Velocity = Velocity.Lerp(desired, turn);
+	}
+
+	private static Vector3 ResolveHomingAim(MechController target, PartSlot? focus)
+	{
+		if (focus.HasValue
+		    && target.Assembler?.Hardpoints.TryGetValue(focus.Value, out var hp) == true
+		    && hp.EquippedPart != null
+		    && hp.EquippedPart.VisualKind != "empty"
+		    && !hp.IsDestroyed)
+			return hp.GlobalPosition;
+
+		if (target.Assembler?.Hardpoints.TryGetValue(PartSlot.Torso, out var torso) == true)
+			return torso.GlobalPosition;
+
+		return target.GlobalPosition + Vector3.Up * 1.4f;
+	}
+
+	/// <summary>
+	/// Sensor-lock seeker: low-arc launch that steers toward the locked mech / focus band.
+	/// If the lock dies mid-flight, the missile keeps its last velocity.
+	/// </summary>
+	public void LaunchSeeker(
+		Vector3 from,
+		MechController target,
+		PartSlot? focus,
+		float speed,
+		float gravity = 6f)
+	{
+		HomingTarget = target;
+		PreferredSlot = focus;
+		HomingSpeed = Mathf.Max(12f, speed);
+		HomingTurnRate = 5.2f;
+		TargetingMode = TargetingMode.AimedComponent;
+
+		var aim = ResolveHomingAim(target, focus);
+		var delta = aim - from;
+		var horizontal = new Vector3(delta.X, 0f, delta.Z).Length();
+		Lifetime = Mathf.Clamp(horizontal / HomingSpeed + 0.85f, 1.1f, 4.2f);
+		GravityAccel = gravity;
+
+		var dir = delta.LengthSquared() > 0.01f ? delta.Normalized() : Vector3.Forward;
+		Velocity = dir * HomingSpeed + Vector3.Up * (HomingSpeed * 0.12f);
+
+		if (IsInsideTree())
+		{
+			GlobalPosition = from;
+			LookAt(from + Velocity, Vector3.Up);
+		}
+		else
+		{
+			Position = from;
+			LookAtFromPosition(from, from + Velocity, Vector3.Up);
+		}
 	}
 
 	/// <summary>
@@ -247,52 +330,293 @@ public partial class Projectile : Area3D
 		return null;
 	}
 
-	public static Projectile Create(bool ballisticStyle = false)
+	public const float MechVisualScale = 1.1f;
+
+	public static Projectile Create(bool ballisticStyle = false) =>
+		Create(ballisticStyle ? ProjectileStyle.DumbRocket : ProjectileStyle.CarbineTracer);
+
+	public static Projectile Create(ProjectileStyle style, float visualScale = 1f)
 	{
 		var projectile = new Projectile
 		{
-			Name = ballisticStyle ? "Missile" : "Projectile",
+			Name = ProjectileStyleUtil.IsMissile(style) ? "Missile" : "Projectile",
 			CollisionLayer = 4,
 			CollisionMask = 1 | 2 | 8,
 			Monitoring = true,
 			Monitorable = false
 		};
 
-		var radius = ballisticStyle ? 0.28f : 0.18f;
+		var spec = StyleSpec(style);
+		var scale = Mathf.Max(0.05f, visualScale);
 		var collision = new CollisionShape3D
 		{
-			Shape = new SphereShape3D { Radius = radius + 0.05f }
+			Shape = new SphereShape3D { Radius = spec.CollisionRadius * scale }
 		};
 		projectile.AddChild(collision);
 
+		var visual = new Node3D
+		{
+			Name = "Visual",
+			Scale = Vector3.One * scale
+		};
+		projectile.AddChild(visual);
+
 		var mesh = new MeshInstance3D
 		{
-			Mesh = ballisticStyle
-				? new CapsuleMesh { Radius = 0.12f, Height = 0.55f }
-				: new SphereMesh { Radius = radius, Height = radius * 2f },
-			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+			Mesh = spec.Mesh,
+			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+			MaterialOverride = MakeMat(spec.Albedo, spec.Emission, spec.EmissionEnergy)
 		};
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = ballisticStyle ? new Color(1f, 0.45f, 0.2f) : new Color(1f, 0.85f, 0.35f),
-			EmissionEnabled = true,
-			Emission = ballisticStyle ? new Color(1f, 0.35f, 0.1f) : new Color(1f, 0.7f, 0.2f),
-			EmissionEnergyMultiplier = 2.2f
-		};
-		mesh.Mesh.SurfaceSetMaterial(0, mat);
-		mesh.MaterialOverride = mat;
-		if (ballisticStyle)
+		if (spec.MeshPitchQuarterTurn)
 			mesh.Rotation = new Vector3(Mathf.Tau * 0.25f, 0f, 0f);
-		projectile.AddChild(mesh);
+		visual.AddChild(mesh);
 
-		var light = new OmniLight3D
+		if (spec.TrailLength > 0.05f)
 		{
-			LightColor = ballisticStyle ? new Color(1f, 0.5f, 0.2f) : new Color(1f, 0.8f, 0.3f),
-			LightEnergy = ballisticStyle ? 1.6f : 1.2f,
-			OmniRange = ballisticStyle ? 5f : 4f
-		};
-		projectile.AddChild(light);
+			var trailMat = MakeMat(
+				new Color(spec.Emission.R, spec.Emission.G, spec.Emission.B, 0.45f),
+				spec.Emission,
+				spec.EmissionEnergy * 0.55f);
+			var trail = new MeshInstance3D
+			{
+				Mesh = new BoxMesh { Size = new Vector3(spec.TrailWidth, spec.TrailWidth, spec.TrailLength) },
+				Position = new Vector3(0f, 0f, spec.TrailLength * 0.45f),
+				CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+				MaterialOverride = trailMat
+			};
+			visual.AddChild(trail);
+		}
+
+		visual.AddChild(new OmniLight3D
+		{
+			LightColor = spec.Emission,
+			LightEnergy = spec.LightEnergy,
+			OmniRange = spec.LightRange
+		});
 
 		return projectile;
+	}
+
+	private sealed class VisualSpec
+	{
+		public Mesh Mesh = null!;
+		public Color Albedo;
+		public Color Emission;
+		public float EmissionEnergy;
+		public float CollisionRadius;
+		public float LightEnergy;
+		public float LightRange;
+		public float TrailLength;
+		public float TrailWidth;
+		public bool MeshPitchQuarterTurn;
+	}
+
+	private static VisualSpec StyleSpec(ProjectileStyle style) => style switch
+	{
+		ProjectileStyle.Slug => new VisualSpec
+		{
+			Mesh = new CylinderMesh { TopRadius = 0.07f, BottomRadius = 0.09f, Height = 0.28f },
+			Albedo = new Color(0.35f, 0.34f, 0.32f),
+			Emission = new Color(1f, 0.55f, 0.25f),
+			EmissionEnergy = 1.1f,
+			CollisionRadius = 0.16f,
+			LightEnergy = 0.7f,
+			LightRange = 3.2f,
+			TrailLength = 0.35f,
+			TrailWidth = 0.04f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.Shell => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.11f, Height = 0.42f },
+			Albedo = new Color(0.55f, 0.42f, 0.22f),
+			Emission = new Color(1f, 0.45f, 0.15f),
+			EmissionEnergy = 1.6f,
+			CollisionRadius = 0.22f,
+			LightEnergy = 1.1f,
+			LightRange = 4.5f,
+			TrailLength = 0.55f,
+			TrailWidth = 0.07f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.ApNeedle => new VisualSpec
+		{
+			Mesh = new CylinderMesh { TopRadius = 0.025f, BottomRadius = 0.04f, Height = 0.48f },
+			Albedo = new Color(0.22f, 0.24f, 0.28f),
+			Emission = new Color(0.45f, 0.85f, 1f),
+			EmissionEnergy = 1.8f,
+			CollisionRadius = 0.12f,
+			LightEnergy = 0.85f,
+			LightRange = 3.5f,
+			TrailLength = 0.7f,
+			TrailWidth = 0.025f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.CarbineTracer => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.045f, Height = 0.22f },
+			Albedo = new Color(0.9f, 0.55f, 0.2f),
+			Emission = new Color(1f, 0.55f, 0.18f),
+			EmissionEnergy = 2.0f,
+			CollisionRadius = 0.14f,
+			LightEnergy = 0.9f,
+			LightRange = 3.4f,
+			TrailLength = 0.5f,
+			TrailWidth = 0.03f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.Autocannon => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.06f, Height = 0.26f },
+			Albedo = new Color(1f, 0.5f, 0.18f),
+			Emission = new Color(1f, 0.4f, 0.1f),
+			EmissionEnergy = 2.2f,
+			CollisionRadius = 0.15f,
+			LightEnergy = 1.0f,
+			LightRange = 3.8f,
+			TrailLength = 0.4f,
+			TrailWidth = 0.04f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.ScatterPellet => new VisualSpec
+		{
+			Mesh = new SphereMesh { Radius = 0.07f, Height = 0.14f },
+			Albedo = new Color(0.4f, 0.38f, 0.35f),
+			Emission = new Color(0.85f, 0.55f, 0.3f),
+			EmissionEnergy = 0.7f,
+			CollisionRadius = 0.12f,
+			LightEnergy = 0.45f,
+			LightRange = 2.4f,
+			TrailLength = 0.15f,
+			TrailWidth = 0.03f
+		},
+		ProjectileStyle.EnergyBolt => new VisualSpec
+		{
+			Mesh = new SphereMesh { Radius = 0.12f, Height = 0.24f },
+			Albedo = new Color(0.4f, 0.9f, 1f, 0.85f),
+			Emission = new Color(0.35f, 0.85f, 1f),
+			EmissionEnergy = 3.2f,
+			CollisionRadius = 0.18f,
+			LightEnergy = 1.4f,
+			LightRange = 4.8f,
+			TrailLength = 0.45f,
+			TrailWidth = 0.08f
+		},
+		ProjectileStyle.EnergyLance => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.055f, Height = 0.65f },
+			Albedo = new Color(0.55f, 0.8f, 1f, 0.9f),
+			Emission = new Color(0.3f, 0.7f, 1f),
+			EmissionEnergy = 3.6f,
+			CollisionRadius = 0.16f,
+			LightEnergy = 1.5f,
+			LightRange = 5.2f,
+			TrailLength = 0.85f,
+			TrailWidth = 0.05f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.BeamSlug => new VisualSpec
+		{
+			Mesh = new BoxMesh { Size = new Vector3(0.05f, 0.05f, 0.9f) },
+			Albedo = new Color(0.75f, 0.55f, 1f, 0.9f),
+			Emission = new Color(0.7f, 0.4f, 1f),
+			EmissionEnergy = 4.0f,
+			CollisionRadius = 0.14f,
+			LightEnergy = 1.7f,
+			LightRange = 5.5f,
+			TrailLength = 1.1f,
+			TrailWidth = 0.04f
+		},
+		ProjectileStyle.CoilPulse => new VisualSpec
+		{
+			Mesh = new TorusMesh { InnerRadius = 0.06f, OuterRadius = 0.16f, Rings = 8, RingSegments = 12 },
+			Albedo = new Color(1f, 0.45f, 0.85f, 0.9f),
+			Emission = new Color(1f, 0.35f, 0.8f),
+			EmissionEnergy = 3.4f,
+			CollisionRadius = 0.22f,
+			LightEnergy = 1.8f,
+			LightRange = 5.8f,
+			TrailLength = 0.3f,
+			TrailWidth = 0.1f
+		},
+		ProjectileStyle.Spark => new VisualSpec
+		{
+			Mesh = new SphereMesh { Radius = 0.05f, Height = 0.1f },
+			Albedo = new Color(0.7f, 1f, 1f),
+			Emission = new Color(0.5f, 1f, 1f),
+			EmissionEnergy = 3.8f,
+			CollisionRadius = 0.1f,
+			LightEnergy = 0.8f,
+			LightRange = 2.8f,
+			TrailLength = 0.25f,
+			TrailWidth = 0.02f
+		},
+		ProjectileStyle.DumbRocket => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.11f, Height = 0.55f },
+			Albedo = new Color(0.45f, 0.4f, 0.35f),
+			Emission = new Color(1f, 0.4f, 0.12f),
+			EmissionEnergy = 2.4f,
+			CollisionRadius = 0.26f,
+			LightEnergy = 1.5f,
+			LightRange = 5f,
+			TrailLength = 0.75f,
+			TrailWidth = 0.09f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.Seeker => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.07f, Height = 0.58f },
+			Albedo = new Color(0.25f, 0.3f, 0.35f),
+			Emission = new Color(0.35f, 0.9f, 1f),
+			EmissionEnergy = 2.6f,
+			CollisionRadius = 0.2f,
+			LightEnergy = 1.3f,
+			LightRange = 4.6f,
+			TrailLength = 0.7f,
+			TrailWidth = 0.05f,
+			MeshPitchQuarterTurn = true
+		},
+		ProjectileStyle.ArcMicrotorp => new VisualSpec
+		{
+			Mesh = new CapsuleMesh { Radius = 0.08f, Height = 0.5f },
+			Albedo = new Color(0.55f, 0.4f, 1f, 0.9f),
+			Emission = new Color(0.65f, 0.35f, 1f),
+			EmissionEnergy = 3.2f,
+			CollisionRadius = 0.2f,
+			LightEnergy = 1.6f,
+			LightRange = 5.2f,
+			TrailLength = 0.8f,
+			TrailWidth = 0.07f,
+			MeshPitchQuarterTurn = true
+		},
+		_ => new VisualSpec // HazardOrb
+		{
+			Mesh = new SphereMesh { Radius = 0.16f, Height = 0.32f },
+			Albedo = new Color(1f, 0.25f, 0.2f),
+			Emission = new Color(1f, 0.2f, 0.15f),
+			EmissionEnergy = 2.5f,
+			CollisionRadius = 0.2f,
+			LightEnergy = 1.2f,
+			LightRange = 4f,
+			TrailLength = 0.35f,
+			TrailWidth = 0.08f
+		}
+	};
+
+	private static StandardMaterial3D MakeMat(Color albedo, Color emission, float emissionEnergy)
+	{
+		var mat = new StandardMaterial3D
+		{
+			AlbedoColor = albedo,
+			EmissionEnabled = true,
+			Emission = emission,
+			EmissionEnergyMultiplier = emissionEnergy,
+			ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+			DisableReceiveShadows = true
+		};
+		if (albedo.A < 0.99f)
+			mat.Transparency = BaseMaterial3D.TransparencyEnum.Alpha;
+		return mat;
 	}
 }

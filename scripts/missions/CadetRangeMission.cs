@@ -171,7 +171,7 @@ public sealed class CadetRangeMission : MissionBase
 			Step.TakeHit =>
 				"CADET RANGE  Training pulse incoming — sustain the hit",
 			Step.Mend =>
-				$"CADET RANGE  Heal up — Mend Beacon: hold {InputBindings.FormatAction("ability_1")} (or your mend key), aim, release",
+				$"CADET RANGE  Heal up — Mend Beacon: hold {InputBindings.FormatAction("ability_1")} (or your mend key), aim, release  ·  Ctrl+key drops on self",
 			Step.Extract =>
 				"CADET RANGE  Objectives clear" + ExtractHudHint(),
 			_ => "CADET RANGE"

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace Mechanize;
@@ -11,7 +12,7 @@ public enum MatchOutcome
 }
 
 /// <summary>
-/// Runtime skirmish state — lives, run scrap, loot bag. Campaign will reuse this.
+/// Runtime skirmish state — lives, run scrap, loot bag, recovery cargo.
 /// </summary>
 public sealed class MatchSession
 {
@@ -24,7 +25,18 @@ public sealed class MatchSession
 	public int LivesRemaining { get; set; } = StartingLives;
 	public int RunScrap { get; set; }
 	public int LivesBoughtThisRun { get; set; }
+	/// <summary>Loot part IDs collected this run (quantity-safe, for debrief UI).</summary>
 	public List<string> RunPartDrops { get; } = new();
+	/// <summary>Owned instances created from world loot pickups this run.</summary>
+	public List<string> MissionCargoInstanceIds { get; } = new();
+	/// <summary>Parts awarded by a location loot table and banked at debrief.</summary>
+	public List<string> PendingPartRewards { get; } = new();
+	/// <summary>Crafting materials awarded by mission/location loot tables.</summary>
+	public Dictionary<string, int> RunMaterialDrops { get; } = new();
+	/// <summary>Owned instances recovered by drones at mission end (field crates / unused deliveries).</summary>
+	public List<string> RecoveryInstanceIds { get; } = new();
+	/// <summary>Final equipped-slot condition snapshot captured at resolution.</summary>
+	public Dictionary<PartSlot, PartCondition> FinalConditionBySlot { get; } = new();
 	public MatchOutcome Outcome { get; set; } = MatchOutcome.InProgress;
 	public bool Active { get; set; }
 	public MatchTelemetry Telemetry { get; private set; } = new();
@@ -39,6 +51,11 @@ public sealed class MatchSession
 		RunScrap = 0;
 		LivesBoughtThisRun = 0;
 		RunPartDrops.Clear();
+		MissionCargoInstanceIds.Clear();
+		PendingPartRewards.Clear();
+		RunMaterialDrops.Clear();
+		RecoveryInstanceIds.Clear();
+		FinalConditionBySlot.Clear();
 		Outcome = MatchOutcome.InProgress;
 		Active = true;
 		Telemetry = new MatchTelemetry();
@@ -55,8 +72,55 @@ public sealed class MatchSession
 	{
 		if (string.IsNullOrEmpty(partId) || !Active)
 			return;
-		if (!RunPartDrops.Contains(partId))
-			RunPartDrops.Add(partId);
+		RunPartDrops.Add(partId);
+	}
+
+	/// <summary>Own a loot copy immediately so Field Hangar can request it; recovery-protected.</summary>
+	public OwnedPartInstance? AddPartDropInstance(PlayerProfile profile, string partId)
+	{
+		if (string.IsNullOrEmpty(partId) || !Active || profile == null)
+			return null;
+		var instance = profile.OwnInstance(partId);
+		RunPartDrops.Add(partId);
+		if (!MissionCargoInstanceIds.Contains(instance.InstanceId))
+			MissionCargoInstanceIds.Add(instance.InstanceId);
+		TrackRecovery(instance.InstanceId);
+		return instance;
+	}
+
+	public void AddRewardPart(string partId)
+	{
+		if (string.IsNullOrEmpty(partId))
+			return;
+		RunPartDrops.Add(partId);
+		PendingPartRewards.Add(partId);
+	}
+
+	public void AddMaterialDrop(string materialId, int amount)
+	{
+		if (amount <= 0 || !MaterialCatalog.All.ContainsKey(materialId))
+			return;
+		RunMaterialDrops[materialId] = RunMaterialDrops.GetValueOrDefault(materialId) + amount;
+	}
+
+	public void TrackRecovery(string instanceId)
+	{
+		if (string.IsNullOrEmpty(instanceId) || RecoveryInstanceIds.Contains(instanceId))
+			return;
+		RecoveryInstanceIds.Add(instanceId);
+	}
+
+	public void UntrackRecovery(string instanceId)
+	{
+		if (!string.IsNullOrEmpty(instanceId))
+			RecoveryInstanceIds.Remove(instanceId);
+	}
+
+	public void CaptureFinalCondition(Dictionary<PartSlot, PartCondition> snapshot)
+	{
+		FinalConditionBySlot.Clear();
+		foreach (var (slot, condition) in snapshot)
+			FinalConditionBySlot[slot] = condition.Clone();
 	}
 
 	public bool TrySpendLifeForRespawn()
@@ -84,7 +148,6 @@ public sealed class MatchSession
 		RunScrap = Mathf.Max(0, scrap);
 		if (nextLifeCostHint >= 0 && BaseLifeCost > 0)
 		{
-			// Reconstruct buys so NextLifeCost matches host HUD.
 			var steps = Mathf.Max(0, (nextLifeCostHint - BaseLifeCost) / LifeCostStep);
 			LivesBoughtThisRun = steps;
 		}
@@ -102,15 +165,44 @@ public sealed class MatchSession
 			Telemetry.Tick(dt);
 	}
 
-	/// <summary>Commit run rewards into the persistent profile.</summary>
+	/// <summary>Commit run rewards into the persistent profile (condition applied separately).</summary>
 	public void ApplyToProfile(PlayerProfile profile)
 	{
 		profile.Scrap += RunScrap;
-		foreach (var id in RunPartDrops)
-			profile.Own(id);
+		// Mission cargo instances are already owned on pickup; only bank legacy ID-only drops.
+		if (MissionCargoInstanceIds.Count == 0)
+		{
+			foreach (var id in RunPartDrops)
+				profile.Own(id);
+		}
+		else
+		{
+			foreach (var id in PendingPartRewards)
+				profile.Own(id);
+		}
+
+		foreach (var (materialId, amount) in RunMaterialDrops)
+			profile.AddMaterial(materialId, amount);
+
+		foreach (var instanceId in RecoveryInstanceIds)
+		{
+			var instance = profile.GetInstance(instanceId);
+			if (instance != null)
+				instance.Reserved = false;
+		}
+
 		profile.LivesBank = Mathf.Max(0, LivesRemaining);
 		profile.SkirmishesPlayed++;
 		if (Outcome == MatchOutcome.Victory)
 			profile.SkirmishesWon++;
+
+		foreach (var (slot, condition) in FinalConditionBySlot)
+		{
+			var equipped = profile.GetEquippedInstance(slot);
+			if (equipped == null)
+				continue;
+			equipped.Condition = condition.Clone();
+			equipped.Condition.EnsureSegmentCount(PartCondition.SegmentCountFor(GameCatalog.GetPart(equipped.PartId)));
+		}
 	}
 }

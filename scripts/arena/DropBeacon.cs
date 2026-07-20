@@ -56,6 +56,7 @@ public partial class DropBeacon : Node3D
 			Position = position
 		};
 		beacon.Build();
+		beacon.AddToGroup("drop_beacon");
 		beacon.SetState(DropBeaconState.Ready);
 		beacon.SetOpenAmount(1f);
 		return beacon;
@@ -455,7 +456,7 @@ public partial class DropBeacon : Node3D
 		{
 			DropBeaconState.Dropping => "VESSEL INBOUND",
 			DropBeaconState.Opening => "DEPLOYING",
-			DropBeaconState.ExtractArmed => "HOLD [E] — SIGNAL RETRIEVAL",
+			DropBeaconState.ExtractArmed => "HOLD [F] — SIGNAL RETRIEVAL",
 			DropBeaconState.Extracting => $"RETRIEVING {ExtractProgress * 100f:0}%",
 			DropBeaconState.Retrieved => "RETRIEVED",
 			DropBeaconState.Ready when !string.IsNullOrEmpty(_readyLabel) => _readyLabel,

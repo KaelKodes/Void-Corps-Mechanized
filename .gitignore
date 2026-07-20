@@ -22,3 +22,7 @@ dotnet/
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
+
+# Large / local-only media and scratch (not shipped with the game)
+Promo Videos/
+resources/

@@ -117,7 +117,7 @@ public partial class LootPickup : Area3D
 
 		if (!string.IsNullOrEmpty(PartId))
 		{
-			session.Match.AddPartDrop(PartId);
+			session.Match.AddPartDropInstance(session.Profile, PartId);
 			SfxService.Play("disk", 1.05f, -2f);
 		}
 

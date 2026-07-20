@@ -180,6 +180,8 @@ public partial class CampaignMapUi : Control
 		{
 			SfxService.Click();
 			_run.Save();
+			session?.SaveProfile();
+			session?.ActivateMainProfile();
 			GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
 		};
 		row.AddChild(back);
@@ -257,7 +259,7 @@ public partial class CampaignMapUi : Control
 		row.AddChild(LegendChip("WARNING", MechUiTheme.MapNodeWarning));
 		var hint = new Label
 		{
-			Text = "Hover to highlight routes  ·  Select a site for the dossier",
+			Text = "Hover highlights routes from your position  ·  Select a reachable site for the dossier",
 			Modulate = MechUiTheme.Muted,
 			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			HorizontalAlignment = HorizontalAlignment.Right
@@ -409,6 +411,8 @@ public partial class CampaignMapUi : Control
 		if (_routes == null)
 			return;
 
+		var here = _run.CurrentNodeId;
+		var focusId = _hoveredNodeId ?? _pendingCommitId;
 		var segments = new List<(Vector2 From, Vector2 To, Color Color, float Width)>();
 		foreach (var (fromId, toId) in _run.Graph.Edges)
 		{
@@ -420,8 +424,10 @@ public partial class CampaignMapUi : Control
 			if (from == null || to == null)
 				continue;
 
-			var hot = _hoveredNodeId == fromId || _hoveredNodeId == toId
-				|| _pendingCommitId == fromId || _pendingCommitId == toId;
+			// Only light lanes that leave your current site for the focused destination.
+			var hot = focusId != null
+				&& fromId == here
+				&& toId == focusId;
 			var color = RouteColor(from, to, hot);
 			var width = hot ? 4.5f : 3.2f;
 			segments.Add((a, b, color, width));
@@ -434,13 +440,11 @@ public partial class CampaignMapUi : Control
 	{
 		if (hot)
 			return MechUiTheme.MapRouteHot;
-		if (to.Kind == CampaignNodeKind.Warning || from.Kind == CampaignNodeKind.Warning)
-			return MechUiTheme.MapRouteWarning;
-		if (from.Cleared && to.Cleared)
-			return MechUiTheme.MapRouteDone;
+		// Available move from where you stand.
 		if (from.Id == _run.CurrentNodeId && !to.Cleared)
 			return MechUiTheme.MapRouteReachable;
-		if (to.Cleared || from.Cleared)
+		// Completed path segments only — never paint a locked branch as "done".
+		if (from.Cleared && to.Cleared)
 			return MechUiTheme.MapRouteDone;
 		return MechUiTheme.MapRouteLocked;
 	}
@@ -752,17 +756,7 @@ public partial class CampaignMapUi : Control
 		sb.Append($"  ·  Claims {_run.ClaimsSecured}");
 
 		if (profile != null)
-		{
-			sb.Append("  ·  Rep");
-			foreach (var id in GameCatalog.Manufacturers.Keys)
-			{
-				var m = GameCatalog.GetManufacturer(id);
-				sb.Append(' ');
-				sb.Append(ShortMfg(m.DisplayName));
-				sb.Append(' ');
-				sb.Append(profile.ReputationWith(id).ToString("+0;-0;0"));
-			}
-		}
+			sb.Append($"  ·  Scrap {profile.Scrap}  ·  Licensed blueprints {profile.UnlockedBlueprints.Count}");
 
 		return sb.ToString();
 	}

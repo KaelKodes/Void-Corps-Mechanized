@@ -3,7 +3,7 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Graduation + short chat log acknowledging the next step (Big Four convention), then map.
+/// Graduation + short chat log acknowledging the active mode's job convention.
 /// </summary>
 public partial class AcademyGraduationUi : Control
 {
@@ -84,15 +84,18 @@ public partial class AcademyGraduationUi : Control
 				_continue.Text = "Acknowledge";
 				break;
 			case 1:
+				var solar = GetNodeOrNull<GameSession>("/root/GameSession")?.Campaign?.SolarOnboarding == true;
 				_body.Text =
 					"COMM LOG\n" +
 					"────────────────────────────────────\n" +
 					"YOU  ·  Loaner's gone. No kit, no contract.\n" +
 					"YOU  ·  Convention circuit is the only door open.\n" +
-					"YOU  ·  Walk in, pick a manufacturer trial, earn a chassis.\n" +
+					(solar
+						? "YOU  ·  Walk in, compare frontier companies, earn a charter and chassis.\n"
+						: "YOU  ·  Walk in, pick a manufacturer trial, earn a chassis.\n") +
 					"────────────────────────────────────\n\n" +
-					"Next: Big Four Convention (map).";
-				_continue.Text = "Open sector map";
+					(solar ? "Next: Frontier Job Convention." : "Next: Big Four Convention.");
+				_continue.Text = solar ? "Enter Job Convention" : "Open sector map";
 				break;
 			default:
 				Finish();
@@ -113,6 +116,8 @@ public partial class AcademyGraduationUi : Control
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		session?.CompleteAcademyGraduation();
-		GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
+		GetTree().ChangeSceneToFile(session?.Campaign?.SolarOnboarding == true
+			? "res://scenes/convention_hall.tscn"
+			: "res://scenes/campaign_map.tscn");
 	}
 }

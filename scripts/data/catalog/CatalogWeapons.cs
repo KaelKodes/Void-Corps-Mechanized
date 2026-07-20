@@ -86,7 +86,7 @@ public static class CatalogWeapons
 		// Combat slice: one melee + one held shield (arm slots).
 		parts["wep_brin_cleaver"] = CatalogBuilders.MeleeWeapon(
 			"wep_brin_cleaver", "Forge Cleaver", "brimforge", m, s, "cleaver",
-			damage: 32f, fireRate: 0.85f, range: 1.5f,
+			damage: 32f, fireRate: 0.85f, range: 2.85f,
 			heatShot: 3f, powerLoad: 0f, armor: 26f, structureHp: 68f);
 		parts["wep_tri_bulwark"] = CatalogBuilders.HeldShield(
 			"wep_tri_bulwark", "Bulwark Plate", "trinova", m, s, "held_shield",

@@ -98,6 +98,7 @@ public partial class IntegritySchematic : Control
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		frame.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		frame.CustomMinimumSize = new Vector2(ContentWidth + 20f, ContentHeight + 18f);
 		frame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
 			BgColor = new Color(0.04f, 0.055f, 0.07f, 0.92f),
@@ -330,15 +331,7 @@ public partial class IntegritySchematic : Control
 		zone.Plate.AddThemeStyleboxOverride("panel", MakePlateStyle(
 			locked ? LockColor : ratio < 0.35f ? FillCritical : PlateBorder));
 
-		if (slot == PartSlot.Legs && hp.LimbCount > 1)
-		{
-			zone.LimbPips.Visible = true;
-			EnsureLimbPips(zone.LimbPips, hp.LimbCount, hp.LimbsAlive);
-		}
-		else
-		{
-			zone.LimbPips.Visible = false;
-		}
+		zone.LimbPips.Visible = false;
 	}
 
 	private void RefreshUtilityRow(MechController mech, PartSlot? aimed)
@@ -405,27 +398,6 @@ public partial class IntegritySchematic : Control
 		var h = Mathf.Max(4f, (zone.PlateHeight - 4f) * Mathf.Clamp(ratio, 0f, 1f));
 		zone.Fill.OffsetTop = -h;
 		zone.Fill.OffsetBottom = -2;
-	}
-
-	private static void EnsureLimbPips(HBoxContainer row, int total, int alive)
-	{
-		while (row.GetChildCount() < total)
-		{
-			row.AddChild(new ColorRect
-			{
-				CustomMinimumSize = new Vector2(8, 8),
-				MouseFilter = MouseFilterEnum.Ignore
-			});
-		}
-
-		for (var i = 0; i < row.GetChildCount(); i++)
-		{
-			if (row.GetChild(i) is not ColorRect pip)
-				continue;
-			pip.Visible = i < total;
-			if (i < total)
-				pip.Color = i < alive ? FillHealthy : FillDead;
-		}
 	}
 
 	private static void ApplyOutlinedLabel(Label label, int fontSize)

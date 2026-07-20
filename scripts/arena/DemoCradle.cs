@@ -13,9 +13,10 @@ public partial class DemoCradle : DummyTarget
 	{
 		MaxHealth = 120f;
 		BlocksMovement = true;
-		var mfg = GameCatalog.GetManufacturer(ManufacturerId);
-		AliveColor = mfg.AccentColor;
-		DeadColor = mfg.AccentColor.Darkened(0.55f);
+		var company = GetNodeOrNull<GameSession>("/root/GameSession")?.GetFrontierCompany(ManufacturerId);
+		var accent = company?.AccentColor ?? GameCatalog.GetManufacturer(ManufacturerId).AccentColor;
+		AliveColor = accent;
+		DeadColor = accent.Darkened(0.55f);
 		Name = $"DemoCradle_{ManufacturerId}";
 		base._Ready();
 

@@ -11,12 +11,21 @@ public partial class MainMenuUi : Control
 		MouseFilter = MouseFilterEnum.Ignore;
 		MusicService.Cue(MusicCue.Menu);
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session?.ReturnToSolarMap == true)
+		{
+			session.ActivateMainProfile();
+			session.ReturnToSolarMap = false;
+			GetTree().ChangeSceneToFile("res://scenes/solar_system_map.tscn");
+			return;
+		}
 		if (session?.ReturnToCampaignMap == true && session.Campaign is { Alive: true })
 		{
 			session.ReturnToCampaignMap = false;
 			GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
 			return;
 		}
+
+		session?.ActivateMainProfile();
 
 		if (session?.OpenSkirmishSetupOnMenu == true)
 		{
@@ -96,40 +105,48 @@ public partial class MainMenuUi : Control
 			Alignment = BoxContainer.AlignmentMode.Center
 		};
 		titleBlock.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide);
-		titleBlock.OffsetTop = 36;
-		titleBlock.OffsetBottom = 140;
-		titleBlock.AddThemeConstantOverride("separation", 6);
+		titleBlock.OffsetTop = 28;
+		titleBlock.OffsetBottom = 150;
+		titleBlock.AddThemeConstantOverride("separation", 2);
 		AddChild(titleBlock);
 
+		// Universe mark — restrained, board-game lineage.
+		var universe = new Label
+		{
+			Text = "VOID CORPS",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Accent.Darkened(0.08f),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		universe.AddThemeFontSizeOverride("font_size", 22);
+		universe.AddThemeConstantOverride("outline_size", 2);
+		universe.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.65f));
+		titleBlock.AddChild(universe);
+
+		// Product title — the hero word.
 		var brand = new Label
 		{
-			Text = VoidCorpsIdentity.ProductTitle,
+			Text = VoidCorpsIdentity.ShortTitle,
 			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = MechUiTheme.Accent,
+			Modulate = MechUiTheme.AccentHot,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
-		brand.AddThemeFontSizeOverride("font_size", 48);
+		brand.AddThemeFontSizeOverride("font_size", 56);
+		brand.AddThemeConstantOverride("outline_size", 4);
+		brand.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.75f));
+		brand.AddThemeColorOverride("font_shadow_color", new Color(0f, 0f, 0f, 0.55f));
+		brand.AddThemeConstantOverride("shadow_offset_x", 2);
+		brand.AddThemeConstantOverride("shadow_offset_y", 3);
 		titleBlock.AddChild(brand);
-
-		var tag = new Label
-		{
-			Text = VoidCorpsIdentity.Tagline,
-			HorizontalAlignment = HorizontalAlignment.Center,
-			AutowrapMode = TextServer.AutowrapMode.WordSmart,
-			Modulate = MechUiTheme.Muted,
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-		tag.AddThemeFontSizeOverride("font_size", 15);
-		titleBlock.AddChild(tag);
 
 		var version = new Label
 		{
 			Text = $"v{VoidCorpsIdentity.GameVersion}",
 			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = MechUiTheme.Muted.Darkened(0.15f),
+			Modulate = MechUiTheme.Muted.Darkened(0.2f),
 			MouseFilter = MouseFilterEnum.Ignore
 		};
-		version.AddThemeFontSizeOverride("font_size", 12);
+		version.AddThemeFontSizeOverride("font_size", 13);
 		titleBlock.AddChild(version);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
@@ -151,7 +168,7 @@ public partial class MainMenuUi : Control
 		var status = new Label
 		{
 			Text = $"Profile  ·  Scrap {session?.Profile.Scrap ?? 0}  ·  Parts {session?.Profile.OwnedCopyCount ?? 0}  ·  " +
-			       $"Lives bank {session?.Profile.LivesBank ?? 2}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}",
+				   $"Lives bank {session?.Profile.LivesBank ?? 2}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Muted
 		};
@@ -167,7 +184,8 @@ public partial class MainMenuUi : Control
 
 		row.AddChild(MakeBarButton("SKIRMISH", ShowSkirmishSetup, primary: true));
 		row.AddChild(MakeBarButton("CO-OP", ShowCoopLobby));
-		row.AddChild(MakeBarButton("CAMPAIGN", ShowCampaignEntry));
+		row.AddChild(MakeBarButton("CAMPAIGN", ShowSolarCampaignEntry));
+		row.AddChild(MakeBarButton("ROGUELIKE", ShowRoguelikeEntry));
 		row.AddChild(MakeBarButton("NEW PROFILE", () =>
 		{
 			session?.NewProfile();
@@ -206,13 +224,60 @@ public partial class MainMenuUi : Control
 		return panel;
 	}
 
-	private void ShowCampaignEntry()
+	private void ShowSolarCampaignEntry()
+	{
+		MakeSubmenuShell(out var root);
+		var title = new Label
+		{
+			Text = "SYSTEM CLAIM CAMPAIGN",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Text
+		};
+		title.AddThemeFontSizeOverride("font_size", 32);
+		root.AddChild(title);
+		root.AddChild(new Label
+		{
+			Text =
+				$"{VoidCorpsIdentity.CampaignPremise}\n\n" +
+				"Unlock permanent locations, revisit operations for known drops, license manufacturer technology with scrap, and fabricate gear from salvaged materials. Independent merchants sell mixed stock at marked bazaars.",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = MechUiTheme.Muted
+		});
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		root.AddChild(MakeButton("CONTINUE SYSTEM CAMPAIGN", () =>
+		{
+			session?.BeginSolarCampaign();
+			if (session?.InSolarOnboarding == true)
+			{
+				session.LaunchSolarOnboarding();
+				var destination = session.Campaign?.Phase == CampaignPhase.ManufacturerConvention
+					? "res://scenes/convention_hall.tscn"
+					: session.OpenAcademyGraduation
+						? "res://scenes/academy_graduation.tscn"
+						: "res://scenes/arena.tscn";
+				GetTree().ChangeSceneToFile(destination);
+			}
+			else
+				GetTree().ChangeSceneToFile("res://scenes/solar_system_map.tscn");
+		}, primary: true));
+		root.AddChild(MakeButton("NEW FRONTIER CAMPAIGN (KEEP PROFILE)", () =>
+		{
+			session?.BeginSolarCampaign(reset: true);
+			session?.LaunchSolarOnboarding();
+			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+		}));
+		root.AddChild(MakeButton("Back", BuildUi));
+	}
+
+	private void ShowRoguelikeEntry()
 	{
 		MakeSubmenuShell(out var root);
 
 		var title = new Label
 		{
-			Text = "CAMPAIGN",
+			Text = "ROGUELIKE",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Text
 		};
@@ -222,7 +287,7 @@ public partial class MainMenuUi : Control
 		var blurb = new Label
 		{
 			Text =
-				"Begin with MAP certification, or skip the tutorial and enter the Big Four convention directly.",
+				"The original linear run: certify, choose a path, and survive three claim sectors on limited lives.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = MechUiTheme.Muted
@@ -238,8 +303,8 @@ public partial class MainMenuUi : Control
 		{
 			Text =
 				$"Merc corps  ·  {profile?.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename}\n" +
-				$"Manufacturer affiliation  ·  {affiliation}\n" +
-				$"{VoidCorpsIdentity.CampaignPremise}",
+				$"Manufacturer license (run)  ·  {affiliation}\n" +
+				$"{VoidCorpsIdentity.PlayerCorpBlurb}",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = new Color(0.62f, 0.69f, 0.74f)
@@ -260,11 +325,13 @@ public partial class MainMenuUi : Control
 		acts.AddThemeFontSizeOverride("font_size", 14);
 		root.AddChild(acts);
 
-		if (session?.Campaign is { Alive: true })
+		var savedRoguelikeRun = CampaignRun.Load();
+		if (session != null && savedRoguelikeRun is { Alive: true })
 		{
 			root.AddChild(MakeButton("CONTINUE RUN", () =>
 			{
 				SfxService.Confirm();
+				session.Campaign = savedRoguelikeRun;
 				ContinueCampaignRun(session);
 			}, primary: true));
 		}
@@ -288,9 +355,13 @@ public partial class MainMenuUi : Control
 
 	private void ContinueCampaignRun(GameSession session)
 	{
-		var run = session.Campaign;
+		var run = session.Campaign is { SolarOnboarding: false }
+			? session.Campaign
+			: CampaignRun.Load();
 		if (run == null || !run.Alive)
 			return;
+		session.Campaign = run;
+		session.ActivateRoguelikeProfile();
 
 		if (run.Phase == CampaignPhase.CadetProgram)
 		{
@@ -368,9 +439,9 @@ public partial class MainMenuUi : Control
 			}
 
 			if (session != null
-			    && (session.CurrentClaim.SabotageOnly
-			        || session.CurrentClaim.Code == SabotageMission.ClaimCode)
-			    && skirmishClaims.Length > 0)
+				&& (session.CurrentClaim.SabotageOnly
+					|| session.CurrentClaim.Code == SabotageMission.ClaimCode)
+				&& skirmishClaims.Length > 0)
 			{
 				claimIndex = 0;
 				session.SetClaim(skirmishClaims[claimIndex]);
@@ -639,7 +710,7 @@ public partial class MainMenuUi : Control
 			net.HostLaunchMatch(session?.BuildLaunchPayload(false) ?? new Godot.Collections.Dictionary());
 		}, primary: true));
 
-		root.AddChild(MakeButton("START CO-OP CAMPAIGN (HOST)", () =>
+		root.AddChild(MakeButton("START CO-OP ROGUELIKE (HOST)", () =>
 		{
 			if (net is not { Mode: NetSession.NetMode.Hosting })
 			{
@@ -653,7 +724,7 @@ public partial class MainMenuUi : Control
 				session.CoopMatch = true;
 			SfxService.Confirm();
 			var payload = session?.BuildLaunchPayload(false, "campaign")
-			              ?? new Godot.Collections.Dictionary { ["scene"] = "campaign" };
+						  ?? new Godot.Collections.Dictionary { ["scene"] = "campaign" };
 			net.HostLaunchMatch(payload);
 		}));
 

@@ -149,7 +149,7 @@ public sealed class SabotageMission : MissionBase
 				{
 					_phase = Phase.Planting;
 					_plantProgress = 0f;
-					_objective.SetLabel("HOLD E — PLANT");
+					_objective.SetLabel("HOLD F — PLANT");
 					SfxService.Confirm();
 				}
 				break;
@@ -170,7 +170,7 @@ public sealed class SabotageMission : MissionBase
 		if (!inZone || !holding)
 		{
 			_plantProgress = Mathf.Max(0f, _plantProgress - dt * 0.85f);
-			_objective.SetLabel(inZone ? "HOLD E — PLANT" : "PLANT");
+			_objective.SetLabel(inZone ? "HOLD F — PLANT" : "PLANT");
 			return;
 		}
 
@@ -197,7 +197,7 @@ public sealed class SabotageMission : MissionBase
 	public override string GetHudLine()
 	{
 		if (ObjectivesComplete)
-			return "OBJECTIVE  Payload planted — hold E at EXFIL UPLINK" + ExtractHudHint();
+			return "OBJECTIVE  Payload planted — hold F at EXFIL UPLINK" + ExtractHudHint();
 
 		var bpm = _beatMap != null ? $"{_beatMap.Bpm:0}" : "--";
 		var grade = IntegrityGradeLabel();
@@ -206,7 +206,7 @@ public sealed class SabotageMission : MissionBase
 			Phase.Approach =>
 				$"OBJECTIVE  Push past Hellfire turrets to the uplink  ·  {bpm} BPM  ·  {grade}",
 			Phase.Planting =>
-				$"OBJECTIVE  Hold E to plant sabotage package  ·  {Mathf.RoundToInt(_plantProgress * 100f)}%  ·  {grade}",
+				$"OBJECTIVE  Hold F to plant sabotage package  ·  {Mathf.RoundToInt(_plantProgress * 100f)}%  ·  {grade}",
 			_ => $"OBJECTIVE  Sabotage run  ·  {grade}"
 		};
 	}

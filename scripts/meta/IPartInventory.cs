@@ -14,6 +14,9 @@ public interface IPartInventory
 	bool Owns(string partId);
 	void Own(string partId, int amount = 1);
 	bool TryRemoveOwned(string partId, int amount = 1);
+	bool TryRemoveInstance(string instanceId);
+	OwnedPartInstance? GetInstance(string instanceId);
+	OwnedPartInstance? GetEquippedInstance(PartSlot slot);
 	void GrantLoadoutOwnership(LoadoutData loadout);
 	void EnforceOwnedEquipLimits(LoadoutData loadout);
 	void WipeRunInventory();

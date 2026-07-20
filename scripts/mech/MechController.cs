@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Mechanize;
@@ -6,6 +7,8 @@ public partial class MechController : CharacterBody3D
 {
 	[Export] public bool IsPlayerControlled { get; set; } = true;
 	[Export] public TeamId Team { get; set; } = TeamId.Player;
+	/// <summary>Main-menu / cinematic props — no combat systems or X-ray silhouette.</summary>
+	public bool HangarDisplayOnly { get; set; }
 	[Export] public NodePath AssemblerPath { get; set; } = "MechAssembler";
 	[Export] public NodePath HealthPath { get; set; } = "Damageable";
 	[Export] public NodePath UpperBodyPath { get; set; } = "Sockets/UpperBody";
@@ -41,6 +44,35 @@ public partial class MechController : CharacterBody3D
 	private Node3D? _carrierMount;
 	private EscortAsset? _carrierAsset;
 	private bool _carrierOverdrive;
+	/// <summary>-1..1 scroll bias while a fire bind is held. 0 = default shot height.</summary>
+	private float _fireElevation;
+	private float _netFireElevation;
+	private float _fpHeadLookYaw;
+	private float _fpHeadLookPitch;
+	/// <summary>1 = full walk/sprint speed. Ctrl+scroll governor; Ctrl+middle-click resets.</summary>
+	private float _speedGovernor = 1f;
+	private MechController? _sensorLock;
+	private PartSlot? _sensorFocus;
+	private bool _sensorLockInVision;
+
+	/// <summary>Max barrel pitch from scroll + sensor assist (~30°).</summary>
+	public const float FireElevationMaxPitch = 0.52f;
+	/// <summary>Scroll-only pitch cap — subtle manual trim while firing (~12°).</summary>
+	public const float FireElevationScrollMaxPitch = 0.21f;
+	private const float FireElevationStep = 0.11f;
+	private const float FpHeadLookMaxYaw = 0.61f; // ~35°
+	private const float FpHeadLookMaxPitch = 0.38f; // ~22°
+	private const float FpAltLookSensitivity = 0.0035f;
+	private const float SpeedGovernorMin = 0.15f;
+	private const float SpeedGovernorStep = 0.07f;
+	private static readonly PartSlot[] SensorFocusOrder =
+	[
+		PartSlot.Torso,
+		PartSlot.Head,
+		PartSlot.Legs,
+		PartSlot.WeaponL,
+		PartSlot.WeaponR
+	];
 
 	private float _netTurn;
 	private float _netThrottle;
@@ -95,6 +127,12 @@ public partial class MechController : CharacterBody3D
 		set => _aimPoint = value;
 	}
 
+	public float ReplicatedFireElevation
+	{
+		get => _fireElevation;
+		set => _fireElevation = Mathf.Clamp(value, -1f, 1f);
+	}
+
 	private void EnsureNetworkSync()
 	{
 		if (GetNodeOrNull("NetSync") != null)
@@ -105,6 +143,7 @@ public partial class MechController : CharacterBody3D
 		cfg.AddProperty(new NodePath(":global_position"));
 		cfg.AddProperty(new NodePath(":rotation"));
 		cfg.AddProperty(new NodePath(":ReplicatedAimPoint"));
+		cfg.AddProperty(new NodePath(":ReplicatedFireElevation"));
 		cfg.AddProperty(new NodePath("Damageable:ReplicatedHealth"));
 		cfg.AddProperty(new NodePath("Damageable:MaxHealth"));
 		cfg.AddProperty(new NodePath("MechPowerHeat:ReplicatedHeat"));
@@ -124,7 +163,10 @@ public partial class MechController : CharacterBody3D
 		if (IsLocalPilot && _controlsEnabled)
 		{
 			UpdateAimFromMouse();
+			TickFirstPersonHeadLook();
 			UpdateAimedComponent();
+			TickSensorLock();
+			ApplySensorAimAssist();
 			UpdateMissileDecal();
 		}
 
@@ -140,7 +182,8 @@ public partial class MechController : CharacterBody3D
 		bool firePrimary,
 		bool fireSecondary,
 		bool sprint,
-		int abilityIndex)
+		int abilityIndex,
+		float fireElevation = 0f)
 	{
 		_netTurn = turn;
 		_netThrottle = throttle;
@@ -150,6 +193,7 @@ public partial class MechController : CharacterBody3D
 		_netFireSecondary = fireSecondary;
 		_netSprint = sprint;
 		_netAbilityIndex = abilityIndex;
+		_netFireElevation = Mathf.Clamp(fireElevation, -1f, 1f);
 		_hasNetInput = true;
 		_netInputAge = 0f;
 	}
@@ -163,19 +207,27 @@ public partial class MechController : CharacterBody3D
 		bool firePrimary,
 		bool fireSecondary,
 		bool sprint,
-		int abilityIndex)
+		int abilityIndex,
+		float fireElevation)
 	{
 		if (!Multiplayer.IsServer())
 			return;
 		var sender = Multiplayer.GetRemoteSenderId();
 		if (sender != OwningPeerId)
 			return;
-		ApplyNetworkInput(turn, throttle, move, aim, firePrimary, fireSecondary, sprint, abilityIndex);
+		ApplyNetworkInput(turn, throttle, move, aim, firePrimary, fireSecondary, sprint, abilityIndex, fireElevation);
 	}
 
-	public void RespawnAt(Vector3 position, LoadoutData loadout)
+	public void RespawnAt(Vector3 position, LoadoutData loadout, bool fullRepair = true)
 	{
-		RebuildFromLoadout(loadout);
+		IReadOnlyDictionary<PartSlot, PartCondition>? conditions = null;
+		if (!fullRepair && IsPlayerControlled)
+		{
+			var session = GetNodeOrNull<GameSession>("/root/GameSession");
+			conditions = BuildPlayerConditionMap(session?.Profile);
+		}
+
+		RebuildFromLoadout(loadout, conditions, fullRepair);
 		GlobalPosition = position;
 		Velocity = Vector3.Zero;
 		_respawnInvuln = 2.5f;
@@ -193,6 +245,26 @@ public partial class MechController : CharacterBody3D
 	public Vector3 AimPoint => _aimPoint;
 	public PartSlot? AimedComponentSlot => _aimedComponentSlot;
 	public string AimedComponentLabel => _aimedComponentLabel;
+	/// <summary>-1 (legs) .. +1 (high / Titan upper). Scroll bias while firing; sensor focus adds assist pitch.</summary>
+	public float FireElevationNormalized =>
+		Mathf.Clamp(FireElevationPitchRadians / FireElevationMaxPitch, -1.25f, 1.25f);
+	public float FireElevationPitchRadians
+	{
+		get
+		{
+			var scroll = _fireElevation * FireElevationScrollMaxPitch;
+			if (!TryGetSensorAssistPitch(out var assist))
+				return scroll;
+			return Mathf.Clamp(assist + scroll, -FireElevationMaxPitch, FireElevationMaxPitch);
+		}
+	}
+	/// <summary>1 = full speed. Below 1 while the Ctrl+scroll governor is engaged.</summary>
+	public float SpeedGovernor => _speedGovernor;
+	public bool IsSpeedGovernorActive => _speedGovernor < 0.995f;
+	public MechController? SensorLockTarget =>
+		_sensorLock != null && GodotObject.IsInstanceValid(_sensorLock) ? _sensorLock : null;
+	public PartSlot? SensorFocusSlot => _sensorFocus;
+	public bool SensorLockInVision => _sensorLockInVision;
 	public bool ControlsEnabled => _controlsEnabled;
 	public bool IsSprinting => _sprinting;
 	/// <summary>True while riding an escort carrier (no steering; aim + weapons stay live).</summary>
@@ -224,6 +296,7 @@ public partial class MechController : CharacterBody3D
 
 	public override void _Ready()
 	{
+		AddToGroup("mechs");
 		_assembler = GetNodeOrNull<MechAssembler>(AssemblerPath);
 		_health = GetNodeOrNull<Damageable>(HealthPath);
 		_upperBody = GetNodeOrNull<Node3D>(UpperBodyPath);
@@ -250,22 +323,28 @@ public partial class MechController : CharacterBody3D
 		}
 
 		_pilot = GetNodeOrNull<MechPilotAI>("MechPilotAI");
-		if (!IsPlayerControlled && _pilot == null)
+		if (!HangarDisplayOnly && !IsPlayerControlled && _pilot == null)
 		{
 			_pilot = new MechPilotAI { Name = "MechPilotAI" };
 			AddChild(_pilot);
 		}
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		if (IsPlayerControlled)
-			Team = TeamId.Player;
-		else if (Team == TeamId.Player)
-			Team = TeamId.Enemy;
+		if (!HangarDisplayOnly)
+		{
+			if (IsPlayerControlled)
+				Team = TeamId.Player;
+			else if (Team == TeamId.Player)
+				Team = TeamId.Enemy;
+		}
 
 		var loadout = IsPlayerControlled
 			? (session?.CurrentLoadout ?? GameCatalog.CreateStarterLoadout())
 			: GameCatalog.CreateEnemyLoadout();
-		RebuildFromLoadout(loadout);
+		if (HangarDisplayOnly || !IsPlayerControlled)
+			RebuildFromLoadout(loadout);
+		else
+			RebuildFromLoadout(loadout, BuildPlayerConditionMap(session?.Profile));
 
 		if (_health != null)
 			_health.Died += OnDied;
@@ -277,24 +356,68 @@ public partial class MechController : CharacterBody3D
 			AddChild(_missileDecal);
 		}
 
-		OcclusionSilhouette.EnsureOn(this);
+		if (!HangarDisplayOnly)
+			OcclusionSilhouette.EnsureOn(this);
+		if (!HangarDisplayOnly)
+			MechLegAnimator.EnsureOn(this);
 	}
 
-	public void RebuildFromLoadout(LoadoutData loadout)
+	public void RebuildFromLoadout(
+		LoadoutData loadout,
+		IReadOnlyDictionary<PartSlot, PartCondition>? conditions = null,
+		bool forceFullRepair = false)
 	{
 		_assembler ??= GetNodeOrNull<MechAssembler>(AssemblerPath);
 		_health ??= GetNodeOrNull<Damageable>(HealthPath);
 		_upperBody ??= GetNodeOrNull<Node3D>(UpperBodyPath);
 		_powerHeat ??= GetNodeOrNull<MechPowerHeat>("MechPowerHeat");
-		_assembler?.Assemble(loadout);
 
-		_integrity?.Bind(this, _assembler!, _health);
+		Dictionary<PartSlot, PartCondition>? effective = null;
+		if (!forceFullRepair && conditions != null && conditions.Count > 0)
+			effective = new Dictionary<PartSlot, PartCondition>(conditions);
+
+		_assembler?.Assemble(loadout, effective);
+		_integrity?.Bind(this, _assembler!, _health, effective);
 		_abilities?.Bind(this, _assembler!, _health);
 		_powerHeat?.Bind(_assembler!);
 		ApplyChassisClass(ChassisClass);
 		StopSprint();
 		ClearHeldShieldBattleState();
 		SetControlsEnabled(true);
+		GetNodeOrNull<MechLegAnimator>(MechLegAnimator.NodeName)?.CallDeferred("BindRig");
+	}
+
+	/// <summary>Swap a single slot in the field without resetting the rest of the chassis.</summary>
+	public bool InstallFieldPart(PartSlot slot, PartData part, PartCondition? incomingCondition = null)
+	{
+		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(slot, out var hardpoint))
+			return false;
+
+		hardpoint.Equip(part, incomingCondition ?? PartCondition.Full(PartCondition.SegmentCountFor(part)));
+		_assembler.RefreshStatsAfterDamage();
+		_powerHeat?.Bind(_assembler);
+		_abilities?.Bind(this, _assembler, _health);
+		GetNodeOrNull<MechLegAnimator>(MechLegAnimator.NodeName)?.CallDeferred("BindRig");
+		return true;
+	}
+
+	public Dictionary<PartSlot, PartCondition> CapturePartConditions() =>
+		_integrity?.CaptureConditions() ?? new Dictionary<PartSlot, PartCondition>();
+
+	private static Dictionary<PartSlot, PartCondition>? BuildPlayerConditionMap(PlayerProfile? profile)
+	{
+		if (profile == null)
+			return null;
+		var map = new Dictionary<PartSlot, PartCondition>();
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var instance = profile.GetEquippedInstance(slot);
+			if (instance == null)
+				continue;
+			map[slot] = instance.Condition.Clone();
+		}
+
+		return map.Count > 0 ? map : null;
 	}
 
 	/// <summary>
@@ -328,6 +451,8 @@ public partial class MechController : CharacterBody3D
 			StopCarrierOverdrive();
 			StopSprint();
 			LowerHeldShields();
+			_fireElevation = 0f;
+			ClearSensorLock();
 		}
 	}
 
@@ -393,7 +518,7 @@ public partial class MechController : CharacterBody3D
 			return;
 		}
 
-		float turn = 0f, throttle = 0f;
+		float turn = 0f, throttle = 0f, strafe = 0f;
 		var move = Vector2.Zero;
 		var firePrimary = false;
 		var fireSecondary = false;
@@ -405,8 +530,11 @@ public partial class MechController : CharacterBody3D
 			if (OwningPeerId == Multiplayer.GetUniqueId())
 			{
 				UpdateAimFromMouse();
+				TickFirstPersonHeadLook();
 				UpdateAimedComponent();
-				ReadPlayerMove(out turn, out throttle, out move);
+				TickSensorLock();
+				ApplySensorAimAssist();
+				ReadPlayerMove(out turn, out throttle, out move, out strafe);
 				firePrimary = Input.IsActionPressed("fire_primary");
 				fireSecondary = Input.IsActionPressed("fire_secondary");
 				wantSprint = Input.IsActionPressed("sprint");
@@ -435,8 +563,11 @@ public partial class MechController : CharacterBody3D
 		else if (IsPlayerControlled)
 		{
 			UpdateAimFromMouse();
+			TickFirstPersonHeadLook();
 			UpdateAimedComponent();
-			ReadPlayerMove(out turn, out throttle, out move);
+			TickSensorLock();
+			ApplySensorAimAssist();
+			ReadPlayerMove(out turn, out throttle, out move, out strafe);
 			firePrimary = Input.IsActionPressed("fire_primary");
 			fireSecondary = Input.IsActionPressed("fire_secondary");
 			wantSprint = Input.IsActionPressed("sprint");
@@ -457,6 +588,7 @@ public partial class MechController : CharacterBody3D
 			fireSecondary = cmd.FireSecondary;
 			abilityIndex = cmd.AbilityIndex;
 			wantSprint = cmd.Sprint;
+			_fireElevation = 0f;
 		}
 		else
 		{
@@ -466,10 +598,12 @@ public partial class MechController : CharacterBody3D
 		}
 
 		UpdateSprint(wantSprint, move, throttle);
+		var remotePilot = online && OwningPeerId != 0 && OwningPeerId != Multiplayer.GetUniqueId();
+		UpdateFireElevationState(firePrimary || fireSecondary, fromRemotePeer: remotePilot);
 
 		var horizontal = _assembler?.LegMode == LegMode.Gimbaled
 			? ProcessGimbaledLegMovement(dt, move)
-			: ProcessLockedLegMovement(dt, turn, throttle);
+			: ProcessLockedLegMovement(dt, turn, throttle, remotePilot ? move.X : strafe);
 
 		var moving = horizontal.LengthSquared() > 0.05f;
 		if (moving)
@@ -486,6 +620,7 @@ public partial class MechController : CharacterBody3D
 		MoveAndSlide();
 
 		UpdateUpperBodyAim(dt);
+		AdvanceMeleeSwings(dt);
 		AimHardpoints();
 		UpdateMeleeContacts();
 		UpdateHeldShields(firePrimary, fireSecondary);
@@ -521,15 +656,20 @@ public partial class MechController : CharacterBody3D
 		if (IsPlayerControlled)
 		{
 			UpdateAimFromMouse();
+			TickFirstPersonHeadLook();
 			UpdateAimedComponent();
+			TickSensorLock();
+			ApplySensorAimAssist();
 			firePrimary = Input.IsActionPressed("fire_primary");
 			fireSecondary = Input.IsActionPressed("fire_secondary");
 			wantOverdrive = Input.IsActionPressed("sprint");
 			abilityIndex = ReadPlayerAbilityInput();
+			UpdateFireElevationState(firePrimary || fireSecondary);
 		}
 		else
 		{
 			UpdateAimedComponent();
+			_fireElevation = 0f;
 		}
 
 		if (_carrierMount != null && GodotObject.IsInstanceValid(_carrierMount))
@@ -542,7 +682,9 @@ public partial class MechController : CharacterBody3D
 
 		UpdateCarrierOverdrive(wantOverdrive, dt);
 		UpdateUpperBodyAim(dt);
+		AdvanceMeleeSwings(dt);
 		AimHardpoints();
+		UpdateMeleeContacts();
 		UpdateHeldShields(firePrimary, fireSecondary);
 
 		if (firePrimary)
@@ -590,13 +732,17 @@ public partial class MechController : CharacterBody3D
 	}
 
 	/// <summary>
-	/// Paint-lock: missiles + mend beacon (hold aim, release to deploy).
+	/// Paint-lock: paint missiles + mend beacon (hold aim, release to deploy).
+	/// Sensor missiles: tap with a maintained TAB lock (vision/contact per kit).
+	/// Ctrl+key self-cast: beneficial utilities only (mend beacon drops at feet).
 	/// Pulse Repair: hold to channel heal.
 	/// </summary>
 	private int ReadPlayerAbilityInput()
 	{
 		if (_abilities == null)
 			return -1;
+
+		var selfCast = Input.IsKeyPressed(Key.Ctrl);
 
 		// Active pulse repair channel — release ends it.
 		if (_abilities.IsPulseRepairing)
@@ -644,6 +790,13 @@ public partial class MechController : CharacterBody3D
 			{
 				if (Input.IsActionJustPressed(action) && _abilities.CanActivate(i))
 				{
+					// Beneficial paint utilities: Ctrl skips aim and casts on self.
+					if (selfCast && _abilities.IsBeneficialSelfCastAbility(i))
+					{
+						_abilities.TryActivate(i, GlobalPosition);
+						return -1;
+					}
+
 					_missileLockSlot = i;
 					_missilePaintPoint = _aimPoint;
 					_missilePaintValid = CanCombatId(_missilePaintPoint);
@@ -879,9 +1032,14 @@ public partial class MechController : CharacterBody3D
 	private void SubmitLocalInputToHost()
 	{
 		UpdateAimFromMouse();
-		ReadPlayerMove(out var turn, out var throttle, out var move);
+		TickFirstPersonHeadLook();
+		ReadPlayerMove(out var turn, out var throttle, out var move, out var strafe);
+		// Pack FP Q/E strafe into move.X for locked-leg hosts (A/D already mirror turn).
+		if (Mathf.Abs(strafe) > 0.01f && _assembler?.LegMode != LegMode.Gimbaled)
+			move.X = strafe;
 		var firePrimary = Input.IsActionPressed("fire_primary");
 		var fireSecondary = Input.IsActionPressed("fire_secondary");
+		UpdateFireElevationState(firePrimary || fireSecondary);
 		var wantSprint = Input.IsActionPressed("sprint");
 		var abilityIndex = ReadPlayerAbilityInput();
 		RpcId(
@@ -894,13 +1052,15 @@ public partial class MechController : CharacterBody3D
 			firePrimary,
 			fireSecondary,
 			wantSprint,
-			abilityIndex);
+			abilityIndex,
+			_fireElevation);
 	}
 
-	private void ReadPlayerMove(out float turn, out float throttle, out Vector2 move)
+	private void ReadPlayerMove(out float turn, out float throttle, out Vector2 move, out float strafe)
 	{
 		turn = 0f;
 		throttle = 0f;
+		strafe = 0f;
 		move = Vector2.Zero;
 
 		if (Input.IsActionPressed("turn_left"))
@@ -923,9 +1083,28 @@ public partial class MechController : CharacterBody3D
 			throttle -= GetReverseMultiplier();
 			move.Y -= 1f;
 		}
+
+		// First-person only: Q/E strafe relative to chassis facing.
+		if (IsLocalFirstPerson())
+		{
+			if (Input.IsPhysicalKeyPressed(Key.Q))
+			{
+				strafe -= 1f;
+				move.X -= 1f;
+			}
+			if (Input.IsPhysicalKeyPressed(Key.E))
+			{
+				strafe += 1f;
+				move.X += 1f;
+			}
+		}
 	}
 
-	private Vector3 ProcessLockedLegMovement(float dt, float turnInput, float throttleInput)
+	private bool IsLocalFirstPerson() =>
+		IsPlayerControlled
+		&& GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
+
+	private Vector3 ProcessLockedLegMovement(float dt, float turnInput, float throttleInput, float strafeInput = 0f)
 	{
 		var turnRate = (_assembler?.TurnRateDegrees ?? 80f) * GetTurnMultiplier() * GetWeightTurnMultiplier();
 		var mobility = _integrity?.LegMobilityFactor ?? 1f;
@@ -939,7 +1118,8 @@ public partial class MechController : CharacterBody3D
 		var forward = -GlobalTransform.Basis.Z;
 		forward.Y = 0f;
 		forward = forward.Normalized();
-		return forward * throttleInput * speed;
+		var right = forward.Cross(Vector3.Up).Normalized();
+		return forward * throttleInput * speed + right * Mathf.Clamp(strafeInput, -1f, 1f) * speed;
 	}
 
 	private Vector3 ProcessGimbaledLegMovement(float dt, Vector2 moveInput)
@@ -954,8 +1134,19 @@ public partial class MechController : CharacterBody3D
 		Vector3 moveDirection;
 		if (IsPlayerControlled)
 		{
-			var camera = GetViewport().GetCamera3D();
-			var basis = camera?.GlobalTransform.Basis ?? Basis.Identity;
+			// First person: steer relative to chassis (head look must not change move direction).
+			// Third person: keep camera-relative strafe/forward.
+			Basis basis;
+			if (IsLocalFirstPerson())
+			{
+				basis = GlobalTransform.Basis;
+			}
+			else
+			{
+				var camera = GetViewport().GetCamera3D();
+				basis = camera?.GlobalTransform.Basis ?? Basis.Identity;
+			}
+
 			var worldForward = -basis.Z;
 			worldForward.Y = 0f;
 			worldForward = worldForward.Normalized();
@@ -996,9 +1187,9 @@ public partial class MechController : CharacterBody3D
 	{
 		var walk = (_assembler?.MaxSpeed ?? 10f) * GetSpeedMultiplier() * GetWeightMoveMultiplier();
 		if (!_sprinting)
-			return walk;
+			return walk * _speedGovernor;
 		var mult = _assembler?.Stats.SprintMultiplier ?? 1.45f;
-		return walk * mult;
+		return walk * mult * _speedGovernor;
 	}
 
 	private float GetWeightMoveMultiplier() =>
@@ -1047,17 +1238,401 @@ public partial class MechController : CharacterBody3D
 		if (camera == null)
 			return;
 
-		var mouse = GetViewport().GetMousePosition();
+		var mouse = camera.GetViewport().GetMousePosition();
 		var from = camera.ProjectRayOrigin(mouse);
 		var dir = camera.ProjectRayNormal(mouse);
 
-		// Aim on a plane ~1m above the MAP's *grounded* feet. While riding a tall carrier,
-		// subtract the deck lift so the cursor still paints at normal combat height.
+		if (IsLocalFirstPerson())
+		{
+			// Full mouse aim: weapons track the 3D cursor ray (pitch included).
+			var space = GetWorld3D().DirectSpaceState;
+			var query = PhysicsRayQueryParameters3D.Create(from, from + dir * 480f);
+			query.CollideWithAreas = false;
+			query.Exclude = [GetRid()];
+			var hit = space.IntersectRay(query);
+			_aimPoint = hit.Count > 0 ? (Vector3)hit["position"] : from + dir * 120f;
+			return;
+		}
+
 		var planeY = GlobalPosition.Y - CarrierCombatLift + 1.0f;
 		var plane = new Plane(Vector3.Up, planeY);
-		var hit = plane.IntersectsRay(from, dir);
-		_aimPoint = hit ?? (GlobalPosition - GlobalTransform.Basis.Z * 20f);
+		var planeHit = plane.IntersectsRay(from, dir);
+		_aimPoint = planeHit ?? (GlobalPosition - GlobalTransform.Basis.Z * 20f);
 	}
+
+	/// <summary>
+	/// First-person only: arrow keys or Alt+mouse offset the head cam (~35°). Release snaps center.
+	/// </summary>
+	private void TickFirstPersonHeadLook()
+	{
+		if (!IsLocalFirstPerson())
+		{
+			ClearFirstPersonHeadLook();
+			return;
+		}
+
+		var yawIn = 0f;
+		var pitchIn = 0f;
+		if (Input.IsPhysicalKeyPressed(Key.Left))
+			yawIn += 1f;
+		if (Input.IsPhysicalKeyPressed(Key.Right))
+			yawIn -= 1f;
+		if (Input.IsPhysicalKeyPressed(Key.Up))
+			pitchIn += 1f;
+		if (Input.IsPhysicalKeyPressed(Key.Down))
+			pitchIn -= 1f;
+
+		if (yawIn != 0f || pitchIn != 0f)
+		{
+			_fpHeadLookYaw = yawIn * FpHeadLookMaxYaw;
+			_fpHeadLookPitch = pitchIn * FpHeadLookMaxPitch;
+		}
+		else if (!Input.IsKeyPressed(Key.Alt))
+		{
+			_fpHeadLookYaw = 0f;
+			_fpHeadLookPitch = 0f;
+		}
+
+		if (GetViewport().GetCamera3D() is TopDownCamera cam)
+			cam.SetHeadLookOffset(_fpHeadLookYaw, _fpHeadLookPitch);
+	}
+
+	private void ClearFirstPersonHeadLook()
+	{
+		if (Mathf.Abs(_fpHeadLookYaw) < 0.0001f && Mathf.Abs(_fpHeadLookPitch) < 0.0001f)
+			return;
+		_fpHeadLookYaw = 0f;
+		_fpHeadLookPitch = 0f;
+		if (GetViewport()?.GetCamera3D() is TopDownCamera cam)
+			cam.SetHeadLookOffset(0f, 0f);
+	}
+
+	public override void _Input(InputEvent @event)
+	{
+		if (!IsLocalPilot || !_controlsEnabled || !IsLocalFirstPerson())
+			return;
+		if (@event is not InputEventMouseMotion motion)
+			return;
+		if (!Input.IsKeyPressed(Key.Alt))
+			return;
+
+		_fpHeadLookYaw = Mathf.Clamp(
+			_fpHeadLookYaw - motion.Relative.X * FpAltLookSensitivity,
+			-FpHeadLookMaxYaw,
+			FpHeadLookMaxYaw);
+		_fpHeadLookPitch = Mathf.Clamp(
+			_fpHeadLookPitch - motion.Relative.Y * FpAltLookSensitivity,
+			-FpHeadLookMaxPitch,
+			FpHeadLookMaxPitch);
+
+		if (GetViewport().GetCamera3D() is TopDownCamera cam)
+			cam.SetHeadLookOffset(_fpHeadLookYaw, _fpHeadLookPitch);
+	}
+
+	/// <summary>
+	/// Ctrl+scroll / Ctrl+middle-click: speed governor (both camera modes).
+	/// Third person without Ctrl: scroll while firing adjusts barrel elevation.
+	/// </summary>
+	public override void _UnhandledInput(InputEvent @event)
+	{
+		if (!IsLocalPilot || !_controlsEnabled)
+			return;
+		if (@event is not InputEventMouseButton { Pressed: true } mouse)
+			return;
+
+		var ctrl = Input.IsKeyPressed(Key.Ctrl);
+		if (ctrl)
+		{
+			if (mouse.ButtonIndex == MouseButton.Middle)
+			{
+				_speedGovernor = 1f;
+				GetViewport().SetInputAsHandled();
+				return;
+			}
+
+			if (mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+			{
+				var delta = mouse.ButtonIndex == MouseButton.WheelUp
+					? SpeedGovernorStep
+					: -SpeedGovernorStep;
+				_speedGovernor = Mathf.Clamp(_speedGovernor + delta, SpeedGovernorMin, 1f);
+				GetViewport().SetInputAsHandled();
+			}
+
+			return;
+		}
+
+		// First person: mouse supplies weapon pitch; bare scroll does nothing.
+		if (IsLocalFirstPerson())
+			return;
+
+		if (mouse.ButtonIndex is not (MouseButton.WheelUp or MouseButton.WheelDown))
+			return;
+
+		var firing = Input.IsActionPressed("fire_primary") || Input.IsActionPressed("fire_secondary");
+		if (!firing || !HasElevatingWeaponEquipped())
+			return;
+
+		_fireElevation = Mathf.Clamp(
+			_fireElevation + (mouse.ButtonIndex == MouseButton.WheelUp ? FireElevationStep : -FireElevationStep),
+			-1f,
+			1f);
+		GetViewport().SetInputAsHandled();
+	}
+
+	private static void GetCameraAimRay(Camera3D camera, out Vector3 from, out Vector3 dir)
+	{
+		var mouse = camera.GetViewport().GetMousePosition();
+		from = camera.ProjectRayOrigin(mouse);
+		dir = camera.ProjectRayNormal(mouse);
+	}
+
+	private void UpdateFireElevationState(bool firing, bool fromRemotePeer = false)
+	{
+		if (!firing)
+		{
+			_fireElevation = 0f;
+			return;
+		}
+
+		if (fromRemotePeer)
+			_fireElevation = _netFireElevation;
+	}
+
+	private bool HasElevatingWeaponEquipped()
+	{
+		if (_assembler == null)
+			return false;
+		foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+		{
+			if (_assembler.Hardpoints.TryGetValue(slot, out var hp)
+			    && hp is { CanFire: true, EquippedPart.AllowsFireElevation: true })
+				return true;
+		}
+
+		return false;
+	}
+
+	public void ClearSensorLock()
+	{
+		_sensorLock = null;
+		_sensorFocus = null;
+		_sensorLockInVision = false;
+	}
+
+	public void SetSensorFocus(PartSlot slot)
+	{
+		if (SensorLockTarget == null)
+			return;
+		_sensorFocus = slot;
+	}
+
+	private void TickSensorLock()
+	{
+		if (Input.IsActionJustPressed("target_next"))
+			CycleSensorTarget();
+		else if (Input.IsActionJustPressed("target_clear") && _sensorLock != null)
+		{
+			ClearSensorLock();
+			SfxService.Click();
+		}
+		else if (Input.IsActionJustPressed("target_focus_cycle"))
+			CycleSensorFocus();
+
+		ValidateSensorLock();
+	}
+
+	private void ValidateSensorLock()
+	{
+		var target = SensorLockTarget;
+		if (target == null)
+		{
+			_sensorLockInVision = false;
+			return;
+		}
+
+		if (target.Health?.IsDead == true
+		    || target.Integrity?.IsCollapsed == true
+		    || !IsHostileContact(target)
+		    || !IsInSensorAcquireRange(target))
+		{
+			ClearSensorLock();
+			return;
+		}
+
+		_sensorLockInVision = CanCombatId(target.GlobalPosition);
+		_sensorFocus ??= PartSlot.Torso;
+	}
+
+	private void CycleSensorTarget()
+	{
+		var contacts = GatherSensorContacts();
+		if (contacts.Count == 0)
+		{
+			ClearSensorLock();
+			SfxService.Play("alarm", 1.15f, -8f);
+			return;
+		}
+
+		var current = SensorLockTarget;
+		var index = current == null ? -1 : contacts.IndexOf(current);
+		var next = contacts[(index + 1) % contacts.Count];
+		_sensorLock = next;
+		_sensorFocus ??= PartSlot.Torso;
+		_sensorLockInVision = CanCombatId(next.GlobalPosition);
+		SfxService.Confirm();
+	}
+
+	private void CycleSensorFocus()
+	{
+		if (SensorLockTarget == null)
+		{
+			CycleSensorTarget();
+			return;
+		}
+
+		var current = _sensorFocus ?? PartSlot.Torso;
+		var idx = System.Array.IndexOf(SensorFocusOrder, current);
+		if (idx < 0)
+			idx = 0;
+		_sensorFocus = SensorFocusOrder[(idx + 1) % SensorFocusOrder.Length];
+		SfxService.Click();
+	}
+
+	private List<MechController> GatherSensorContacts()
+	{
+		var result = new List<MechController>();
+		var tree = GetTree();
+		if (tree == null)
+			return result;
+
+		foreach (var node in tree.GetNodesInGroup("mechs"))
+		{
+			if (node is not MechController other || other == this)
+				continue;
+			if (!IsHostileContact(other) || !IsInSensorAcquireRange(other))
+				continue;
+			if (other.Health?.IsDead == true || other.Integrity?.IsCollapsed == true)
+				continue;
+			result.Add(other);
+		}
+
+		if (result.Count == 0)
+			CollectHostileMechs(tree.CurrentScene ?? tree.Root, result);
+
+		result.Sort((a, b) =>
+			GlobalPosition.DistanceSquaredTo(a.GlobalPosition)
+				.CompareTo(GlobalPosition.DistanceSquaredTo(b.GlobalPosition)));
+		return result;
+	}
+
+	private void CollectHostileMechs(Node node, List<MechController> into)
+	{
+		if (node is MechController other
+		    && other != this
+		    && IsHostileContact(other)
+		    && IsInSensorAcquireRange(other)
+		    && other.Health?.IsDead != true
+		    && other.Integrity?.IsCollapsed != true
+		    && !into.Contains(other))
+			into.Add(other);
+
+		foreach (var child in node.GetChildren())
+			CollectHostileMechs(child, into);
+	}
+
+	private bool IsHostileContact(MechController other) =>
+		TeamUtil.IsHostile(Team, other.Team);
+
+	private bool IsInSensorAcquireRange(MechController other)
+	{
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var range = Mathf.Max(stats.VisionRange, stats.ScannerRange);
+		range = Mathf.Max(range, 18f);
+		return GlobalPosition.DistanceTo(other.GlobalPosition) <= range;
+	}
+
+	private void ApplySensorAimAssist()
+	{
+		var target = SensorLockTarget;
+		if (target == null || !_sensorLockInVision || _sensorFocus == null)
+			return;
+
+		var focusHp = ResolveFocusHardpoint(target, _sensorFocus.Value);
+		if (focusHp == null)
+			return;
+
+		var desired = focusHp.GlobalPosition;
+		// Soft pull — keeps high-speed tracking playable without Foxhole free-aim precision.
+		_aimPoint = _aimPoint.Lerp(desired, 0.55f);
+		_aimedComponentSlot = focusHp.CanTakeDamage ? focusHp.Slot : _sensorFocus;
+		_aimedComponentLabel =
+			$"SENSOR  {ShortFocus(_sensorFocus.Value)}  ·  {focusHp.EquippedPart?.DisplayName ?? "structure"} " +
+			$"({Mathf.CeilToInt(focusHp.CurrentHp)}/{Mathf.CeilToInt(Mathf.Max(1f, focusHp.MaxHp))})";
+	}
+
+	private bool TryGetSensorAssistPitch(out float pitchRadians)
+	{
+		pitchRadians = 0f;
+		var target = SensorLockTarget;
+		if (target == null || _sensorFocus == null)
+			return false;
+
+		var focusHp = ResolveFocusHardpoint(target, _sensorFocus.Value);
+		if (focusHp == null)
+			return false;
+
+		var muzzle = ResolvePrimaryMuzzle();
+		var to = focusHp.GlobalPosition - muzzle;
+		var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
+		if (horiz < 0.05f)
+			return false;
+
+		pitchRadians = Mathf.Atan2(to.Y, horiz);
+		return true;
+	}
+
+	private Vector3 ResolvePrimaryMuzzle()
+	{
+		if (_assembler != null)
+		{
+			foreach (var slot in new[] { PartSlot.WeaponR, PartSlot.WeaponL })
+			{
+				if (_assembler.Hardpoints.TryGetValue(slot, out var hp)
+				    && hp is { CanFire: true, EquippedPart: not null })
+				{
+					var barrel = -hp.GlobalTransform.Basis.Z;
+					if (barrel.LengthSquared() > 0.001f)
+						return hp.GlobalPosition + barrel.Normalized() * 1.2f;
+				}
+			}
+		}
+
+		return GlobalPosition + Vector3.Up * (1.2f - CarrierCombatLift);
+	}
+
+	private static Hardpoint? ResolveFocusHardpoint(MechController target, PartSlot focus)
+	{
+		if (target.Assembler == null)
+			return null;
+		if (target.Assembler.Hardpoints.TryGetValue(focus, out var hp)
+		    && hp.EquippedPart != null
+		    && hp.EquippedPart.VisualKind != "empty")
+			return hp;
+
+		return target.Assembler.Hardpoints.GetValueOrDefault(PartSlot.Torso)
+		       ?? target.Integrity?.FindNearestComponent(target.GlobalPosition);
+	}
+
+	private static string ShortFocus(PartSlot slot) => slot switch
+	{
+		PartSlot.Head => "HEAD",
+		PartSlot.Torso => "TORSO",
+		PartSlot.Legs => "LEGS",
+		PartSlot.WeaponL => "L ARM",
+		PartSlot.WeaponR => "R ARM",
+		_ => slot.ToString().ToUpperInvariant()
+	};
 
 	private void UpdateAimedComponent()
 	{
@@ -1083,9 +1658,8 @@ public partial class MechController : CharacterBody3D
 			return;
 		}
 
-		var mouse = GetViewport().GetMousePosition();
-		var from = camera.ProjectRayOrigin(mouse);
-		var to = from + camera.ProjectRayNormal(mouse) * 80f;
+		GetCameraAimRay(camera, out var from, out var dir);
+		var to = from + dir * 80f;
 		var space = GetWorld3D().DirectSpaceState;
 		var query = PhysicsRayQueryParameters3D.Create(from, to);
 		query.CollisionMask = 2 | 8;
@@ -1129,7 +1703,7 @@ public partial class MechController : CharacterBody3D
 
 		_aimedComponentSlot = component.Slot;
 		var limbText = component.IsLegPackage
-			? $" limbs {component.LimbsAlive}/{component.LimbCount}"
+			? $" move {component.MobilityFactor * 100f:0}%"
 			: "";
 		_aimedComponentLabel =
 			$"{component.Slot} {component.EquippedPart?.DisplayName}{limbText} " +
@@ -1196,8 +1770,23 @@ public partial class MechController : CharacterBody3D
 		var chassisForward = _upperBody != null
 			? -_upperBody.GlobalTransform.Basis.Z
 			: -GlobalTransform.Basis.Z;
+		// First person: mouse ray supplies pitch; skip scroll elevation bias.
+		var elevationPitch = IsLocalFirstPerson() ? 0f : FireElevationPitchRadians;
 		foreach (var hp in _assembler.Hardpoints.Values)
-			hp.AimAt(_aimPoint, chassisForward);
+			hp.AimAt(_aimPoint, chassisForward, elevationPitch);
+	}
+
+	private void AdvanceMeleeSwings(float dt)
+	{
+		if (_assembler == null)
+			return;
+
+		foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+		{
+			if (_assembler.Hardpoints.TryGetValue(slot, out var hardpoint)
+			    && hardpoint.EquippedPart?.WeaponFamily == WeaponFamily.Melee)
+				hardpoint.AdvanceMeleeSwing(dt);
+		}
 	}
 
 	private void UpdateMeleeContacts()
@@ -1230,16 +1819,30 @@ public partial class MechController : CharacterBody3D
 			return;
 
 		var part = hardpoint.EquippedPart;
-		if (part.IsHeldShield || part.WeaponFamily == WeaponFamily.Melee)
+		if (part.IsHeldShield)
 			return;
 
 		var powerCost = part.PowerPerShot;
 		if (_powerHeat != null && powerCost > 0.01f && !_powerHeat.CanSpend(powerCost))
 			return;
 
+		if (part.WeaponFamily == WeaponFamily.Melee)
+		{
+			hardpoint.TryStartMeleeSwing(
+				_aimPoint,
+				_assembler.FireRateMultiplier,
+				_powerHeat?.FireRateThrottle ?? 1f);
+			return;
+		}
+
 		var aimed = _aimedComponentSlot;
 		if (aimed.HasValue && !CanCombatId(_aimPoint))
 			aimed = null;
+
+		var sensorAssist = SensorLockTarget != null
+			&& _sensorLockInVision
+			&& _sensorFocus.HasValue
+			&& aimed.HasValue;
 
 		var heatOver = _powerHeat != null && _powerHeat.HeatRatio > 0.7f ? 1.35f : 1f;
 		var ghost = FamilyHeatMultiplier(part.WeaponFamily, slot);
@@ -1253,7 +1856,8 @@ public partial class MechController : CharacterBody3D
 			_aimPoint,
 			aimed,
 			out _,
-			out var heat);
+			out var heat,
+			forcePreferredSlot: sensorAssist);
 
 		if (!fired)
 			return;

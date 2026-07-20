@@ -18,6 +18,7 @@ public partial class ResultsShopUi : Control
 
 	private PlayerProfile _profile = null!;
 	private MatchSession _match = null!;
+	private GameSession _session = null!;
 	private List<ShopOffer> _stock = new();
 	private ExchangeMode _mode = ExchangeMode.Buy;
 	private string? _selectedPartId;
@@ -52,42 +53,18 @@ public partial class ResultsShopUi : Control
 
 	public void Open(GameSession session)
 	{
+		_session = session;
 		_profile = session.Profile;
 		_match = session.Match;
 		_conventionDebrief = session.MatchFromConvention;
 		_bossDebrief = _match.MissionType == MissionType.BossEncounter;
-		_shopDisabled = _conventionDebrief || _bossDebrief;
-		_shopManufacturerId = session.MatchFromCampaign
-			? session.LastMissionManufacturerId
-			: "";
-		if (!_committed)
-		{
-			if (session.MatchFromAcademy || session.MatchFromConvention)
-			{
-				// Loaner/demo intact; scrap banks, part drops do not Own during academy/convention.
-				_profile.Scrap += _match.RunScrap;
-				if (_match.MissionType != MissionType.CadetRange)
-					_profile.LivesBank = Mathf.Max(0, _match.LivesRemaining);
-				_profile.SkirmishesPlayed++;
-				if (_match.Outcome == MatchOutcome.Victory)
-					_profile.SkirmishesWon++;
-			}
-			else
-			{
-				_match.ApplyToProfile(_profile);
-				session.SetLoadout(_profile.Loadout);
-			}
-
-			if (session.MatchFromCampaign
-			    && (_match.LivesRemaining <= 0 || _profile.LivesBank <= 0)
-			    && _match.Outcome != MatchOutcome.Victory)
-			{
-				session.WipeCampaignDeath();
-			}
-
-			session.SaveProfile();
-			_committed = true;
-		}
+		// Field exchanges no longer appear after every mission. Parts are sold
+		// only by independent merchants at dedicated map locations.
+		_shopDisabled = true;
+		_shopManufacturerId = "";
+		if (!_session.MatchRewardsCommitted)
+			_session.CommitMatchRewards();
+		_committed = true;
 
 		Visible = true;
 		MouseFilter = MouseFilterEnum.Stop;
@@ -511,6 +488,7 @@ public partial class ResultsShopUi : Control
 		var conventionContinue = session is { ReturnToConventionHall: true }
 			|| session is { InConvention: true, MatchFromConvention: true };
 		var campaignContinue = session is { InCampaign: true, ReturnToCampaignMap: true };
+		var solarContinue = session is { MatchFromSolarCampaign: true, ReturnToSolarMap: true };
 		var runFinished = session is { MatchFromCampaign: true } && !campaignContinue;
 		var cont = new Button
 		{
@@ -520,8 +498,10 @@ public partial class ResultsShopUi : Control
 					? "Next Academy Beat"
 					: conventionContinue
 						? "Return to Convention"
+						: solarContinue
+							? "Return to System Map"
 						: campaignContinue
-							? "Continue Campaign"
+							? "Continue Roguelike"
 							: runFinished
 								? "Finish Run"
 								: "Continue",
@@ -561,6 +541,14 @@ public partial class ResultsShopUi : Control
 				return;
 			}
 
+			if (s is { MatchFromSolarCampaign: true, ReturnToSolarMap: true })
+			{
+				s.MatchFromSolarCampaign = false;
+				s.ReturnToSolarMap = false;
+				GetTree().ChangeSceneToFile("res://scenes/solar_system_map.tscn");
+				return;
+			}
+
 			if (s is { InCampaign: true, ReturnToCampaignMap: true })
 			{
 				GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
@@ -580,6 +568,7 @@ public partial class ResultsShopUi : Control
 				{
 					s.OpenSkirmishSetupOnMenu = true;
 				}
+				s.ActivateMainProfile();
 			}
 
 			GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
@@ -601,11 +590,14 @@ public partial class ResultsShopUi : Control
 			{
 				s.ReturnToCampaignMap = false;
 				s.MatchFromCampaign = false;
+				s.MatchFromSolarCampaign = false;
+				s.ReturnToSolarMap = false;
 				s.MatchFromAcademy = false;
 				s.MatchFromConvention = false;
 				s.ReturnToConventionHall = false;
 				s.LaunchAcademyContinue = false;
 				s.OpenAcademyGraduation = false;
+				s.ActivateMainProfile();
 			}
 			GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
 		};
@@ -670,19 +662,17 @@ public partial class ResultsShopUi : Control
 				return $"  ·  {part?.DisplayName ?? id}  ({part?.Slot.ToString() ?? "?"})";
 			}));
 
-		var shopNote = _bossDebrief
-			? "No exchange follows a Titan claim contest"
-			: _conventionDebrief
-				? "Unavailable during manufacturer trials"
-			: string.IsNullOrEmpty(_shopManufacturerId)
-			? "Open field exchange"
-			: $"{GameCatalog.GetManufacturer(_shopManufacturerId).DisplayName} resupply";
+		var materials = _match.RunMaterialDrops.Count == 0
+			? "No fabrication materials recovered."
+			: string.Join("\n", _match.RunMaterialDrops.Select(kv =>
+				$"  ·  {MaterialCatalog.All.GetValueOrDefault(kv.Key)?.DisplayName ?? kv.Key}  ×{kv.Value}"));
 		_manifestBody.Text =
 			$"Outcome\n  {_match.Outcome}\n\n" +
 			$"Run scrap banked\n  {_match.RunScrap}\n\n" +
 			$"Merc corps\n  {_profile.MercCorpName}\n\n" +
-			$"Post-mission shop\n  {shopNote}\n\n" +
-			$"Recovered parts\n{drops}";
+			"Resupply\n  Independent merchants operate from marked system-map locations.\n\n" +
+			$"Recovered parts\n{drops}\n\n" +
+			$"Fabrication salvage\n{materials}";
 	}
 
 	private void RebuildList()

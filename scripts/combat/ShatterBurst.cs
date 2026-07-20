@@ -88,7 +88,7 @@ public partial class ShatterBurst : Node3D
 		timer.Timeout += () =>
 		{
 			if (GodotObject.IsInstanceValid(flash))
-				flash.QueueFree();
+				MeshMat.QueueFreeSafe(flash);
 		};
 
 		var cleanup = GetTree().CreateTimer(2.4);

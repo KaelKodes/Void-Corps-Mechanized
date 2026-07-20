@@ -9,7 +9,10 @@ public partial class GameSession : Node
 {
 	public PlayerProfile Profile { get; private set; } = null!;
 	public MatchSession Match { get; } = new();
+	/// <summary>Legacy linear run, exposed as the Roguelike game mode.</summary>
 	public CampaignRun? Campaign { get; set; }
+	/// <summary>Persistent, revisit-able solar-system campaign.</summary>
+	public SolarCampaignRun SolarCampaign { get; private set; } = null!;
 	public LoadoutData? CadetLoaner { get; private set; }
 	/// <summary>Convention trial demo chassis — mutually exclusive with cadet loaner.</summary>
 	public LoadoutData? ConventionDemoLoaner { get; private set; }
@@ -28,12 +31,15 @@ public partial class GameSession : Node
 	public bool OpenSkirmishSetupOnMenu { get; set; }
 	/// <summary>When true, continue from results returns to campaign map.</summary>
 	public bool ReturnToCampaignMap { get; set; }
+	public bool ReturnToSolarMap { get; set; }
 	/// <summary>Results continue should return to convention hall.</summary>
 	public bool ReturnToConventionHall { get; set; }
 	/// <summary>Studio boot bumper already played this app launch.</summary>
 	public bool StudioIntroPlayed { get; set; }
 	/// <summary>True when the current/last match was launched from campaign.</summary>
 	public bool MatchFromCampaign { get; set; }
+	public bool MatchFromSolarCampaign { get; set; }
+	public string PendingSolarLocationId { get; private set; } = "";
 	/// <summary>True when match is part of MAP Cadet Program (range / live fire).</summary>
 	public bool MatchFromAcademy { get; set; }
 	/// <summary>True when match is a manufacturer convention trial.</summary>
@@ -44,10 +50,24 @@ public partial class GameSession : Node
 	public bool OpenAcademyGraduation { get; set; }
 	/// <summary>True when match is a co-op detachment (listen server).</summary>
 	public bool CoopMatch { get; set; }
+	public bool UsingRoguelikeProfile { get; private set; }
 
 	public bool InCampaign => Campaign is { Alive: true };
+	public bool InSolarCampaign => SolarCampaign != null;
 	public bool InCadetProgram => Campaign is { Phase: CampaignPhase.CadetProgram, Alive: true };
 	public bool InConvention => Campaign is { Phase: CampaignPhase.ManufacturerConvention, Alive: true };
+	public bool InSolarOnboarding => Campaign is { SolarOnboarding: true, Alive: true }
+		&& !SolarCampaign.OnboardingComplete;
+
+	public FrontierCompanyData? GetFrontierCompany(string companyId)
+	{
+		foreach (var company in SolarCampaign.ConventionCompanies)
+		{
+			if (company.Id == companyId)
+				return company;
+		}
+		return null;
+	}
 
 	public override void _Ready()
 	{
@@ -59,12 +79,34 @@ public partial class GameSession : Node
 		CurrentClaim = VoidCorpsIdentity.PickClaimSite();
 		SyncLoadoutFromProfile();
 		Campaign = CampaignRun.Load();
+		SolarCampaign = SolarCampaignRun.LoadOrNew();
 		if (Campaign is { Alive: false })
 			Campaign = null;
 
 		var net = GetNodeOrNull<NetSession>("/root/NetSession");
 		if (net != null)
 			net.MatchLaunchReceived += OnNetMatchLaunch;
+	}
+
+	public void ActivateRoguelikeProfile()
+	{
+		if (UsingRoguelikeProfile)
+			return;
+		if (!Godot.FileAccess.FileExists(SaveService.RoguelikeSavePath))
+			SaveService.Save(Profile, SaveService.RoguelikeSavePath);
+		Profile = SaveService.LoadOrNew(SaveService.RoguelikeSavePath);
+		UsingRoguelikeProfile = true;
+		SyncLoadoutFromProfile();
+	}
+
+	public void ActivateMainProfile()
+	{
+		if (!UsingRoguelikeProfile)
+			return;
+		SaveService.Save(Profile, SaveService.RoguelikeSavePath);
+		Profile = SaveService.LoadOrNew();
+		UsingRoguelikeProfile = false;
+		SyncLoadoutFromProfile();
 	}
 
 	private void OnNetMatchLaunch()
@@ -125,7 +167,7 @@ public partial class GameSession : Node
 		CoopMatch = true;
 		ReturnToCampaignMap = MatchFromCampaign;
 		PendingOfferIndex = -1;
-		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
+		BeginMatchSession(Profile.LivesBank);
 		LaunchSkirmishOnArenaLoad = true;
 	}
 
@@ -158,7 +200,7 @@ public partial class GameSession : Node
 		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
-		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
+		BeginMatchSession(Profile.LivesBank);
 		LaunchSkirmishOnArenaLoad = true;
 	}
 
@@ -175,7 +217,7 @@ public partial class GameSession : Node
 		PendingRivalCorpId = "";
 		PendingOfferIndex = -1;
 		LastMissionManufacturerId = "";
-		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
+		BeginMatchSession(Profile.LivesBank);
 		LaunchSkirmishOnArenaLoad = true;
 	}
 
@@ -231,11 +273,125 @@ public partial class GameSession : Node
 		CurrentClaim = claim;
 	}
 
-	public void BeginCampaignRun(int sectorIndex = 0)
+	public void BeginSolarCampaign(bool reset = false)
 	{
+		ActivateMainProfile();
+		if (reset)
+		{
+			if (Godot.FileAccess.FileExists(SolarCampaignRun.SavePath))
+			{
+				using var dir = DirAccess.Open("user://");
+				dir?.Remove("mechanize_solar_campaign.json");
+			}
+			CampaignRun.ClearSolarOnboardingSave();
+		}
+
+		SolarCampaign = SolarCampaignRun.LoadOrNew();
+		SolarCampaign.EnsureCompanies();
+		if (!SolarCampaign.OnboardingComplete)
+		{
+			Campaign = CampaignRun.Load(solarOnboarding: true)
+				?? CampaignRun.StartCadet(solarOnboarding: true);
+			CadetLoaner = Campaign.Phase == CampaignPhase.CadetProgram
+				? GameCatalog.CreateCadetLoanerLoadout()
+				: null;
+		}
+		ReturnToSolarMap = SolarCampaign.OnboardingComplete;
+		ReturnToCampaignMap = false;
+		MatchFromSolarCampaign = false;
+		MatchFromCampaign = false;
 		ClearCadetLoaner();
 		ClearConventionDemoLoaner();
-		Profile.WipeRunInventory();
+		SaveProfile();
+	}
+
+	public void LaunchSolarOnboarding()
+	{
+		if (!InSolarOnboarding)
+			return;
+		if (Campaign!.Phase == CampaignPhase.ManufacturerConvention)
+		{
+			ReturnToConventionHall = true;
+			return;
+		}
+		ResumeCadetIfNeeded();
+		if (!MatchFromAcademy)
+			BeginAcademyRange();
+	}
+
+	public bool LaunchSolarLocation(string locationId, int missionIndex = 0)
+	{
+		var location = SolarSystemCatalog.Get(locationId);
+		if (location == null
+		    || location.Kind != SolarLocationKind.Operation
+		    || !SolarCampaign.IsUnlocked(locationId)
+		    || location.Missions.Count == 0
+		    || !EnsureDeployableLoadout("solar campaign deploy"))
+			return false;
+
+		SolarCampaign.SelectedLocationId = locationId;
+		SolarCampaign.Save();
+		PendingSolarLocationId = locationId;
+		PendingMission = location.Missions[Mathf.Clamp(missionIndex, 0, location.Missions.Count - 1)];
+		PendingDifficulty = location.ThreatTier switch
+		{
+			1 => PilotDifficulty.Easy,
+			2 => PilotDifficulty.Medium,
+			_ => PilotDifficulty.Hard
+		};
+		PendingBossEncounter = PendingMission == MissionType.BossEncounter
+			? BossEncounterCatalog.ForSectorClaim(location.ClaimCode)
+			: BossEncounterId.None;
+		PendingRivalPilotId = "";
+		PendingRivalCorpId = "";
+		PendingOfferIndex = missionIndex;
+		LastMissionManufacturerId = "";
+		ReturnToSolarMap = true;
+		ReturnToCampaignMap = false;
+		MatchFromSolarCampaign = true;
+		MatchFromCampaign = false;
+		MatchFromAcademy = false;
+		MatchFromConvention = false;
+		CoopMatch = GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true };
+
+		foreach (var claim in VoidCorpsIdentity.ClaimSites)
+		{
+			if (claim.Code == location.ClaimCode)
+			{
+				CurrentClaim = claim;
+				break;
+			}
+		}
+
+		BeginMatchSession(Profile.LivesBank);
+		LaunchSkirmishOnArenaLoad = true;
+		return true;
+	}
+
+	public void OnSolarMissionResolved(MatchOutcome outcome)
+	{
+		var location = SolarSystemCatalog.Get(PendingSolarLocationId);
+		if (location == null)
+			return;
+
+		if (outcome == MatchOutcome.Victory)
+		{
+			LocationLootService.Roll(SolarCampaign, location, Match);
+			if (PendingMission == MissionType.Escort)
+				SolarCampaign.MiningConvoysCompleted++;
+			SolarCampaign.Complete(location.Id);
+		}
+
+		ReturnToSolarMap = true;
+	}
+
+	public void BeginCampaignRun(int sectorIndex = 0)
+	{
+		ActivateMainProfile();
+		Profile = PlayerProfile.CreateNew();
+		UsingRoguelikeProfile = true;
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
 		Campaign = CampaignRun.StartNew(sectorIndex);
 		ReturnToCampaignMap = true;
 		ReturnToConventionHall = false;
@@ -254,8 +410,10 @@ public partial class GameSession : Node
 	/// <summary>Start MAP Cadet Program at the certification range.</summary>
 	public void BeginCadetProgram()
 	{
+		ActivateMainProfile();
+		Profile = PlayerProfile.CreateNew();
+		UsingRoguelikeProfile = true;
 		CampaignRun.ClearSave();
-		Profile.WipeRunInventory();
 		Campaign = CampaignRun.StartCadet();
 		CadetLoaner = GameCatalog.CreateCadetLoanerLoadout();
 		MatchFromAcademy = true;
@@ -277,8 +435,10 @@ public partial class GameSession : Node
 	/// <summary>Start a fresh campaign at the Big Four convention, skipping academy tutorial beats.</summary>
 	public void BeginConventionProgram()
 	{
+		ActivateMainProfile();
+		Profile = PlayerProfile.CreateNew();
+		UsingRoguelikeProfile = true;
 		CampaignRun.ClearSave();
-		Profile.WipeRunInventory();
 		ClearCadetLoaner();
 		ClearConventionDemoLoaner();
 		Campaign = CampaignRun.StartCadet();
@@ -338,7 +498,7 @@ public partial class GameSession : Node
 		LaunchAcademyContinue = false;
 		OpenAcademyGraduation = false;
 		CurrentClaim = VoidCorpsIdentity.ClaimSites[0];
-		Match.Begin(PendingDifficulty, 99, PendingMission);
+		BeginMatchSession(99);
 		LaunchSkirmishOnArenaLoad = true;
 		Campaign?.Save();
 	}
@@ -363,7 +523,7 @@ public partial class GameSession : Node
 		LaunchAcademyContinue = false;
 		OpenAcademyGraduation = false;
 		CurrentClaim = VoidCorpsIdentity.ClaimSites[1 % VoidCorpsIdentity.ClaimSites.Length];
-		Match.Begin(PendingDifficulty, Profile.LivesBank > 0 ? Profile.LivesBank : MatchSession.StartingLives, PendingMission);
+		BeginMatchSession(Profile.LivesBank > 0 ? Profile.LivesBank : MatchSession.StartingLives);
 		LaunchSkirmishOnArenaLoad = true;
 		Campaign?.Save();
 	}
@@ -420,8 +580,8 @@ public partial class GameSession : Node
 		MatchFromAcademy = false;
 		MatchFromCampaign = false;
 		MatchFromConvention = false;
-		ReturnToCampaignMap = true;
-		ReturnToConventionHall = false;
+		ReturnToCampaignMap = !Campaign.SolarOnboarding;
+		ReturnToConventionHall = Campaign.SolarOnboarding;
 		OpenAcademyGraduation = false;
 		LaunchAcademyContinue = false;
 		SaveProfile();
@@ -461,7 +621,8 @@ public partial class GameSession : Node
 		if (status.Withdrawn || status.AttemptsRemaining <= 0)
 			return false;
 
-		var def = ConventionCatalog.Get(manufacturerId);
+		var company = Campaign.SolarOnboarding ? GetFrontierCompany(manufacturerId) : null;
+		var def = company?.TrialTemplate ?? ConventionCatalog.Get(manufacturerId);
 		status.AttemptsRemaining--;
 		Campaign.Convention.ActiveTrialManufacturerId = manufacturerId;
 		Campaign.Convention.ActiveTrialSabotaged = false;
@@ -482,7 +643,7 @@ public partial class GameSession : Node
 		OpenAcademyGraduation = false;
 		CoopMatch = false;
 		CurrentClaim = VoidCorpsIdentity.ClaimSites[0];
-		Match.Begin(PendingDifficulty, Profile.LivesBank > 0 ? Profile.LivesBank : MatchSession.StartingLives, PendingMission);
+		BeginMatchSession(Profile.LivesBank > 0 ? Profile.LivesBank : MatchSession.StartingLives);
 		LaunchSkirmishOnArenaLoad = true;
 		return true;
 	}
@@ -515,7 +676,7 @@ public partial class GameSession : Node
 		{
 			status.Qualified = true;
 			status.Withdrawn = false;
-			Profile.AddReputation(id, 2);
+			Profile.Scrap += 15;
 		}
 		else if (status.AttemptsRemaining <= 0 && !status.Qualified)
 		{
@@ -540,20 +701,44 @@ public partial class GameSession : Node
 			return false;
 
 		ConventionCatalog.EnsureBuilt();
-		var def = ConventionCatalog.Get(manufacturerId);
+		var company = Campaign.SolarOnboarding ? GetFrontierCompany(manufacturerId) : null;
+		var def = company?.TrialTemplate ?? ConventionCatalog.Get(manufacturerId);
 		ClearConventionDemoLoaner();
 		ClearCadetLoaner();
 		// Signing package replaces the barren pre-contract kit.
-		Profile.OwnedCounts.Clear();
+		if (!Campaign.SolarOnboarding)
+		{
+			Profile.OwnedInstances.Clear();
+			Profile.EquippedInstanceIds.Clear();
+		}
 		Profile.Loadout = def.SigningLoadout.Clone();
 		Profile.GrantLoadoutOwnership(Profile.Loadout);
 		foreach (var partId in def.SigningBonusPartIds)
 			Profile.Own(partId);
-		Profile.Scrap = def.SigningBonusScrap;
+		Profile.Scrap = Campaign.SolarOnboarding
+			? Profile.Scrap + def.SigningBonusScrap
+			: def.SigningBonusScrap;
 		Profile.LivesBank = PlayerProfile.StartingLives + Mathf.Max(0, def.SigningBonusLives);
-		Profile.SetAffiliation(manufacturerId);
-		Profile.AddReputation(manufacturerId, 5);
+		Profile.UnlockOwnedBlueprints();
 
+		if (Campaign.SolarOnboarding && company != null)
+		{
+			Profile.AffiliatedManufacturerId = "";
+			Profile.EmployerCompanyId = company.Id;
+			Profile.EmployerCompanyName = company.DisplayName;
+			SolarCampaign.SelectedCompanyId = company.Id;
+			SolarCampaign.OnboardingComplete = true;
+			SolarCampaign.Save();
+			Campaign.Save();
+			MatchFromConvention = false;
+			ReturnToConventionHall = false;
+			ReturnToCampaignMap = false;
+			ReturnToSolarMap = true;
+			SaveProfile();
+			return true;
+		}
+
+		Profile.SetAffiliation(manufacturerId);
 		Campaign.EnterActiveOperations();
 		MatchFromConvention = false;
 		ReturnToConventionHall = false;
@@ -572,8 +757,30 @@ public partial class GameSession : Node
 
 		ClearConventionDemoLoaner();
 		ClearCadetLoaner();
-		ConventionCatalog.ApplyPityPackage(Profile);
 		Campaign.Convention.PityContractUsed = true;
+		if (Campaign.SolarOnboarding)
+		{
+			var company = SolarCampaign.ConventionCompanies[0];
+			var fallback = ConventionCatalog.Get("trinova");
+			Profile.Loadout = fallback.SigningLoadout.Clone();
+			Profile.GrantLoadoutOwnership(Profile.Loadout);
+			Profile.Scrap += 20;
+			Profile.LivesBank = Mathf.Max(Profile.LivesBank, PlayerProfile.StartingLives);
+			Profile.UnlockOwnedBlueprints();
+			Profile.AffiliatedManufacturerId = "";
+			Profile.EmployerCompanyId = company.Id;
+			Profile.EmployerCompanyName = company.DisplayName;
+			SolarCampaign.SelectedCompanyId = company.Id;
+			SolarCampaign.OnboardingComplete = true;
+			SolarCampaign.Save();
+			Campaign.Save();
+			ReturnToConventionHall = false;
+			ReturnToCampaignMap = false;
+			ReturnToSolarMap = true;
+			SaveProfile();
+			return true;
+		}
+		ConventionCatalog.ApplyPityPackage(Profile);
 		Campaign.EnterActiveOperations();
 		ReturnToConventionHall = false;
 		ReturnToCampaignMap = true;
@@ -590,15 +797,17 @@ public partial class GameSession : Node
 			return false; // Use EnterConventionHallFromMap / hall UI instead.
 		if (!EnsureDeployableLoadout("campaign deploy"))
 			return false;
+
+		// Validate the offer on the target node before moving the run pointer.
+		var target = Campaign.Graph.Get(nodeId);
+		var offer = target?.GetOffer(offerIndex);
+		if (target == null || offer == null)
+			return false;
 		if (!Campaign.TryAdvanceTo(nodeId))
 			return false;
 
 		var node = Campaign.CurrentNode;
 		if (node == null)
-			return false;
-
-		var offer = node.GetOffer(offerIndex);
-		if (offer == null)
 			return false;
 
 		ApplyLocationClaim(node);
@@ -614,7 +823,7 @@ public partial class GameSession : Node
 		MatchFromCampaign = true;
 		MatchFromConvention = false;
 		CoopMatch = GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true };
-		Match.Begin(PendingDifficulty, Profile.LivesBank, PendingMission);
+		BeginMatchSession(Profile.LivesBank);
 		LaunchSkirmishOnArenaLoad = true;
 		return true;
 	}
@@ -674,19 +883,8 @@ public partial class GameSession : Node
 
 	private void ApplyMissionOfferReputation()
 	{
-		if (Campaign?.CurrentNode == null || PendingOfferIndex < 0)
-			return;
-
-		var offer = Campaign.CurrentNode.GetOffer(PendingOfferIndex);
-		if (offer == null)
-			return;
-		if (offer.MissionType == MissionType.BossEncounter)
-			return;
-
-		if (!string.IsNullOrEmpty(offer.ManufacturerId) && offer.RepGain != 0)
-			Profile.AddReputation(offer.ManufacturerId, offer.RepGain);
-		if (!string.IsNullOrEmpty(offer.RivalManufacturerId) && offer.RepLoss != 0)
-			Profile.AddReputation(offer.RivalManufacturerId, -offer.RepLoss);
+		// Manufacturer reputation has been retired. The persistent campaign uses
+		// scrap-funded manufacturer tech trees instead.
 	}
 
 	private void ApplyCampaignClaimReward()
@@ -718,16 +916,74 @@ public partial class GameSession : Node
 		}
 	}
 
+	private void BeginMatchSession(int livesBank)
+	{
+		MatchRewardsCommitted = false;
+		Match.Begin(PendingDifficulty, livesBank, PendingMission);
+	}
+
 	public void SaveProfile()
 	{
-		SaveService.Save(Profile);
+		SaveService.Save(
+			Profile,
+			UsingRoguelikeProfile ? SaveService.RoguelikeSavePath : SaveService.SavePath);
 		Campaign?.Save();
+		SolarCampaign?.Save();
+	}
+
+	/// <summary>
+	/// Persist run scrap, loot, recovery flags, and final equipped conditions.
+	/// Called once from Damage Assessment (or Results when assessment is skipped).
+	/// </summary>
+	public bool MatchRewardsCommitted { get; private set; }
+
+	public void ResetMatchCommitFlag() => MatchRewardsCommitted = false;
+
+	public void CommitMatchRewards()
+	{
+		if (MatchRewardsCommitted)
+			return;
+
+		if (MatchFromAcademy || MatchFromConvention)
+		{
+			Profile.Scrap += Match.RunScrap;
+			if (Match.MissionType != MissionType.CadetRange)
+				Profile.LivesBank = Mathf.Max(0, Match.LivesRemaining);
+			Profile.SkirmishesPlayed++;
+			if (Match.Outcome == MatchOutcome.Victory)
+				Profile.SkirmishesWon++;
+		}
+		else
+		{
+			Match.ApplyToProfile(Profile);
+			SetLoadout(Profile.Loadout);
+		}
+
+		if (MatchFromCampaign
+		    && (Match.LivesRemaining <= 0 || Profile.LivesBank <= 0)
+		    && Match.Outcome != MatchOutcome.Victory)
+		{
+			WipeCampaignDeath();
+			MatchRewardsCommitted = true;
+			return;
+		}
+
+		SaveProfile();
+		MatchRewardsCommitted = true;
 	}
 
 	public void NewProfile()
 	{
+		ActivateMainProfile();
 		Profile = PlayerProfile.CreateNew();
 		CampaignRun.ClearSave();
+		CampaignRun.ClearSolarOnboardingSave();
+		using (var dir = DirAccess.Open("user://"))
+		{
+			dir?.Remove("mechanize_roguelike_profile.json");
+			dir?.Remove("mechanize_solar_campaign.json");
+		}
+		SolarCampaign = SolarCampaignRun.LoadOrNew();
 		Campaign = null;
 		ClearCadetLoaner();
 		ClearConventionDemoLoaner();
@@ -737,6 +993,8 @@ public partial class GameSession : Node
 	/// <summary>Max part tier allowed in shop/loot for the active context.</summary>
 	public int CurrentMaxLootTier()
 	{
+		if (MatchFromSolarCampaign)
+			return SolarSystemCatalog.Get(PendingSolarLocationId)?.ThreatTier ?? 1;
 		if (Campaign is { Phase: CampaignPhase.ActiveOperations, Alive: true })
 			return Campaign.MaxLootTier;
 		if (MatchFromAcademy || MatchFromConvention || InCadetProgram || InConvention)

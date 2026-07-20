@@ -212,7 +212,7 @@ public sealed class BossMission : MissionBase
 				2 => new Vector3(22f - i * 2f, 0f, 26f),
 				_ => new Vector3(-26f, 0f, 18f - i * 2f)
 			};
-			Host.SpawnSupport($"BossSwarm_{wave}_{i}", unitId, TeamId.Enemy, pos);
+			Host.SpawnSupport($"BossSwarm_{wave}_{i}", unitId, TeamId.Enemy, pos, viaTelegraph: unitId != "gun_tower");
 		}
 	}
 

@@ -35,6 +35,7 @@ public partial class PauseMenuUi : Control
 		ProcessMode = ProcessModeEnum.Always;
 		Visible = false;
 		MouseFilter = MouseFilterEnum.Ignore;
+		ZIndex = 100;
 		SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 	}
 

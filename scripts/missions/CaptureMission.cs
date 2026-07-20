@@ -11,12 +11,14 @@ public sealed class CaptureMission : MissionBase
 	private const float SingleCaptureTime = 30f;
 	private const float MultiCaptureTime = 22f;
 	private float _captureSfxCooldown;
+	private RandomNumberGenerator? _rng;
 
 	private sealed class ZoneState
 	{
 		public MissionZone Zone = null!;
 		public float Progress;
 		public bool Captured;
+		public MissionPressure Pressure = null!;
 	}
 
 	public CaptureMission(int zoneCount)
@@ -30,6 +32,8 @@ public sealed class CaptureMission : MissionBase
 	{
 		var root = EnsureMissionRoot();
 		_zones.Clear();
+		_rng = new RandomNumberGenerator();
+		_rng.Randomize();
 
 		var sites = BuildSites();
 		for (var i = 0; i < _zoneCount; i++)
@@ -41,7 +45,11 @@ public sealed class CaptureMission : MissionBase
 				new Color(0.35f, 0.7f, 1f),
 				_zoneCount == 1 ? "CLAIM ZONE" : $"ZONE {i + 1}");
 			root.AddChild(zone);
-			_zones.Add(new ZoneState { Zone = zone });
+			_zones.Add(new ZoneState
+			{
+				Zone = zone,
+				Pressure = MissionPressure.Create(Host, $"Cap{i}", _rng)
+			});
 		}
 
 		Host.SpawnEnemyMech("Trinova_Detachment", Host.EnemySpawnA, 0);
@@ -81,18 +89,22 @@ public sealed class CaptureMission : MissionBase
 			allCaptured = false;
 			var playerIn = state.Zone.Contains(playerPos);
 			var contested = HostileInZone(state.Zone);
+			var focus = state.Zone.GlobalPosition;
 
 			if (playerIn && !contested)
 			{
 				state.Progress = Mathf.Min(_captureTime, state.Progress + dt);
+				var ratio = state.Progress / _captureTime;
+				state.Pressure.NotifyProgress(ratio, focus);
 				state.Zone.SetColor(new Color(0.45f, 0.85f, 0.55f));
-				state.Zone.SetLabel($"CAPTURING {state.Progress / _captureTime * 100f:0}%");
+				state.Zone.SetLabel($"CAPTURING {ratio * 100f:0}%");
 				anyCapturing = true;
 				if (state.Progress >= _captureTime)
 				{
 					state.Captured = true;
 					state.Zone.SetLabel("SECURED");
 					state.Zone.SetColor(new Color(0.35f, 0.9f, 0.45f));
+					state.Pressure.NotifyObjectiveSecured(focus);
 					SfxService.Confirm();
 				}
 			}

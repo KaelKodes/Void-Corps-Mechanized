@@ -6,7 +6,8 @@ namespace Mechanize;
 
 /// <summary>
 /// Active abilities from chassis attachments, bound to keys 1-6 in equip order.
-/// Missiles / Mend Beacon: paint-then-release. Pulse Repair: hold-to-channel.
+/// Missiles / Mend Beacon: paint-then-release. Mend Beacon also supports Ctrl+self.
+/// Pulse Repair: hold-to-channel.
 /// </summary>
 public partial class AbilityController : Node
 {
@@ -35,6 +36,12 @@ public partial class AbilityController : Node
 		return _boundAbilities[index].AbilityId == AbilityId.MissileSalvo;
 	}
 
+	public bool IsPaintMissileAbility(int index) =>
+		IsMissileAbility(index) && _boundAbilities[index].MissileGuidance == MissileGuidanceMode.Paint;
+
+	public bool IsSensorMissileAbility(int index) =>
+		IsMissileAbility(index) && _boundAbilities[index].MissileGuidance != MissileGuidanceMode.Paint;
+
 	public bool IsMendBeaconAbility(int index)
 	{
 		if (index < 0 || index >= _boundAbilities.Count)
@@ -49,8 +56,26 @@ public partial class AbilityController : Node
 		return _boundAbilities[index].AbilityId == AbilityId.PulseRepair;
 	}
 
-	/// <summary>Hold-to-paint then release abilities (missiles + mend beacon).</summary>
-	public bool IsPaintLockAbility(int index) => IsMissileAbility(index) || IsMendBeaconAbility(index);
+	/// <summary>Hold-to-paint then release (paint missiles + mend beacon).</summary>
+	public bool IsPaintLockAbility(int index) => IsPaintMissileAbility(index) || IsMendBeaconAbility(index);
+
+	/// <summary>
+	/// Beneficial utilities that accept Ctrl+key self-cast (drop/channel on self).
+	/// Hostile paint abilities like missiles are excluded.
+	/// </summary>
+	public bool IsBeneficialSelfCastAbility(int index)
+	{
+		if (index < 0 || index >= _boundAbilities.Count)
+			return false;
+		return _boundAbilities[index].AbilityId switch
+		{
+			AbilityId.MendPulse => true,
+			AbilityId.PulseRepair => true,
+			AbilityId.Shroud => true,
+			AbilityId.HeatSink => true,
+			_ => false
+		};
+	}
 
 	public bool CanActivate(int index)
 	{
@@ -67,13 +92,94 @@ public partial class AbilityController : Node
 		var part = _boundAbilities[index];
 		var load = part.AbilityPowerLoad;
 		if (powerHeat == null || load <= 0.01f)
+		{
+			if (part.AbilityId == AbilityId.MissileSalvo)
+				return CanFireMissile(part);
 			return true;
+		}
 
 		// Pulse is a sustained drain — need pool headroom, not the full burst amount.
 		if (part.AbilityId == AbilityId.PulseRepair)
 			return powerHeat.CurrentPower > 0.5f;
 
+		if (part.AbilityId == AbilityId.MissileSalvo && !CanFireMissile(part))
+			return false;
+
 		return powerHeat.CanSpend(load);
+	}
+
+	/// <summary>
+	/// Paint missiles always ready (subject to power/cd). Sensor missiles need a maintained TAB lock;
+	/// vision vs contact is per <see cref="PartData.MissileGuidance"/>.
+	/// AI has no TAB UI — an in-range hostile satisfies the same contact rules.
+	/// </summary>
+	public bool CanFireMissile(PartData part)
+	{
+		if (_mech == null || part.AbilityId != AbilityId.MissileSalvo)
+			return false;
+
+		if (part.MissileGuidance == MissileGuidanceMode.Paint)
+			return true;
+
+		var locked = ResolveSeekerTarget(part, out var inVision);
+		if (locked == null)
+			return false;
+
+		return part.MissileGuidance switch
+		{
+			MissileGuidanceMode.SensorVision => inVision,
+			MissileGuidanceMode.SensorContact => true,
+			_ => false
+		};
+	}
+
+	private MechController? ResolveSeekerTarget(PartData part, out bool inVision)
+	{
+		inVision = false;
+		if (_mech == null)
+			return null;
+
+		var range = Mathf.Max(12f, part.Range);
+		var locked = _mech.SensorLockTarget;
+		if (locked != null
+		    && locked.Integrity?.IsCollapsed != true
+		    && locked.Health?.IsDead != true
+		    && _mech.GlobalPosition.DistanceTo(locked.GlobalPosition) <= range)
+		{
+			inVision = _mech.SensorLockInVision;
+			return locked;
+		}
+
+		// AI (and any case without TAB lock): pick nearest hostile in weapon range.
+		if (_mech.IsHumanPilot)
+			return null;
+
+		MechController? best = null;
+		var bestDist = float.MaxValue;
+		var scene = _mech.GetTree()?.CurrentScene ?? _mech.GetParent();
+		if (scene == null)
+			return null;
+
+		foreach (var child in scene.GetChildren())
+		{
+			if (child is not MechController other || other == _mech)
+				continue;
+			if (!TeamUtil.IsHostile(_mech.Team, other.Team))
+				continue;
+			if (other.Integrity?.IsCollapsed == true || other.Health?.IsDead == true)
+				continue;
+			var dist = _mech.GlobalPosition.DistanceTo(other.GlobalPosition);
+			if (dist > range || dist >= bestDist)
+				continue;
+			bestDist = dist;
+			best = other;
+		}
+
+		if (best == null)
+			return null;
+
+		inVision = _mech.CanCombatId(best.GlobalPosition);
+		return best;
 	}
 
 	public void Bind(MechController mech, MechAssembler assembler, Damageable? health)
@@ -188,6 +294,9 @@ public partial class AbilityController : Node
 		// Pulse Repair is hold-to-channel; AI starts a short auto channel.
 		if (part.AbilityId == AbilityId.PulseRepair)
 			return BeginPulseRepair(index, aiAutoSeconds: _mech.IsPlayerControlled ? 0f : 2.2f);
+
+		if (part.AbilityId == AbilityId.MissileSalvo && !CanFireMissile(part))
+			return false;
 
 		var load = part.AbilityPowerLoad;
 		if (powerHeat != null && load > 0.01f && !powerHeat.CanSpend(load))
@@ -448,20 +557,38 @@ public partial class AbilityController : Node
 		if (parent == null)
 			return false;
 
+		var seeker = part.MissileGuidance != MissileGuidanceMode.Paint;
+		MechController? lockTarget = null;
+		PartSlot? preferred = null;
 		var impact = aimPoint;
 		impact.Y = Mathf.Max(0.4f, aimPoint.Y);
+
+		if (seeker)
+		{
+			lockTarget = ResolveSeekerTarget(part, out _);
+			if (lockTarget == null)
+				return false;
+
+			preferred = _mech.SensorFocusSlot ?? PartSlot.Torso;
+			impact = ResolveMissileAimPoint(lockTarget, preferred.Value);
+		}
+
+		var targeting = preferred.HasValue ? TargetingMode.AimedComponent : TargetingMode.Standard;
+		var preferredSlot = preferred.HasValue ? (int)preferred.Value : -1;
 
 		for (var i = 0; i < count; i++)
 		{
 			var spread = (i - (count - 1) * 0.5f) * 0.18f;
 			var target = impact + new Vector3(spread * 1.2f, 0f, spread * 0.8f);
 			var spawn = origin + new Vector3(spread * 0.35f, 0.12f * i, 0f);
+			var speed = Mathf.Max(12f, part.ProjectileSpeed);
 
+			var style = ProjectileStyleUtil.FromPart(part);
 			var bus = NetCombatBus.Find(parent);
 			if (bus != null && _mech.GetTree()?.GetMultiplayer().MultiplayerPeer != null)
 			{
-				// Solve lob off-tree, then let the bus parent + place the real projectile.
-				var lob = Projectile.SolveLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+				// Net path: aim at lock point at fire time (homing target not replicated yet).
+				var lob = Projectile.SolveLob(spawn, target, speed);
 				bus.HostSpawnProjectile(
 					parent,
 					_mech,
@@ -470,19 +597,30 @@ public partial class AbilityController : Node
 					part.Damage,
 					lob.Lifetime,
 					_mech.Team,
-					TargetingMode.Standard,
-					-1,
-					ballistic: true,
-					gravity: lob.Gravity);
+					targeting,
+					preferredSlot,
+					style,
+					gravity: lob.Gravity,
+					visualScale: Projectile.MechVisualScale);
 			}
 			else
 			{
-				var missile = Projectile.Create(ballisticStyle: true);
+				var missile = Projectile.Create(style, Projectile.MechVisualScale);
 				missile.Source = _mech;
 				missile.SourceTeam = _mech.Team;
 				missile.Damage = part.Damage;
+				missile.TargetingMode = targeting;
+				missile.PreferredSlot = preferred;
 				parent.AddChild(missile);
-				missile.LaunchLob(spawn, target, Mathf.Max(12f, part.ProjectileSpeed));
+
+				if (seeker && lockTarget != null)
+				{
+					missile.LaunchSeeker(spawn, lockTarget, preferred, speed);
+				}
+				else
+				{
+					missile.LaunchLob(spawn, target, speed);
+				}
 			}
 		}
 
@@ -495,6 +633,20 @@ public partial class AbilityController : Node
 
 		SfxService.Play("weapon_fire", 0.72f, -1f);
 		return true;
+	}
+
+	private static Vector3 ResolveMissileAimPoint(MechController target, PartSlot focus)
+	{
+		if (target.Assembler?.Hardpoints.TryGetValue(focus, out var hp) == true
+		    && hp.EquippedPart != null
+		    && hp.EquippedPart.VisualKind != "empty"
+		    && !hp.IsDestroyed)
+			return hp.GlobalPosition;
+
+		if (target.Assembler?.Hardpoints.TryGetValue(PartSlot.Torso, out var torso) == true)
+			return torso.GlobalPosition;
+
+		return target.GlobalPosition + Vector3.Up * 1.4f;
 	}
 
 	private bool ActivateShroud(PartData part)

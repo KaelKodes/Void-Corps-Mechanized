@@ -12,6 +12,12 @@ public partial class PartData : Resource
 	[Export] public int Tier { get; set; } = 1;
 	[Export] public PartSlot Slot { get; set; }
 	[Export] public AimMode AimMode { get; set; } = AimMode.Fixed;
+	/// <summary>
+	/// While holding fire, scroll can raise/lower shot height (visual barrel pitch + projectile spawn height).
+	/// Does not change ballistic range angle — shots stay level. Gimbaled guns usually enable this;
+	/// fixed mounts may opt in for limited vertical bias (Titan work, leg sweeps).
+	/// </summary>
+	[Export] public bool AllowsFireElevation { get; set; }
 	[Export] public LegMode LegMode { get; set; } = LegMode.Locked;
 	[Export] public LegType LegType { get; set; } = LegType.Bipedal;
 
@@ -23,9 +29,11 @@ public partial class PartData : Resource
 	[Export] public float FireRate { get; set; } = 2f;
 	[Export] public float Range { get; set; } = 40f;
 	[Export] public float ProjectileSpeed { get; set; } = 45f;
-	/// <summary>Structural health for this component. For legs, this is health per limb.</summary>
+	/// <summary>Structural health for this component. For legs, per-limb budget into a shared package pool.</summary>
 	[Export] public float StructureHp { get; set; }
 	[Export] public TargetingMode TargetingMode { get; set; } = TargetingMode.Standard;
+	/// <summary>Missile ability aim mode. Non-missile abilities ignore this.</summary>
+	[Export] public MissileGuidanceMode MissileGuidance { get; set; } = MissileGuidanceMode.Paint;
 
 	[Export] public AbilityKind AbilityKind { get; set; } = AbilityKind.None;
 	[Export] public AbilityId AbilityId { get; set; } = AbilityId.None;

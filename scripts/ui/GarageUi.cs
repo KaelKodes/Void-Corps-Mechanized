@@ -7,12 +7,14 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Hangar loadout screen: category rail, owned component list, 3D MAP preview,
-/// preview-before-equip, and live chassis stats. Shared by prep and field garage.
+/// Hangar loadout screen: category rail, owned component list, selection details
+/// with direct compare, 3D MAP preview, preview-before-equip, and live chassis stats.
+/// Shared by prep and field garage.
 /// </summary>
 public partial class GarageUi : Control
 {
 	[Signal] public delegate void LoadoutAppliedEventHandler(LoadoutData loadout);
+	[Signal] public delegate void FieldDeliveryRequestedEventHandler(int slot, string instanceId);
 
 	private enum HangarCategory
 	{
@@ -31,12 +33,15 @@ public partial class GarageUi : Control
 	private HangarCategory? _openCategory;
 	private PartSlot? _activeSlot;
 	private string? _previewPartId;
+	/// <summary>Part shown in Selection Display (preview or focused row, including equipped).</summary>
+	private string? _selectedPartId;
 
 	private PanelContainer? _listPanel;
 	private VBoxContainer? _railBox;
 	private HBoxContainer? _subSlotRow;
 	private VBoxContainer? _listBox;
 	private Label? _listHint;
+	private RichTextLabel? _selectionBody;
 	private HangarMechPreview? _mechPreview;
 	private RichTextLabel? _statsBody;
 	private Label? _titleLabel;
@@ -78,7 +83,7 @@ public partial class GarageUi : Control
 		}
 
 		if (_readyButton != null)
-			_readyButton.Text = prep ? "READY" : "Deploy Loadout";
+			_readyButton.Text = prep ? "READY" : "REQUEST DELIVERY";
 	}
 
 	public void RefreshFromSession()
@@ -132,18 +137,41 @@ public partial class GarageUi : Control
 		columns.AddThemeConstantOverride("separation", 12);
 		root.AddChild(columns);
 
-		BuildRail(columns);
-		BuildComponentList(columns);
+		BuildLeftColumn(columns);
 		BuildPreviewColumn(columns);
 		BuildStatsColumn(columns);
 	}
 
-	private void BuildRail(HBoxContainer columns)
+	private void BuildLeftColumn(HBoxContainer columns)
+	{
+		var left = new VBoxContainer
+		{
+			SizeFlagsVertical = SizeFlags.ExpandFill,
+			CustomMinimumSize = new Vector2(480, 0)
+		};
+		left.AddThemeConstantOverride("separation", 10);
+		columns.AddChild(left);
+
+		var top = new HBoxContainer
+		{
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			SizeFlagsVertical = SizeFlags.ExpandFill,
+			SizeFlagsStretchRatio = 1f
+		};
+		top.AddThemeConstantOverride("separation", 10);
+		left.AddChild(top);
+
+		BuildRail(top);
+		BuildComponentList(top);
+		BuildSelectionDisplay(left);
+	}
+
+	private void BuildRail(HBoxContainer parent)
 	{
 		var panel = MechUiTheme.MakePanel("HangarRail", 168);
 		panel.CustomMinimumSize = new Vector2(168, 0);
 		panel.SizeFlagsVertical = SizeFlags.ExpandFill;
-		columns.AddChild(panel);
+		parent.AddChild(panel);
 
 		var inner = new VBoxContainer();
 		inner.AddThemeConstantOverride("separation", 8);
@@ -177,13 +205,14 @@ public partial class GarageUi : Control
 		_railButtons[category] = button;
 	}
 
-	private void BuildComponentList(HBoxContainer columns)
+	private void BuildComponentList(HBoxContainer parent)
 	{
 		_listPanel = MechUiTheme.MakePanel("ComponentList", 300);
 		_listPanel.CustomMinimumSize = new Vector2(300, 0);
+		_listPanel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 		_listPanel.SizeFlagsVertical = SizeFlags.ExpandFill;
 		_listPanel.Visible = false;
-		columns.AddChild(_listPanel);
+		parent.AddChild(_listPanel);
 
 		var inner = new VBoxContainer();
 		inner.AddThemeConstantOverride("separation", 8);
@@ -216,6 +245,41 @@ public partial class GarageUi : Control
 		};
 		_listBox.AddThemeConstantOverride("separation", 6);
 		scroll.AddChild(_listBox);
+	}
+
+	private void BuildSelectionDisplay(VBoxContainer left)
+	{
+		var panel = MechUiTheme.MakePanel("SelectionDisplay", deep: true);
+		panel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+		panel.SizeFlagsVertical = SizeFlags.ExpandFill;
+		panel.SizeFlagsStretchRatio = 1f;
+		panel.CustomMinimumSize = new Vector2(0, 220);
+		left.AddChild(panel);
+
+		var inner = new VBoxContainer();
+		inner.AddThemeConstantOverride("separation", 8);
+		panel.AddChild(inner);
+		inner.AddChild(MechUiTheme.MakeSectionLabel("SELECTION DISPLAY"));
+
+		var scroll = new ScrollContainer
+		{
+			SizeFlagsVertical = SizeFlags.ExpandFill,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+		};
+		inner.AddChild(scroll);
+
+		_selectionBody = new RichTextLabel
+		{
+			BbcodeEnabled = true,
+			FitContent = true,
+			ScrollActive = false,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			CustomMinimumSize = new Vector2(0, 40)
+		};
+		_selectionBody.AddThemeFontSizeOverride("normal_font_size", 13);
+		_selectionBody.AddThemeColorOverride("default_color", MechUiTheme.Text);
+		scroll.AddChild(_selectionBody);
 	}
 
 	private void BuildPreviewColumn(HBoxContainer columns)
@@ -346,6 +410,7 @@ public partial class GarageUi : Control
 		_openCategory = category;
 		_previewPartId = null;
 		_activeSlot = DefaultSlotForCategory(category);
+		_selectedPartId = _activeSlot == null ? null : _draft.GetPartId(_activeSlot.Value);
 		RefreshAll();
 	}
 
@@ -376,6 +441,7 @@ public partial class GarageUi : Control
 		SfxService.Click();
 		_activeSlot = slot;
 		_previewPartId = null;
+		_selectedPartId = _draft.GetPartId(slot);
 		RefreshAll();
 	}
 
@@ -385,6 +451,7 @@ public partial class GarageUi : Control
 		if (_activeSlot == null)
 			return;
 
+		_selectedPartId = partId;
 		_previewPartId = partId == _draft.GetPartId(_activeSlot.Value) ? null : partId;
 		RefreshAll();
 	}
@@ -406,6 +473,7 @@ public partial class GarageUi : Control
 		_draft.SetPartId(slot, _previewPartId);
 		if (slot is PartSlot.Torso or PartSlot.PowerCore)
 			GameCatalog.SanitizeMounts(_draft);
+		_selectedPartId = _previewPartId;
 		_previewPartId = null;
 		RefreshAll();
 	}
@@ -435,6 +503,12 @@ public partial class GarageUi : Control
 
 	private void OnReadyPressed()
 	{
+		if (!_prepMode)
+		{
+			TryRequestFieldDelivery();
+			return;
+		}
+
 		GameCatalog.SanitizeMounts(_draft);
 		if (!GameCatalog.IsPowerLegal(_draft))
 		{
@@ -449,9 +523,40 @@ public partial class GarageUi : Control
 		EmitSignal(SignalName.LoadoutApplied, _draft.Clone());
 	}
 
+	private void TryRequestFieldDelivery()
+	{
+		if (_activeSlot == null || string.IsNullOrEmpty(_previewPartId))
+		{
+			SfxService.Play("alarm", 1.05f, -6f);
+			if (_equipHint != null)
+				_equipHint.Text = "Select a spare part to request a field delivery.";
+			return;
+		}
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return;
+
+		var slot = _activeSlot.Value;
+		var spare = session.Profile.GetSpareInstances(_previewPartId)
+			.FirstOrDefault(i => GameCatalog.GetPart(i.PartId)?.Slot == slot);
+		if (spare == null)
+		{
+			SfxService.Play("alarm", 1.05f, -6f);
+			if (_equipHint != null)
+				_equipHint.Text = "No free copy available for delivery.";
+			return;
+		}
+
+		SfxService.Confirm();
+		EmitSignal(SignalName.FieldDeliveryRequested, (int)slot, spare.InstanceId);
+		Visible = false;
+	}
+
 	private void ClearPreviewSelection(bool closeCategory)
 	{
 		_previewPartId = null;
+		_selectedPartId = null;
 		_activeSlot = null;
 		if (closeCategory)
 			_openCategory = null;
@@ -463,6 +568,7 @@ public partial class GarageUi : Control
 		RefreshRail();
 		RefreshComponentList();
 		RefreshPreview();
+		RefreshSelectionDisplay();
 		RefreshStats();
 		RefreshActions();
 	}
@@ -542,7 +648,8 @@ public partial class GarageUi : Control
 		{
 			var isEquipped = part.Id == equippedId;
 			var isPreview = _previewPartId == part.Id;
-			_listBox.AddChild(MakePartRow(part, isEquipped, isPreview));
+			var isSelected = _selectedPartId == part.Id || (string.IsNullOrEmpty(_selectedPartId) && isEquipped);
+			_listBox.AddChild(MakePartRow(part, isEquipped, isPreview || (isSelected && !isEquipped)));
 		}
 	}
 
@@ -659,6 +766,212 @@ public partial class GarageUi : Control
 		_mechPreview?.ShowLoadout(BuildDisplayLoadout());
 	}
 
+	private void RefreshSelectionDisplay()
+	{
+		if (_selectionBody == null)
+			return;
+
+		if (_activeSlot == null)
+		{
+			_selectionBody.Text =
+				"// NO SLOT SELECTED\n\n" +
+				"Open a hangar category and pick a component.\n" +
+				"Weapon, mount, and systems details appear here with a direct compare against what they replace.";
+			return;
+		}
+
+		var slot = _activeSlot.Value;
+		var equippedId = _draft.GetPartId(slot);
+		var selectedId = string.IsNullOrEmpty(_selectedPartId)
+			? (string.IsNullOrEmpty(_previewPartId) ? equippedId : _previewPartId)
+			: _selectedPartId;
+		var selected = GameCatalog.GetPart(selectedId);
+		if (selected == null || selected.VisualKind == "empty")
+		{
+			_selectionBody.Text =
+				$"// {SlotLabel(slot).ToUpperInvariant()}\n\n" +
+				"Empty mount — select an owned part from the component list.";
+			return;
+		}
+
+		var equipped = GameCatalog.GetPart(equippedId);
+		var comparing = equipped != null
+			&& equipped.VisualKind != "empty"
+			&& equipped.Id != selected.Id;
+		var mfg = GameCatalog.GetManufacturer(selected.ManufacturerId);
+
+		var sb = new StringBuilder();
+		sb.AppendLine(comparing ? "// SELECTED vs EQUIPPED" : "// EQUIPPED / SELECTED");
+		sb.AppendLine($"[color=#D4B56A]{selected.DisplayName}[/color]");
+		sb.AppendLine(
+			$"{CatalogTiers.Label(selected.Tier)}  ·  {SlotLabel(slot)}  ·  {mfg.DisplayName}");
+		if (comparing && equipped != null)
+			sb.AppendLine($"Replaces  {equipped.DisplayName}");
+		sb.AppendLine();
+
+		AppendPartDetailBlock(sb, selected, comparing ? equipped : null);
+		_selectionBody.Text = sb.ToString().TrimEnd();
+	}
+
+	private static void AppendPartDetailBlock(StringBuilder sb, PartData selected, PartData? equipped)
+	{
+		var compare = equipped != null;
+		sb.AppendLine("CONTRIBUTION");
+		AppendPartStat(sb, "Structure", selected.StructureHp, equipped?.StructureHp, compare, "0");
+		AppendPartStat(sb, "Armor", selected.Armor, equipped?.Armor, compare, "0");
+		AppendPartStat(sb, "Weight", selected.Weight, equipped?.Weight, compare, "0", invertGood: true);
+		AppendPartStat(sb, "Power req", selected.PowerRequirement, equipped?.PowerRequirement, compare, "0",
+			invertGood: true);
+		AppendPartStat(sb, "Heat cap", selected.HeatCapBonus, equipped?.HeatCapBonus, compare, "0");
+		AppendPartStat(sb, "Sink /s", selected.HeatDissipation, equipped?.HeatDissipation, compare, "0.0");
+
+		if (selected.Slot is PartSlot.WeaponL or PartSlot.WeaponR
+		    || selected.IsHeldShield
+		    || selected.WeaponFamily != WeaponFamily.None)
+		{
+			sb.AppendLine();
+			sb.AppendLine("WEAPON");
+			if (selected.WeaponFamily != WeaponFamily.None || (equipped?.WeaponFamily ?? WeaponFamily.None) != WeaponFamily.None)
+			{
+				if (compare && equipped != null && selected.WeaponFamily != equipped.WeaponFamily)
+					sb.AppendLine($"  Family  {selected.WeaponFamily}  ←  {equipped.WeaponFamily}");
+				else
+					sb.AppendLine($"  Family  {selected.WeaponFamily}");
+			}
+
+			if (selected.IsHeldShield || equipped is { IsHeldShield: true })
+			{
+				AppendPartStat(sb, "Shield arc", selected.ShieldArcDegrees, equipped?.ShieldArcDegrees, compare, "0");
+				AppendPartStat(sb, "Raise /s", selected.ShieldPowerPerSec, equipped?.ShieldPowerPerSec, compare, "0",
+					invertGood: true);
+				AppendPartStat(sb, "Heat / dmg", selected.ShieldHeatPerDamage, equipped?.ShieldHeatPerDamage, compare,
+					"0.0", invertGood: true);
+			}
+			else
+			{
+				var melee = selected.WeaponFamily == WeaponFamily.Melee
+				            || equipped?.WeaponFamily == WeaponFamily.Melee;
+				AppendPartStat(sb, "Damage", selected.Damage, equipped?.Damage, compare, "0");
+				AppendPartStat(sb, melee ? "Reach" : "Range", selected.Range, equipped?.Range, compare,
+					melee ? "0.0" : "0");
+				AppendPartStat(sb, melee ? "Contact rate" : "Fire rate", selected.FireRate, equipped?.FireRate,
+					compare, "0.0");
+				AppendPartStat(sb, melee ? "Heat / contact" : "Heat / shot", selected.HeatPerShot,
+					equipped?.HeatPerShot, compare, "0", invertGood: true);
+				AppendPartStat(sb, melee ? "Power / contact" : "Power / shot", selected.PowerPerShot,
+					equipped?.PowerPerShot, compare, "0", invertGood: true);
+				if (!melee)
+					AppendPartStat(sb, "Proj speed", selected.ProjectileSpeed, equipped?.ProjectileSpeed, compare, "0");
+				if (selected.AimMode != AimMode.Fixed || (equipped != null && equipped.AimMode != selected.AimMode))
+					sb.AppendLine(compare && equipped != null && equipped.AimMode != selected.AimMode
+						? $"  Aim  {selected.AimMode}  ←  {equipped.AimMode}"
+						: $"  Aim  {selected.AimMode}");
+			}
+		}
+
+		if (selected.Slot == PartSlot.PowerCore)
+		{
+			sb.AppendLine();
+			sb.AppendLine("POWER CORE");
+			if (compare && equipped != null && selected.PowerCoreClass != equipped.PowerCoreClass)
+				sb.AppendLine($"  Class  {selected.PowerCoreClass}  ←  {equipped.PowerCoreClass}");
+			else
+				sb.AppendLine($"  Class  {selected.PowerCoreClass}");
+			AppendPartStat(sb, "Capacity", selected.PowerCapacity, equipped?.PowerCapacity, compare, "0");
+			AppendPartStat(sb, "Gen /s", selected.PowerOutput, equipped?.PowerOutput, compare, "0.0");
+		}
+
+		if (selected.Slot == PartSlot.Torso)
+		{
+			sb.AppendLine();
+			sb.AppendLine("TORSO");
+			AppendPartStat(sb, "Shoulder mounts", selected.ShoulderMountCount, equipped?.ShoulderMountCount, compare,
+				"0");
+			AppendPartStat(sb, "Back mounts", selected.BackpackMountCount, equipped?.BackpackMountCount, compare, "0");
+			AppendPartStat(sb, "Core housing", selected.PowerCoreHousing, equipped?.PowerCoreHousing, compare, "0");
+		}
+
+		if (selected.Slot == PartSlot.Legs)
+		{
+			sb.AppendLine();
+			sb.AppendLine("MOBILITY");
+			sb.AppendLine(compare && equipped != null && selected.LegType != equipped.LegType
+				? $"  Drive  {selected.LegType}  ←  {equipped.LegType}"
+				: $"  Drive  {selected.LegType}");
+			AppendPartStat(sb, "Walk", selected.MaxSpeed, equipped?.MaxSpeed, compare, "0.0");
+			AppendPartStat(sb, "Turn", selected.TurnRateDegrees, equipped?.TurnRateDegrees, compare, "0");
+			AppendPartStat(sb, "Load rating", selected.LoadRating, equipped?.LoadRating, compare, "0");
+			sb.AppendLine($"  Sprint {(selected.CanSprint ? $"Yes ×{selected.SprintMultiplier:0.00}" : "No")}");
+		}
+
+		if (selected.Slot == PartSlot.Head)
+		{
+			sb.AppendLine();
+			sb.AppendLine("SENSORS");
+			AppendPartStat(sb, "Vision m", selected.VisionRange, equipped?.VisionRange, compare, "0");
+			AppendPartStat(sb, "Vision deg", selected.VisionAngleDeg, equipped?.VisionAngleDeg, compare, "0");
+			AppendPartStat(sb, "Close ID", selected.CloseTargeting, equipped?.CloseTargeting, compare, "0.00");
+			AppendPartStat(sb, "Scan m", selected.ScannerRange, equipped?.ScannerRange, compare, "0");
+		}
+
+		if (selected.AbilityKind != AbilityKind.None || equipped is { AbilityKind: not AbilityKind.None })
+		{
+			sb.AppendLine();
+			sb.AppendLine("SYSTEMS");
+			if (selected.AbilityKind == AbilityKind.Active)
+			{
+				sb.AppendLine($"  Ability  {selected.AbilityId}");
+				AppendPartStat(sb, "Cooldown", selected.AbilityCooldown, equipped?.AbilityCooldown, compare, "0.0",
+					invertGood: true);
+				AppendPartStat(sb, "Duration", selected.AbilityDuration, equipped?.AbilityDuration, compare, "0.0");
+				AppendPartStat(sb, "Radius", selected.AbilityRadius, equipped?.AbilityRadius, compare, "0.0");
+				AppendPartStat(sb, "Heat burst", selected.AbilityHeatBurst, equipped?.AbilityHeatBurst, compare, "0",
+					invertGood: true);
+				AppendPartStat(sb, "Power load", selected.AbilityPowerLoad, equipped?.AbilityPowerLoad, compare, "0",
+					invertGood: true);
+			}
+			else if (selected.AbilityKind == AbilityKind.Passive)
+			{
+				sb.AppendLine($"  Passive  {selected.AbilityId}");
+				if (selected.FireRateBonus > 0f || (equipped?.FireRateBonus ?? 0f) > 0f)
+					AppendPartStat(sb, "Fire rate bonus", selected.FireRateBonus, equipped?.FireRateBonus, compare,
+						"0.00");
+			}
+		}
+
+		if (compare && equipped != null && selected.Tier != equipped.Tier)
+		{
+			sb.AppendLine();
+			sb.AppendLine(
+				$"  Tier  {CatalogTiers.ShortLabel(selected.Tier)}  ←  {CatalogTiers.ShortLabel(equipped.Tier)}");
+		}
+	}
+
+	private static void AppendPartStat(
+		StringBuilder sb,
+		string label,
+		float selected,
+		float? equipped,
+		bool compare,
+		string format,
+		bool invertGood = false)
+	{
+		if (!compare || equipped == null || Mathf.IsEqualApprox(selected, equipped.Value))
+		{
+			if (Mathf.IsZeroApprox(selected) && (equipped == null || Mathf.IsZeroApprox(equipped.Value)))
+				return;
+			sb.AppendLine($"  {label}  {selected.ToString(format)}");
+			return;
+		}
+
+		var delta = selected - equipped.Value;
+		var better = invertGood ? delta < 0f : delta > 0f;
+		var sign = delta > 0f ? "+" : "";
+		var color = better ? "#73C7EB" : "#E66152";
+		sb.AppendLine(
+			$"  {label}  {selected.ToString(format)}  [color={color}]({sign}{delta.ToString(format)})[/color]");
+	}
+
 	private LoadoutData BuildDisplayLoadout()
 	{
 		var display = _draft.Clone();
@@ -679,6 +992,20 @@ public partial class GarageUi : Control
 			return;
 
 		var previewing = _activeSlot != null && !string.IsNullOrEmpty(_previewPartId);
+
+		if (!_prepMode)
+		{
+			_equipButton.Disabled = true;
+			_equipButton.Modulate = new Color(1f, 1f, 1f, 0.45f);
+			_readyButton.Disabled = !previewing;
+			_readyButton.Modulate = previewing ? Colors.White : new Color(1f, 0.55f, 0.45f);
+			_equipHint.Text = previewing
+				? "REQUEST DELIVERY drops this spare near you — hold Interact on the crate to install."
+				: "Field Hangar: select a spare owned/loot part, then REQUEST DELIVERY.";
+			_equipHint.Modulate = MechUiTheme.Muted;
+			return;
+		}
+
 		var canEquip = false;
 		if (previewing)
 			canEquip = GameCatalog.CanEquipPart(_draft, _activeSlot!.Value, _previewPartId!);

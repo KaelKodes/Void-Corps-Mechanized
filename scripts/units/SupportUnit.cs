@@ -202,6 +202,7 @@ public partial class SupportUnit : CharacterBody3D
 		var muzzlePos = muzzle + dir * 0.8f;
 		var velocity = dir * _data.ProjectileSpeed;
 		var lifetime = _data.Range / Mathf.Max(1f, _data.ProjectileSpeed);
+		var style = ProjectileStyleUtil.FromSupport(_data);
 		var bus = NetCombatBus.Find(parent);
 		if (bus != null && GetTree()?.GetMultiplayer().MultiplayerPeer != null)
 		{
@@ -215,12 +216,12 @@ public partial class SupportUnit : CharacterBody3D
 				Team,
 				TargetingMode.Standard,
 				-1,
-				ballistic: false,
+				style,
 				gravity: 0f);
 		}
 		else
 		{
-			var projectile = Projectile.Create();
+			var projectile = Projectile.Create(style);
 			projectile.Source = this;
 			projectile.SourceTeam = Team;
 			projectile.Damage = _data.Damage;

@@ -45,11 +45,25 @@ public static class MeshMat
 		{
 			if (child is not MeshInstance3D mi)
 				continue;
+			// Disable shadow queries before clearing materials — RD spam happens when
+			// CastShadow is still On against a null material during the free frame.
+			mi.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
 			mi.MaterialOverride = null;
 			var count = mi.GetSurfaceOverrideMaterialCount();
 			for (var i = 0; i < count; i++)
 				mi.SetSurfaceOverrideMaterial(i, null);
 			if (mi.Mesh is PrimitiveMesh prim)
+				prim.Material = null;
+		}
+
+		if (root is MeshInstance3D self)
+		{
+			self.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+			self.MaterialOverride = null;
+			var count = self.GetSurfaceOverrideMaterialCount();
+			for (var i = 0; i < count; i++)
+				self.SetSurfaceOverrideMaterial(i, null);
+			if (self.Mesh is PrimitiveMesh prim)
 				prim.Material = null;
 		}
 	}

@@ -42,7 +42,7 @@ public static class VoidCorpsIdentity
 	public const string PlayerCorpBlurb =
 		"A young surface corp. Rise through its ranks; if the corp takes ground, its pilots take the spoils.";
 	public const string CampaignPremise =
-		"Publicly you are an independent merc corps. Privately you are a manufacturer's shadow arm claiming ground they can quietly exploit.";
+		"Your upstart corp has been tasked with claiming ground across a contested system. Manufacturers license kit and research; they are not your fighting faction.";
 	public const string CadetPremise =
 		"The MAP Cadet Program issues a military-grade training chassis for tutorial certification only.";
 	public const string ConventionPremise =

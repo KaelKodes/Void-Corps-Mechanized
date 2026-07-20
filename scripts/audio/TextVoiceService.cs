@@ -254,14 +254,28 @@ public partial class TextVoiceService : Node
 	private void LoadBank()
 	{
 		_clips.Clear();
-		if (!Godot.FileAccess.FileExists(ManifestPath))
+		// bank.json is a loose text file — ResourceLoader / FileAccess both work if include_filter packs it.
+		string? json = null;
+		if (Godot.FileAccess.FileExists(ManifestPath))
+		{
+			using var file = Godot.FileAccess.Open(ManifestPath, Godot.FileAccess.ModeFlags.Read);
+			json = file?.GetAsText();
+		}
+
+		if (string.IsNullOrEmpty(json) && ResourceLoader.Exists(ManifestPath))
+		{
+			// Some exports remap loose JSON; try reading via FileAccess after Exists check.
+			using var file = Godot.FileAccess.Open(ManifestPath, Godot.FileAccess.ModeFlags.Read);
+			json = file?.GetAsText();
+		}
+
+		if (string.IsNullOrEmpty(json))
 		{
 			GD.PushWarning($"TextVoiceService: missing manifest {ManifestPath}");
 			return;
 		}
 
-		using var file = Godot.FileAccess.Open(ManifestPath, Godot.FileAccess.ModeFlags.Read);
-		var parsed = file == null ? default : Json.ParseString(file.GetAsText());
+		var parsed = Json.ParseString(json);
 		if (parsed.VariantType != Variant.Type.Dictionary)
 		{
 			GD.PushWarning($"TextVoiceService: invalid manifest {ManifestPath}");
@@ -279,6 +293,12 @@ public partial class TextVoiceService : Node
 		{
 			var token = key.AsString().ToLowerInvariant();
 			var path = $"{BankDirectory}/{value.AsString()}";
+			if (!ResourceLoader.Exists(path))
+			{
+				GD.PushWarning($"TextVoiceService: could not load token '{token}' from {path}");
+				continue;
+			}
+
 			var stream = ResourceLoader.Load<AudioStream>(path);
 			if (stream == null)
 			{

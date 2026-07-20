@@ -50,11 +50,15 @@ public partial class MechIntegrity : Node
 				return "Legs --";
 			if (legs.EquippedPart == null)
 				return "Legs none";
-			return $"Legs {legs.LimbsAlive}/{legs.LimbCount} ({legs.MobilityFactor * 100f:0}%)";
+			return $"Legs {legs.CurrentHp:0}/{legs.MaxHp:0} ({legs.MobilityFactor * 100f:0}% move)";
 		}
 	}
 
-	public void Bind(MechController mech, MechAssembler assembler, Damageable? torsoHealth)
+	public void Bind(
+		MechController mech,
+		MechAssembler assembler,
+		Damageable? torsoHealth,
+		IReadOnlyDictionary<PartSlot, PartCondition>? conditions = null)
 	{
 		if (_torsoHealth != null)
 			_torsoHealth.Died -= OnTorsoHealthDied;
@@ -64,7 +68,11 @@ public partial class MechIntegrity : Node
 		_torsoHealth = torsoHealth;
 		_collapsed = false;
 		CancelSelfDestruct();
-		InitializeComponentHealth();
+
+		if (conditions == null || conditions.Count == 0)
+			InitializeComponentHealth();
+		else
+			RestoreConditions(conditions);
 
 		if (_torsoHealth != null
 		    && _assembler.Hardpoints.TryGetValue(PartSlot.Torso, out var torso))
@@ -81,6 +89,44 @@ public partial class MechIntegrity : Node
 
 		foreach (var hp in _assembler.Hardpoints.Values)
 			hp.InitializeIntegrity();
+	}
+
+	public Dictionary<PartSlot, PartCondition> CaptureConditions()
+	{
+		var map = new Dictionary<PartSlot, PartCondition>();
+		if (_assembler == null)
+			return map;
+		foreach (var (slot, hardpoint) in _assembler.Hardpoints)
+		{
+			if (hardpoint.EquippedPart == null || hardpoint.EquippedPart.VisualKind == "empty")
+				continue;
+			if (slot == PartSlot.PowerCore)
+				continue;
+			map[slot] = hardpoint.CaptureCondition();
+		}
+
+		return map;
+	}
+
+	public void RestoreConditions(IReadOnlyDictionary<PartSlot, PartCondition> conditions)
+	{
+		if (_assembler == null)
+			return;
+		foreach (var (slot, hardpoint) in _assembler.Hardpoints)
+		{
+			if (hardpoint.EquippedPart == null || hardpoint.EquippedPart.VisualKind == "empty")
+				continue;
+			hardpoint.InitializeIntegrity();
+			if (conditions.TryGetValue(slot, out var condition))
+				hardpoint.RestoreCondition(condition);
+		}
+	}
+
+	public bool IsDestroyed(PartSlot slot)
+	{
+		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(slot, out var hp))
+			return false;
+		return hp.IsDestroyed;
 	}
 
 	/// <summary>
@@ -218,7 +264,7 @@ public partial class MechIntegrity : Node
 		EmitSignal(SignalName.ComponentDamaged, (int)target.Slot, structureLost, target.CurrentHp, target.MaxHp);
 
 		if (limbsLost > 0 && target.IsLegPackage)
-			GD.Print($"{_mech?.Name} lost {limbsLost} limb(s). Legs {target.LimbsAlive}/{target.LimbCount}.");
+			GD.Print($"{_mech?.Name} mobility package destroyed. Legs offline.");
 
 		if (packageDestroyed && !target.IsDestroyed)
 		{
@@ -281,13 +327,6 @@ public partial class MechIntegrity : Node
 
 		if (IsDestroyed(PartSlot.Torso) || (_torsoHealth?.IsDead ?? false))
 			Collapse("torso destroyed");
-	}
-
-	private bool IsDestroyed(PartSlot slot)
-	{
-		return _assembler != null
-			&& _assembler.Hardpoints.TryGetValue(slot, out var hp)
-			&& hp.IsDestroyed;
 	}
 
 	private void Collapse(string reason)

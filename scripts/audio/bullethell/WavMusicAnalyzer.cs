@@ -26,31 +26,95 @@ public static class WavMusicAnalyzer
 		if (string.IsNullOrWhiteSpace(resPath))
 			throw new ArgumentException("WAV path required.", nameof(resPath));
 
-		var abs = ProjectSettings.GlobalizePath(resPath);
-		if (!File.Exists(abs) && !FileAccess.FileExists(resPath))
+		if (!TryReadPcm(resPath, out var fileBytes, out var sourceLabel))
 			throw new FileNotFoundException($"Bullet-hell track missing: {resPath}");
 
-		var bytes = File.Exists(abs)
-			? File.ReadAllBytes(abs)
-			: FileAccess.GetFileAsBytes(resPath);
-
-		if (bytes == null || bytes.Length < 44)
+		if (fileBytes == null || fileBytes.Length < 44)
 			throw new InvalidDataException($"Invalid WAV: {resPath}");
 
-		var cachePath = CachePathFor(resPath, bytes.LongLength);
-		if (!forceReanalyze && TryLoadCache(cachePath, resPath, bytes.LongLength, out var cached))
+		var cachePath = CachePathFor(resPath, fileBytes.LongLength);
+		if (!forceReanalyze && TryLoadCache(cachePath, resPath, fileBytes.LongLength, out var cached))
 		{
 			GD.Print($"WavMusicAnalyzer: cache hit ({cached.Onsets.Count} onsets, {cached.Bpm:0.0} BPM) — {resPath}");
 			return cached;
 		}
 
-		GD.Print($"WavMusicAnalyzer: analyzing {resPath} ({bytes.Length / (1024f * 1024f):0.0} MB)...");
-		var map = AnalyzeBytes(resPath, bytes);
+		GD.Print($"WavMusicAnalyzer: analyzing {sourceLabel} ({fileBytes.Length / (1024f * 1024f):0.0} MB)...");
+		var map = AnalyzeBytes(resPath, fileBytes);
 		SaveCache(cachePath, map);
 		GD.Print(
 			$"WavMusicAnalyzer: done — {map.DurationSeconds:0.0}s, {map.Bpm:0.0} BPM " +
 			$"(conf {map.Confidence:0.00}), {map.Onsets.Count} onsets, {map.Sections.Count} sections.");
 		return map;
+	}
+
+	/// <summary>
+	/// Exported builds only ship the imported AudioStreamWAV — not the raw source file.
+	/// Prefer ResourceLoader PCM; fall back to filesystem bytes in the editor.
+	/// </summary>
+	private static bool TryReadPcm(string resPath, out byte[] fileBytes, out string sourceLabel)
+	{
+		fileBytes = Array.Empty<byte>();
+		sourceLabel = resPath;
+
+		if (ResourceLoader.Exists(resPath))
+		{
+			var stream = ResourceLoader.Load<AudioStreamWav>(resPath);
+			if (stream != null)
+			{
+				if (stream.Format != AudioStreamWav.FormatEnum.Format16Bits)
+				{
+					GD.PushWarning(
+						$"WavMusicAnalyzer: {resPath} is imported as {stream.Format}. " +
+						"Reimport with Compress Mode = Disabled for beat analysis.");
+				}
+				else if (stream.Data is { Length: > 0 } pcm)
+				{
+					fileBytes = WrapPcmAsWav(pcm, stream.MixRate, stream.Stereo ? 2 : 1);
+					sourceLabel = $"{resPath} (imported)";
+					return true;
+				}
+			}
+		}
+
+		var abs = ProjectSettings.GlobalizePath(resPath);
+		if (File.Exists(abs))
+		{
+			fileBytes = File.ReadAllBytes(abs);
+			sourceLabel = abs;
+			return true;
+		}
+
+		if (FileAccess.FileExists(resPath))
+		{
+			fileBytes = FileAccess.GetFileAsBytes(resPath);
+			return fileBytes is { Length: > 0 };
+		}
+
+		return false;
+	}
+
+	private static byte[] WrapPcmAsWav(byte[] pcm, int sampleRate, int channels)
+	{
+		// AnalyzeBytes expects a full RIFF/WAVE container.
+		var dataSize = pcm.Length;
+		var file = new byte[44 + dataSize];
+		Encoding.ASCII.GetBytes("RIFF").CopyTo(file, 0);
+		BitConverter.GetBytes(36 + dataSize).CopyTo(file, 4);
+		Encoding.ASCII.GetBytes("WAVE").CopyTo(file, 8);
+		Encoding.ASCII.GetBytes("fmt ").CopyTo(file, 12);
+		BitConverter.GetBytes(16).CopyTo(file, 16); // PCM fmt chunk size
+		BitConverter.GetBytes((short)1).CopyTo(file, 20); // PCM
+		BitConverter.GetBytes((short)channels).CopyTo(file, 22);
+		BitConverter.GetBytes(sampleRate).CopyTo(file, 24);
+		var byteRate = sampleRate * channels * 2;
+		BitConverter.GetBytes(byteRate).CopyTo(file, 28);
+		BitConverter.GetBytes((short)(channels * 2)).CopyTo(file, 32);
+		BitConverter.GetBytes((short)16).CopyTo(file, 34);
+		Encoding.ASCII.GetBytes("data").CopyTo(file, 36);
+		BitConverter.GetBytes(dataSize).CopyTo(file, 40);
+		Buffer.BlockCopy(pcm, 0, file, 44, dataSize);
+		return file;
 	}
 
 	public static BulletHellBeatMap AnalyzeBytes(string sourcePath, byte[] fileBytes)

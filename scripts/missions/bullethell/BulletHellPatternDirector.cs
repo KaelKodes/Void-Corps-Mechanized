@@ -399,14 +399,14 @@ public sealed class BulletHellPatternDirector
 				TeamId.Enemy,
 				TargetingMode.Standard,
 				preferredSlot: -1,
-				ballistic: false,
+				ProjectileStyle.HazardOrb,
 				gravity: 0f,
 				playsWorldImpactSfx: false,
 				damagesWorldObjects: false);
 			return;
 		}
 
-		var projectile = Projectile.Create();
+		var projectile = Projectile.Create(ProjectileStyle.HazardOrb);
 		projectile.Source = source;
 		projectile.SourceTeam = TeamId.Enemy;
 		projectile.Damage = damage;

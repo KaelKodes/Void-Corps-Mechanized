@@ -97,46 +97,130 @@ public static class TitanPartVisualFactory
 	private static void BuildBipedLegs(
 		Node3D root, Material mat, Material dark, Material light, Material plate, Material glow)
 	{
-		// Hip yoke + armor skirt
+		root.SetMeta("LegRig", "biped");
 		AddBox(root, mat, new Vector3(1.25f, 0.28f, 0.82f), new Vector3(0f, 0.92f, 0f));
 		AddBox(root, dark, new Vector3(1.05f, 0.12f, 0.62f), new Vector3(0f, 0.82f, 0.04f));
 		AddBox(root, plate, new Vector3(1.35f, 0.1f, 0.55f), new Vector3(0f, 0.78f, -0.08f));
 		AddBox(root, glow, new Vector3(0.35f, 0.06f, 0.08f), new Vector3(0f, 0.88f, -0.38f));
+		AddTitanBipedLeg(root, mat, dark, light, plate, "Leg_L", -0.42f);
+		AddTitanBipedLeg(root, mat, dark, light, plate, "Leg_R", 0.42f);
+	}
 
-		foreach (var side in new[] { -1f, 1f })
-		{
-			var x = side * 0.42f;
-			// Upper actuator housing
-			AddBox(root, mat, new Vector3(0.38f, 0.5f, 0.38f), new Vector3(x, 0.62f, 0f));
-			AddBox(root, plate, new Vector3(0.44f, 0.18f, 0.22f), new Vector3(x, 0.72f, -0.14f));
-			AddCylinder(root, dark, 0.08f, 0.42f, new Vector3(x, 0.55f, 0.16f), Vector3.Right * 0.35f);
-			// Knee block
-			AddBox(root, light, new Vector3(0.42f, 0.2f, 0.42f), new Vector3(x, 0.4f, 0.03f));
-			AddSphere(root, dark, 0.1f, new Vector3(x, 0.4f, 0.18f));
-			// Shin armor
-			AddBox(root, dark, new Vector3(0.34f, 0.42f, 0.34f), new Vector3(x, 0.2f, 0f));
-			AddBox(root, plate, new Vector3(0.4f, 0.28f, 0.12f), new Vector3(x, 0.22f, -0.18f));
-			// Foot + toe plate
-			AddBox(root, mat, new Vector3(0.52f, 0.16f, 0.68f), new Vector3(x, 0.06f, 0.08f));
-			AddBox(root, light, new Vector3(0.38f, 0.08f, 0.22f), new Vector3(x, 0.08f, 0.32f));
-			AddBox(root, dark, new Vector3(0.18f, 0.1f, 0.28f), new Vector3(x - side * 0.2f, 0.05f, -0.18f));
-		}
+	private static void AddTitanBipedLeg(
+		Node3D root, Material mat, Material dark, Material light, Material plate, string name, float hipX)
+	{
+		const float thighLen = 0.5f;
+		const float shinLen = 0.42f;
+		var side = Mathf.Sign(hipX);
+
+		var hip = new Node3D { Name = name, Position = new Vector3(hipX, 0.88f, 0f) };
+		hip.SetMeta("RestRotation", Vector3.Zero);
+		root.AddChild(hip);
+
+		hip.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.38f, thighLen, 0.38f) }, mat,
+			new Vector3(0f, -thighLen * 0.5f, 0f)));
+		hip.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.44f, 0.18f, 0.22f) }, plate,
+			new Vector3(0f, -0.12f, -0.14f)));
+		hip.AddChild(MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.08f, BottomRadius = 0.08f, Height = 0.42f },
+			dark,
+			new Vector3(0f, -0.28f, 0.16f),
+			Vector3.Right * 0.35f));
+
+		var knee = new Node3D { Name = "Knee", Position = new Vector3(0f, -thighLen, 0f) };
+		knee.SetMeta("RestRotation", Vector3.Zero);
+		hip.AddChild(knee);
+
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.42f, 0.2f, 0.42f) }, light,
+			new Vector3(0f, 0f, 0.03f)));
+		knee.AddChild(MeshMat.Make(
+			new SphereMesh { Radius = 0.1f, Height = 0.2f },
+			dark,
+			new Vector3(0f, 0f, 0.18f)));
+
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.34f, shinLen, 0.34f) }, dark,
+			new Vector3(0f, -shinLen * 0.5f, 0f)));
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.4f, 0.28f, 0.12f) }, plate,
+			new Vector3(0f, -shinLen * 0.45f, -0.18f)));
+
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.52f, 0.16f, 0.68f) }, mat,
+			new Vector3(0f, -shinLen - 0.06f, 0.08f)));
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.38f, 0.08f, 0.22f) }, light,
+			new Vector3(0f, -shinLen - 0.04f, 0.32f)));
+		knee.AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(0.18f, 0.1f, 0.28f) }, dark,
+			new Vector3(-side * 0.2f, -shinLen - 0.07f, -0.18f)));
 	}
 
 	private static void BuildHexLegs(
 		Node3D root, Material mat, Material dark, Material light, Material plate, Material glow)
 	{
+		root.SetMeta("LegRig", "hex");
 		AddBox(root, mat, new Vector3(1.05f, 0.28f, 1.05f), new Vector3(0f, 0.58f, 0f));
 		AddBox(root, dark, new Vector3(0.78f, 0.12f, 0.78f), new Vector3(0f, 0.68f, 0f));
 		AddCylinder(root, plate, 0.34f, 0.2f, new Vector3(0f, 0.72f, 0f), Vector3.Zero);
 		AddSphere(root, glow, 0.14f, new Vector3(0f, 0.82f, 0f));
 
-		AddTitanLeg(root, mat, dark, light, new Vector3(-0.72f, 0.36f, -0.48f), new Vector3(0.55f, 0f, 0.35f));
-		AddTitanLeg(root, mat, dark, light, new Vector3(0.72f, 0.36f, -0.48f), new Vector3(0.55f, 0f, -0.35f));
-		AddTitanLeg(root, mat, dark, light, new Vector3(-0.9f, 0.36f, 0.08f), new Vector3(0.12f, 0f, 0.55f));
-		AddTitanLeg(root, mat, dark, light, new Vector3(0.9f, 0.36f, 0.08f), new Vector3(0.12f, 0f, -0.55f));
-		AddTitanLeg(root, mat, dark, light, new Vector3(-0.68f, 0.36f, 0.58f), new Vector3(-0.42f, 0f, 0.38f));
-		AddTitanLeg(root, mat, dark, light, new Vector3(0.68f, 0.36f, 0.58f), new Vector3(-0.42f, 0f, -0.38f));
+		AddTitanSpiderLeg(root, mat, dark, light, 0, new Vector3(-0.48f, 0.62f, -0.4f), new Vector3(-1.22f, 0.12f, -0.9f));
+		AddTitanSpiderLeg(root, mat, dark, light, 1, new Vector3(0.48f, 0.62f, -0.4f), new Vector3(1.22f, 0.12f, -0.9f));
+		AddTitanSpiderLeg(root, mat, dark, light, 2, new Vector3(-0.52f, 0.62f, 0f), new Vector3(-1.38f, 0.12f, 0f));
+		AddTitanSpiderLeg(root, mat, dark, light, 3, new Vector3(0.52f, 0.62f, 0f), new Vector3(1.38f, 0.12f, 0f));
+		AddTitanSpiderLeg(root, mat, dark, light, 4, new Vector3(-0.48f, 0.62f, 0.4f), new Vector3(-1.22f, 0.12f, 0.9f));
+		AddTitanSpiderLeg(root, mat, dark, light, 5, new Vector3(0.48f, 0.62f, 0.4f), new Vector3(1.22f, 0.12f, 0.9f));
+	}
+
+	private static void AddTitanSpiderLeg(
+		Node3D parent, Material mat, Material dark, Material light, int index, Vector3 hip, Vector3 foot)
+	{
+		var leg = new Node3D { Name = $"HexLeg_{index}" };
+		leg.SetMeta("LegIndex", index);
+		leg.SetMeta("Hip", hip);
+		leg.SetMeta("RestFoot", foot);
+		parent.AddChild(leg);
+
+		var upper = MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.095f, BottomRadius = 0.115f, Height = 1f },
+			mat);
+		upper.Name = "Upper";
+		leg.AddChild(upper);
+
+		var lower = MeshMat.Make(
+			new CylinderMesh { TopRadius = 0.075f, BottomRadius = 0.095f, Height = 1f },
+			dark);
+		lower.Name = "Lower";
+		leg.AddChild(lower);
+
+		var knee = MeshMat.Make(
+			new SphereMesh { Radius = 0.13f, Height = 0.26f },
+			light);
+		knee.Name = "Knee";
+		leg.AddChild(knee);
+
+		var footBall = MeshMat.Make(
+			new SphereMesh { Radius = 0.12f, Height = 0.24f },
+			light);
+		footBall.Name = "Foot";
+		leg.AddChild(footBall);
+
+		PoseTitanSpiderLeg(leg, hip, foot);
+	}
+
+	private static void PoseTitanSpiderLeg(Node3D leg, Vector3 hip, Vector3 foot)
+	{
+		var outward = new Vector3(foot.X - hip.X, 0f, foot.Z - hip.Z).Normalized();
+		var knee = hip.Lerp(foot, 0.52f) + outward * 0.2f + Vector3.Up * 0.28f;
+		PoseTitanStrut(leg.GetNode<MeshInstance3D>("Upper"), hip, knee);
+		PoseTitanStrut(leg.GetNode<MeshInstance3D>("Lower"), knee, foot);
+		leg.GetNode<MeshInstance3D>("Knee").Position = knee;
+		leg.GetNode<MeshInstance3D>("Foot").Position = foot;
+	}
+
+	private static void PoseTitanStrut(MeshInstance3D strut, Vector3 from, Vector3 to)
+	{
+		var delta = to - from;
+		var length = Mathf.Max(0.001f, delta.Length());
+		strut.Position = (from + to) * 0.5f;
+		strut.Quaternion = new Quaternion(Vector3.Up, delta / length);
+		strut.Scale = new Vector3(1f, length, 1f);
 	}
 
 	private static void BuildTracks(
@@ -369,16 +453,6 @@ public static class TitanPartVisualFactory
 		AddSphere(root, glow, 0.12f, new Vector3(0f, 0.38f, 0.22f));
 		AddBox(root, dark, new Vector3(0.2f, 0.45f, 0.12f), new Vector3(-0.45f, 0.38f, 0.12f));
 		AddBox(root, dark, new Vector3(0.2f, 0.45f, 0.12f), new Vector3(0.45f, 0.38f, 0.12f));
-	}
-
-	private static void AddTitanLeg(
-		Node3D parent, Material mat, Material dark, Material light, Vector3 position, Vector3 rotation)
-	{
-		AddCylinder(parent, mat, 0.1f, 0.95f, position, rotation);
-		AddCylinder(parent, dark, 0.07f, 0.55f, position + new Vector3(0f, -0.15f, 0f), rotation);
-		AddSphere(parent, light, 0.12f, new Vector3(position.X * 1.15f, 0.1f, position.Z * 1.15f));
-		AddBox(parent, dark, new Vector3(0.18f, 0.1f, 0.28f),
-			new Vector3(position.X * 1.2f, 0.04f, position.Z * 1.2f));
 	}
 
 	private static StandardMaterial3D MakeMat(

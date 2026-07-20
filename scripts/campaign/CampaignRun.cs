@@ -6,10 +6,12 @@ namespace Mechanize;
 public sealed class CampaignRun
 {
 	public const string SavePath = "user://mechanize_campaign.json";
+	public const string SolarOnboardingSavePath = "user://mechanize_solar_onboarding.json";
 	/// <summary>0-based; display as Sector 1..MaxSectors.</summary>
 	public const int MaxSectors = 3;
 
 	public int Seed { get; set; }
+	public bool SolarOnboarding { get; set; }
 	public int SectorIndex { get; set; }
 	public string CurrentNodeId { get; set; } = "";
 	public bool Alive { get; set; } = true;
@@ -49,7 +51,7 @@ public sealed class CampaignRun
 		return run;
 	}
 
-	public static CampaignRun StartCadet(int seed = -1)
+	public static CampaignRun StartCadet(int seed = -1, bool solarOnboarding = false)
 	{
 		if (seed < 0)
 			seed = (int)Time.GetTicksMsec();
@@ -59,6 +61,7 @@ public sealed class CampaignRun
 		var run = new CampaignRun
 		{
 			Seed = seed,
+			SolarOnboarding = solarOnboarding,
 			SectorIndex = 0,
 			Phase = CampaignPhase.CadetProgram,
 			AcademyStep = AcademyStep.Range,
@@ -85,7 +88,8 @@ public sealed class CampaignRun
 		Graph = SectorGraphGenerator.GenerateConventionGate(Seed ^ 4242);
 		CurrentNodeId = Graph.StartNode.Id;
 		Convention = new ConventionState();
-		Convention.EnsureAllManufacturers();
+		if (!SolarOnboarding)
+			Convention.EnsureAllManufacturers();
 		Alive = true;
 		Save();
 	}
@@ -167,6 +171,7 @@ public sealed class CampaignRun
 		var dict = new Godot.Collections.Dictionary
 		{
 			["seed"] = Seed,
+			["solar_onboarding"] = SolarOnboarding,
 			["sector"] = SectorIndex,
 			["node"] = CurrentNodeId,
 			["alive"] = Alive,
@@ -178,15 +183,18 @@ public sealed class CampaignRun
 			["convention"] = Convention.ToDict()
 		};
 		var json = Json.Stringify(dict, "\t");
-		using var file = Godot.FileAccess.Open(SavePath, Godot.FileAccess.ModeFlags.Write);
+		using var file = Godot.FileAccess.Open(
+			SolarOnboarding ? SolarOnboardingSavePath : SavePath,
+			Godot.FileAccess.ModeFlags.Write);
 		file?.StoreString(json);
 	}
 
-	public static CampaignRun? Load()
+	public static CampaignRun? Load(bool solarOnboarding = false)
 	{
-		if (!Godot.FileAccess.FileExists(SavePath))
+		var path = solarOnboarding ? SolarOnboardingSavePath : SavePath;
+		if (!Godot.FileAccess.FileExists(path))
 			return null;
-		using var file = Godot.FileAccess.Open(SavePath, Godot.FileAccess.ModeFlags.Read);
+		using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
 		if (file == null)
 			return null;
 		var parsed = Json.ParseString(file.GetAsText());
@@ -222,11 +230,15 @@ public sealed class CampaignRun
 		var convention = dict.ContainsKey("convention") && dict["convention"].VariantType == Variant.Type.Dictionary
 			? ConventionState.FromDict(dict["convention"].AsGodotDictionary())
 			: new ConventionState();
-		convention.EnsureAllManufacturers();
+		var isSolarOnboarding = solarOnboarding
+			|| (dict.ContainsKey("solar_onboarding") && dict["solar_onboarding"].AsBool());
+		if (!isSolarOnboarding)
+			convention.EnsureAllManufacturers();
 
 		return new CampaignRun
 		{
 			Seed = dict["seed"].AsInt32(),
+			SolarOnboarding = isSolarOnboarding,
 			SectorIndex = dict["sector"].AsInt32(),
 			CurrentNodeId = dict["node"].AsString(),
 			Alive = !dict.ContainsKey("alive") || dict["alive"].AsBool(),
@@ -247,5 +259,13 @@ public sealed class CampaignRun
 			return;
 		using var dir = DirAccess.Open("user://");
 		dir?.Remove("mechanize_campaign.json");
+	}
+
+	public static void ClearSolarOnboardingSave()
+	{
+		if (!Godot.FileAccess.FileExists(SolarOnboardingSavePath))
+			return;
+		using var dir = DirAccess.Open("user://");
+		dir?.Remove("mechanize_solar_onboarding.json");
 	}
 }

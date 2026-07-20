@@ -78,32 +78,28 @@ public partial class MusicService : Node
 	private void DiscoverTracks()
 	{
 		_tracks.Clear();
-		using var dir = DirAccess.Open(SoundtrackDir);
-		if (dir == null)
+		// DirAccess only sees *.import stubs inside an exported PCK — use ResourceLoader.
+		var listed = ResourceLoader.ListDirectory(SoundtrackDir);
+		foreach (var entry in listed)
 		{
-			GD.PushWarning($"MusicService: missing {SoundtrackDir}");
-			return;
-		}
+			if (string.IsNullOrEmpty(entry) || entry.EndsWith('/'))
+				continue;
 
-		dir.ListDirBegin();
-		while (true)
-		{
-			var file = dir.GetNext();
-			if (string.IsNullOrEmpty(file))
-				break;
-			if (dir.CurrentIsDir())
+			var file = entry.TrimSuffix("/");
+			if (!IsAudioFileName(file))
 				continue;
-			if (!file.EndsWith(".mp3", System.StringComparison.OrdinalIgnoreCase)
-			    && !file.EndsWith(".ogg", System.StringComparison.OrdinalIgnoreCase)
-			    && !file.EndsWith(".wav", System.StringComparison.OrdinalIgnoreCase))
-				continue;
+
 			_tracks.Add($"{SoundtrackDir}/{file}");
 		}
 
-		dir.ListDirEnd();
 		_tracks.Sort();
 		GD.Print($"MusicService: {_tracks.Count} soundtrack track(s).");
 	}
+
+	private static bool IsAudioFileName(string file) =>
+		file.EndsWith(".mp3", System.StringComparison.OrdinalIgnoreCase)
+		|| file.EndsWith(".ogg", System.StringComparison.OrdinalIgnoreCase)
+		|| file.EndsWith(".wav", System.StringComparison.OrdinalIgnoreCase);
 
 	public static void Cue(MusicCue cue) => Instance?.CueInternal(cue);
 
@@ -162,8 +158,7 @@ public partial class MusicService : Node
 	{
 		if (cue == MusicCue.Menu)
 		{
-			if (_tracks.Contains(MenuTrackPath) || ResourceLoader.Exists(MenuTrackPath)
-			    || Godot.FileAccess.FileExists(MenuTrackPath))
+			if (_tracks.Contains(MenuTrackPath) || ResourceLoader.Exists(MenuTrackPath))
 				return MenuTrackPath;
 
 			GD.PushWarning($"MusicService: menu track missing ({MenuTrackPath}), falling back.");

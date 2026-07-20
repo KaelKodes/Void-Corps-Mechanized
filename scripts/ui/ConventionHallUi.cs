@@ -4,7 +4,7 @@ using Godot;
 
 namespace Mechanize;
 
-/// <summary>Big Four convention floor — banners, recruiter pitches, trials, signing.</summary>
+/// <summary>Job convention floor — frontier employers, recruiter pitches, trials, signing.</summary>
 public partial class ConventionHallUi : Control
 {
 	private static readonly string[] HouseOrder = ["brimforge", "ourotech", "trinova", "lumina"];
@@ -36,7 +36,13 @@ public partial class ConventionHallUi : Control
 		_run = _session?.Campaign ?? CampaignRun.Load() ?? CampaignRun.StartCadet();
 		if (_run.Phase != CampaignPhase.ManufacturerConvention)
 			_run.EnterConventionGate();
-		_run.Convention.EnsureAllManufacturers();
+		if (_run.SolarOnboarding && _session != null)
+		{
+			foreach (var company in _session.SolarCampaign.ConventionCompanies)
+				_run.Convention.Get(company.Id);
+		}
+		else
+			_run.Convention.EnsureAllManufacturers();
 		if (_session != null)
 		{
 			_session.Campaign = _run;
@@ -78,7 +84,7 @@ public partial class ConventionHallUi : Control
 
 		var title = new Label
 		{
-			Text = "BIG FOUR CONVENTION",
+			Text = _run.SolarOnboarding ? "FRONTIER JOB CONVENTION" : "BIG FOUR CONVENTION",
 			Position = new Vector2(48, 28),
 			Size = new Vector2(900, 40),
 			Modulate = new Color(0.85f, 0.7f, 0.38f)
@@ -106,7 +112,10 @@ public partial class ConventionHallUi : Control
 		row.AddThemeConstantOverride("separation", 18);
 		AddChild(row);
 
-		foreach (var id in HouseOrder)
+		var participantIds = _run.SolarOnboarding && _session != null
+			? System.Linq.Enumerable.Select(_session.SolarCampaign.ConventionCompanies, c => c.Id)
+			: HouseOrder;
+		foreach (var id in participantIds)
 			row.AddChild(MakeBanner(id));
 
 		BuildPitchPanel();
@@ -114,14 +123,16 @@ public partial class ConventionHallUi : Control
 
 		var back = new Button
 		{
-			Text = "Sector Map",
+			Text = _run.SolarOnboarding ? "Main Menu" : "Sector Map",
 			Position = new Vector2(1700, 28),
 			CustomMinimumSize = new Vector2(160, 40)
 		};
 		back.Pressed += () =>
 		{
 			_run.Save();
-			GetTree().ChangeSceneToFile("res://scenes/campaign_map.tscn");
+			GetTree().ChangeSceneToFile(_run.SolarOnboarding
+				? "res://scenes/main_menu.tscn"
+				: "res://scenes/campaign_map.tscn");
 		};
 		AddChild(back);
 
@@ -131,8 +142,11 @@ public partial class ConventionHallUi : Control
 
 	private Control MakeBanner(string manufacturerId)
 	{
-		var mfg = GameCatalog.GetManufacturer(manufacturerId);
-		var def = ConventionCatalog.Get(manufacturerId);
+		var company = _run.SolarOnboarding ? _session?.GetFrontierCompany(manufacturerId) : null;
+		var mfg = company == null ? GameCatalog.GetManufacturer(manufacturerId) : null;
+		var def = company?.TrialTemplate ?? ConventionCatalog.Get(manufacturerId);
+		var accent = company?.AccentColor ?? mfg!.AccentColor;
+		var displayName = company?.DisplayName ?? mfg!.DisplayName;
 		var status = _run.Convention.Get(manufacturerId);
 
 		var panel = new PanelContainer
@@ -143,7 +157,7 @@ public partial class ConventionHallUi : Control
 		panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
 			BgColor = new Color(0.07f, 0.09f, 0.11f, 0.96f),
-			BorderColor = mfg.AccentColor,
+			BorderColor = accent,
 			BorderWidthLeft = 3,
 			BorderWidthTop = 3,
 			BorderWidthRight = 3,
@@ -162,22 +176,22 @@ public partial class ConventionHallUi : Control
 		col.AddThemeConstantOverride("separation", 10);
 		panel.AddChild(col);
 
-		var emblem = ManufacturerBrand.MakeEmblemOrFallback(manufacturerId, mfg.AccentColor, 96f);
+		var emblem = ManufacturerBrand.MakeEmblemOrFallback(manufacturerId, accent, 96f);
 		emblem.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
 		col.AddChild(emblem);
 
 		var name = new Label
 		{
-			Text = mfg.DisplayName.ToUpperInvariant(),
+			Text = displayName.ToUpperInvariant(),
 			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = mfg.AccentColor
+			Modulate = accent
 		};
 		name.AddThemeFontSizeOverride("font_size", 22);
 		col.AddChild(name);
 
 		var focus = new Label
 		{
-			Text = mfg.Niche,
+			Text = company?.Motive ?? mfg!.Niche,
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = new Color(0.7f, 0.75f, 0.8f)
 		};
@@ -186,7 +200,7 @@ public partial class ConventionHallUi : Control
 
 		var snippet = new Label
 		{
-			Text = def.BannerSnippet,
+			Text = company?.PublicPitch ?? def.BannerSnippet,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = new Color(0.78f, 0.82f, 0.86f)
 		};
@@ -307,6 +321,8 @@ public partial class ConventionHallUi : Control
 
 	private void BuildPityPanel()
 	{
+		var fallbackCompany = _run.SolarOnboarding ? _session?.SolarCampaign.ConventionCompanies[0] : null;
+		var fallbackAccent = fallbackCompany?.AccentColor ?? GameCatalog.GetManufacturer("trinova").AccentColor;
 		_pityPanel = new PanelContainer
 		{
 			Visible = false,
@@ -316,7 +332,7 @@ public partial class ConventionHallUi : Control
 		_pityPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
 			BgColor = new Color(0.08f, 0.1f, 0.09f, 0.98f),
-			BorderColor = GameCatalog.GetManufacturer("trinova").AccentColor,
+			BorderColor = fallbackAccent,
 			BorderWidthLeft = 3,
 			BorderWidthTop = 3,
 			BorderWidthRight = 3,
@@ -335,18 +351,18 @@ public partial class ConventionHallUi : Control
 		var keel = ConventionCatalog.Get("trinova");
 		var t = new Label
 		{
-			Text = "TRINOVA SALVAGE CONTRACT",
+			Text = fallbackCompany == null ? "TRINOVA SALVAGE CONTRACT" : "LAST-CHANCE FRONTIER CHARTER",
 			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = GameCatalog.GetManufacturer("trinova").AccentColor
+			Modulate = fallbackAccent
 		};
 		t.AddThemeFontSizeOverride("font_size", 22);
 		col.AddChild(t);
 
 		var body = new Label
 		{
-			Text =
-				$"Every other booth closed. {keel.LiaisonName} still has a scrap-heap MAP and a salvage affiliation.\n" +
-				"Take it, or leave the convention without a chassis.",
+			Text = fallbackCompany == null
+				? $"Every other booth closed. {keel.LiaisonName} still has a scrap-heap MAP and a salvage affiliation.\nTake it, or leave the convention without a chassis."
+				: $"Every evaluation offer closed. {fallbackCompany.DisplayName} will still issue a basic frontier charter and scrap-heap MAP.\nTake it, or leave without a company contract.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart
 		};
@@ -355,7 +371,9 @@ public partial class ConventionHallUi : Control
 
 		var take = new Button
 		{
-			Text = "Accept salvage affiliation (Trinova)",
+			Text = fallbackCompany == null
+				? "Accept salvage affiliation (Trinova)"
+				: $"Accept last-chance charter ({fallbackCompany.ShortName})",
 			CustomMinimumSize = new Vector2(0, 46),
 			SizeFlagsHorizontal = SizeFlags.ShrinkCenter
 		};
@@ -382,24 +400,28 @@ public partial class ConventionHallUi : Control
 		_lineIndex = 0;
 		_lines.Clear();
 
-		var def = ConventionCatalog.Get(manufacturerId);
+		var company = _run.SolarOnboarding ? _session?.GetFrontierCompany(manufacturerId) : null;
+		var def = company?.TrialTemplate ?? ConventionCatalog.Get(manufacturerId);
 		var rival = _run.Convention.TryGrantForgiveness(manufacturerId);
 		if (rival != null)
 		{
 			_run.Save();
-			var rivalName = GameCatalog.GetManufacturer(rival).DisplayName;
-			_lines.Add(def.FormatForgiveness(rivalName));
+			var rivalName = _session?.GetFrontierCompany(rival)?.DisplayName
+				?? GameCatalog.GetManufacturer(rival).DisplayName;
+			_lines.Add(company == null
+				? def.FormatForgiveness(rivalName)
+				: FormatCompanyLine(company, $"I saw what happened to {rivalName}'s evaluation asset. That opened one final slot. Use it well."));
 		}
 
 		var status = _run.Convention.Get(manufacturerId);
 		if (status.Qualified)
-			_lines.AddRange(def.FormatLines(def.QualifiedReturnLines));
+			_lines.AddRange(company == null ? def.FormatLines(def.QualifiedReturnLines) : FormatCompanyLines(company, company.QualifiedLines()));
 		else if (status.Withdrawn)
-			_lines.AddRange(def.FormatLines(def.WithdrawnReturnLines));
+			_lines.AddRange(company == null ? def.FormatLines(def.WithdrawnReturnLines) : FormatCompanyLines(company, company.WithdrawnLines()));
 		else if (status.AttemptsRemaining < ConventionState.MaxAttempts)
-			_lines.AddRange(def.FormatLines(def.FailedReturnLines));
+			_lines.AddRange(company == null ? def.FormatLines(def.FailedReturnLines) : FormatCompanyLines(company, company.FailedLines()));
 		else
-			_lines.AddRange(def.FormatLines(def.PitchLines));
+			_lines.AddRange(company == null ? def.FormatLines(def.PitchLines) : FormatCompanyLines(company, company.PitchLines()));
 
 		if (_pitchPanel != null)
 			_pitchPanel.Visible = true;
@@ -412,20 +434,27 @@ public partial class ConventionHallUi : Control
 			return;
 
 		var id = _openManufacturerId;
-		var mfg = GameCatalog.GetManufacturer(id);
-		var def = ConventionCatalog.Get(id);
+		var company = _run.SolarOnboarding ? _session?.GetFrontierCompany(id) : null;
+		var mfg = company == null ? GameCatalog.GetManufacturer(id) : null;
+		var def = company?.TrialTemplate ?? ConventionCatalog.Get(id);
+		var accent = company?.AccentColor ?? mfg!.AccentColor;
 		var status = _run.Convention.Get(id);
 
-		_pitchTitle.Text = $"{mfg.DisplayName}  ·  {def.LiaisonName}  ·  {def.LiaisonTitle}";
-		_pitchTitle.Modulate = mfg.AccentColor;
-		_scope?.SetManufacturer(id);
+		_pitchTitle.Text = company == null
+			? $"{mfg!.DisplayName}  ·  {def.LiaisonName}  ·  {def.LiaisonTitle}"
+			: $"{company.DisplayName}  ·  {company.LiaisonName}  ·  {company.LiaisonTitle}";
+		_pitchTitle.Modulate = accent;
+		if (company == null)
+			_scope?.SetManufacturer(id);
+		else
+			_scope?.SetCompany(company);
 		if (_pitchPanel != null)
 		{
 			var style = _pitchPanel.GetThemeStylebox("panel") as StyleBoxFlat;
 			if (style != null)
 			{
 				style = (StyleBoxFlat)style.Duplicate();
-				style.BorderColor = mfg.AccentColor;
+				style.BorderColor = accent;
 				_pitchPanel.AddThemeStyleboxOverride("panel", style);
 			}
 		}
@@ -445,7 +474,7 @@ public partial class ConventionHallUi : Control
 			_pitchBody.Text = fullLine;
 			TextVoiceService.Speak(
 				spoken,
-				TextVoiceService.ProfileForManufacturer(id),
+				company?.VoiceProfile ?? TextVoiceService.ProfileForManufacturer(id),
 				revealed =>
 				{
 					if (_pitchBody == null || _openManufacturerId != id || _lineIndex != expectedLineIndex)
@@ -472,7 +501,7 @@ public partial class ConventionHallUi : Control
 			_pitchBody.Text =
 				$"{_lines[^1]}\n\n" +
 				$"Trial: {MissionCatalog.Get(def.TrialMission).Title}  ·  {StatusText(status)}\n" +
-				$"Signing package: {def.SigningBonusBlurb}";
+				$"{(company == null ? "Signing package" : "Company-issued starter package")}: {def.SigningBonusBlurb}";
 		}
 
 		foreach (var child in _pitchButtons.GetChildren())
@@ -531,7 +560,7 @@ public partial class ConventionHallUi : Control
 		{
 			var sign = new Button
 			{
-				Text = "Sign affiliation",
+				Text = company == null ? "Sign affiliation" : "Sign company charter",
 				CustomMinimumSize = new Vector2(200, 42)
 			};
 			MechUiTheme.StylePrimaryButton(sign);
@@ -560,12 +589,36 @@ public partial class ConventionHallUi : Control
 	private string BuildStatusLine()
 	{
 		var sb = new StringBuilder();
-		sb.Append("No personal MAP. Shop every booth. Three demo attempts each — fail them all and that house withdraws. ");
-		sb.Append("Optional: torch a rival's floor model; a scorned recruiter might forgive once. ");
+		if (_run.SolarOnboarding)
+		{
+			sb.Append("Four independent companies are hiring one frontier corp. They do not manufacture MAP parts and have no affiliation with the Big Four. ");
+			sb.Append("Compare their motives carefully: your employer's assets, mining rigs, and settlement become your responsibility. ");
+		}
+		else
+		{
+			sb.Append("No personal MAP. Shop every booth. Three demo attempts each — fail them all and that house withdraws. ");
+			sb.Append("Optional: torch a rival's floor model; a scorned recruiter might forgive once. ");
+		}
 		if (_run.Convention.HasAnyQualified())
-			sb.Append("You have at least one Qualified offer — sign when ready.");
+			sb.Append("You have at least one qualified offer — sign when ready.");
 		else if (_run.Convention.AllWithdrawnWithNoQualify())
-			sb.Append("All offers withdrawn — Trinova salvage is the last door.");
+			sb.Append(_run.SolarOnboarding
+				? "All evaluation offers were withdrawn — one last-chance charter remains."
+				: "All offers withdrawn — Trinova salvage is the last door.");
 		return sb.ToString();
+	}
+
+	private static string FormatCompanyLine(FrontierCompanyData company, string line)
+	{
+		var shortName = company.LiaisonName.Split(' ')[^1].ToUpperInvariant();
+		return $"{shortName}  ·  {line}";
+	}
+
+	private static IEnumerable<string> FormatCompanyLines(
+		FrontierCompanyData company,
+		IEnumerable<string> lines)
+	{
+		foreach (var line in lines)
+			yield return FormatCompanyLine(company, line);
 	}
 }

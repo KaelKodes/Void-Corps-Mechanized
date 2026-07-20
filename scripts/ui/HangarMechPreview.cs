@@ -56,6 +56,7 @@ public partial class HangarMechPreview : Control
 		_mech.GlobalPosition = Vector3.Zero;
 		// Camera starts on +Z; face the MAP toward the viewer (default forward is -Z).
 		_mech.Rotation = new Vector3(0f, Mathf.Pi, 0f);
+		StripOcclusionSilhouette(_mech);
 		FrameMech();
 		UpdateCamera();
 	}
@@ -143,8 +144,7 @@ public partial class HangarMechPreview : Control
 			castShadow: GeometryInstance3D.ShadowCastingSetting.Off);
 		_rig.AddChild(floor);
 
-		Resized += OnResized;
-		CallDeferred(MethodName.OnResized);
+		// Stretch=true lets the container drive SubViewport size — do not set Size manually.
 	}
 
 	private void AddLight(Vector3 from, Color color, float energy)
@@ -159,18 +159,6 @@ public partial class HangarMechPreview : Control
 		light.LookAtFromPosition(from.Normalized() * 8f, Vector3.Zero, Vector3.Up);
 	}
 
-	private void OnResized()
-	{
-		if (_viewport == null || !GodotObject.IsInstanceValid(_viewport))
-			return;
-		var size = Size;
-		if (size.X < 8 || size.Y < 8)
-			return;
-		_viewport.Size = new Vector2I(
-			Mathf.Clamp(Mathf.RoundToInt(size.X), 160, 1280),
-			Mathf.Clamp(Mathf.RoundToInt(size.Y), 120, 960));
-	}
-
 	private void EnsureMech()
 	{
 		if (_mech != null && GodotObject.IsInstanceValid(_mech))
@@ -183,12 +171,14 @@ public partial class HangarMechPreview : Control
 
 		_mech = packed.Instantiate<MechController>();
 		_mech.Name = "HangarMap";
-		_mech.IsPlayerControlled = true;
+		_mech.HangarDisplayOnly = true;
+		_mech.IsPlayerControlled = false;
 		_mech.Team = TeamId.Neutral;
 		_rig.AddChild(_mech);
 		_mech.SetControlsEnabled(false);
 		_mech.ProcessMode = ProcessModeEnum.Disabled;
 		_mech.ApplyChassisClass(MechChassisClass.Standard);
+		StripOcclusionSilhouette(_mech);
 	}
 
 	private void ClearMech()
@@ -197,6 +187,16 @@ public partial class HangarMechPreview : Control
 			MeshMat.QueueFreeSafe(_mech);
 		_mech = null;
 		_loadoutKey = "";
+	}
+
+	private static void StripOcclusionSilhouette(MechController mech)
+	{
+		if (!GodotObject.IsInstanceValid(mech))
+			return;
+
+		mech.GetNodeOrNull(OcclusionSilhouette.NodeName)?.QueueFree();
+		foreach (var child in mech.FindChildren(OcclusionSilhouette.GhostName, "MeshInstance3D", true, false))
+			child.QueueFree();
 	}
 
 	private void FrameMech()

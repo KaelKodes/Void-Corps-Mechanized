@@ -35,6 +35,9 @@ public static class CatalogDurability
 
 			if (part.StructureHp <= 0f)
 				part.StructureHp = DefaultStructure(part);
+
+			// Global playtest pad: every component +20% structure (includes authored torsos).
+			part.StructureHp = Mathf.Round(part.StructureHp * 1.2f);
 		}
 	}
 
@@ -42,7 +45,7 @@ public static class CatalogDurability
 	{
 		var baseHp = part.Slot switch
 		{
-			PartSlot.Legs => 28f, // per limb
+			PartSlot.Legs => 28f, // per-limb budget into shared package pool
 			PartSlot.Torso => 60f,
 			PartSlot.Head => 40f,
 			PartSlot.PowerCore => 44f,

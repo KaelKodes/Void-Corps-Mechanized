@@ -52,8 +52,8 @@ public abstract class MissionBase
 		if (!ObjectivesComplete || Completed)
 			return "";
 		return ExtractBeaconOverride != null
-			? "  |  EXTRACT — hold E at Exfil Uplink"
-			: "  |  EXTRACT — hold E at drop beacon";
+			? "  |  EXTRACT — hold F at Exfil Uplink"
+			: "  |  EXTRACT — hold F at drop beacon";
 	}
 
 	/// <summary>Immediate victory (used after successful extract by host, or rare mission shortcuts).</summary>

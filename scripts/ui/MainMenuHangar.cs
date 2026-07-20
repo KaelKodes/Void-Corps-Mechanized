@@ -52,14 +52,17 @@ public partial class MainMenuHangar : Node3D
 			env.BackgroundColor = new Color(0.01f, 0.012f, 0.016f);
 			env.AmbientLightColor = new Color(0.12f, 0.14f, 0.16f);
 			env.AmbientLightEnergy = 0.06f;
+			// Distance fog stays subtle; real mist comes from FogVolumes + lights.
 			env.FogEnabled = true;
-			env.FogLightColor = new Color(0.18f, 0.2f, 0.22f);
-			env.FogDensity = 0.045f;
+			env.FogLightColor = new Color(0.16f, 0.18f, 0.2f);
+			env.FogDensity = 0.02f;
 			env.VolumetricFogEnabled = true;
-			env.VolumetricFogDensity = 0.035f;
-			env.VolumetricFogAlbedo = new Color(0.55f, 0.58f, 0.62f);
-			env.VolumetricFogEmission = new Color(0.02f, 0.025f, 0.03f);
-			env.VolumetricFogAnisotropy = 0.35f;
+			env.VolumetricFogDensity = 0.008f;
+			env.VolumetricFogAlbedo = new Color(0.62f, 0.66f, 0.7f);
+			env.VolumetricFogEmission = new Color(0.012f, 0.014f, 0.018f);
+			env.VolumetricFogAnisotropy = 0.4f;
+			env.VolumetricFogLength = 64f;
+			env.VolumetricFogDetailSpread = 2f;
 			env.TonemapExposure = 0.95f;
 		}
 
@@ -122,6 +125,7 @@ public partial class MainMenuHangar : Node3D
 
 		var mech = packed.Instantiate<MechController>();
 		mech.Name = name;
+		mech.HangarDisplayOnly = true;
 		mech.IsPlayerControlled = false;
 		mech.Team = TeamId.Player;
 		AddChild(mech);
@@ -145,7 +149,20 @@ public partial class MainMenuHangar : Node3D
 		var pilot = mech.GetNodeOrNull<MechPilotAI>("MechPilotAI");
 		pilot?.QueueFree();
 
+		StripOcclusionSilhouette(mech);
+		Callable.From(() => StripOcclusionSilhouette(mech)).CallDeferred();
+
 		mech.ProcessMode = ProcessModeEnum.Disabled;
+	}
+
+	private static void StripOcclusionSilhouette(MechController mech)
+	{
+		if (!GodotObject.IsInstanceValid(mech))
+			return;
+
+		mech.GetNodeOrNull(OcclusionSilhouette.NodeName)?.QueueFree();
+		foreach (var child in mech.FindChildren(OcclusionSilhouette.GhostName, "MeshInstance3D", true, false))
+			child.QueueFree();
 	}
 
 	private void SetupHangingLights()
@@ -171,97 +188,201 @@ public partial class MainMenuHangar : Node3D
 			AddChild(root);
 		}
 
-		var bayFront = GetNodeOrNull<Node3D>(BayFrontPath);
-		var steamOrigin = bayFront?.GlobalPosition ?? Vector3.Zero;
+		var bayFront = GetNodeOrNull<Node3D>(BayFrontPath)?.GlobalPosition ?? Vector3.Zero;
 
-		// Fog starts immediately so it is already living under the studio intro veil.
-		var steam = MakeSteamParticles();
-		steam.Name = "Steam";
-		steam.Emitting = true;
-		root.AddChild(steam);
-		steam.GlobalPosition = steamOrigin + new Vector3(0f, 0.15f, 0.4f);
+		// Low ground sheet — slightly softer so tendrils can read above it.
+		AddFogVolume(
+			root, "FloorMist",
+			position: new Vector3(0f, 0.32f, 1.5f),
+			size: new Vector3(36f, 1.0f, 22f),
+			density: 0.26f,
+			edge: 0.45f,
+			heightFalloff: 2.6f,
+			shape: RenderingServer.FogVolumeShape.Box);
+
+		AddFogVolume(
+			root, "BayFrontMist",
+			position: bayFront + new Vector3(0f, 0.26f, 0.4f),
+			size: new Vector3(7f, 0.8f, 5.5f),
+			density: 0.32f,
+			edge: 0.6f,
+			heightFalloff: 3.0f,
+			shape: RenderingServer.FogVolumeShape.Ellipsoid);
+
+		AddFogVolume(
+			root, "SideMistL",
+			position: new Vector3(-8f, 0.28f, 2f),
+			size: new Vector3(10f, 0.85f, 14f),
+			density: 0.22f,
+			edge: 0.55f,
+			heightFalloff: 2.4f,
+			shape: RenderingServer.FogVolumeShape.Box);
+		AddFogVolume(
+			root, "SideMistR",
+			position: new Vector3(8f, 0.28f, 2f),
+			size: new Vector3(10f, 0.85f, 14f),
+			density: 0.22f,
+			edge: 0.55f,
+			heightFalloff: 2.4f,
+			shape: RenderingServer.FogVolumeShape.Box);
+
+		// Steam tendrils rising off the fog bank — slight, not dramatic.
+		SpawnSteamTendrils(root, new Vector3(0f, 0.55f, 2.2f));
+		SpawnSteamTendrils(root, bayFront + new Vector3(0f, 0.5f, 0.6f));
+		SpawnSteamTendrils(root, new Vector3(-6.5f, 0.5f, 1.8f));
+		SpawnSteamTendrils(root, new Vector3(6.5f, 0.5f, 1.8f));
 
 		_sparks = MakeSparkParticles();
 		_sparks.Name = "WeldingSparks";
 		root.AddChild(_sparks);
-		_sparks.GlobalPosition = steamOrigin + new Vector3(0.55f, 1.65f, 0.35f);
+		_sparks.GlobalPosition = bayFront + new Vector3(0.55f, 1.65f, 0.35f);
 		_sparks.Emitting = false;
 	}
 
-	private static GpuParticles3D MakeSteamParticles()
+	private static void SpawnSteamTendrils(Node3D parent, Vector3 origin)
+	{
+		var tendrils = MakeSteamTendrils();
+		tendrils.Name = $"SteamTendrils_{parent.GetChildCount()}";
+		tendrils.Emitting = true;
+		parent.AddChild(tendrils);
+		tendrils.GlobalPosition = origin;
+	}
+
+	private static void AddFogVolume(
+		Node3D parent,
+		string name,
+		Vector3 position,
+		Vector3 size,
+		float density,
+		float edge,
+		float heightFalloff,
+		RenderingServer.FogVolumeShape shape)
+	{
+		var mat = new FogMaterial
+		{
+			Density = density,
+			Albedo = new Color(0.68f, 0.72f, 0.76f),
+			Emission = new Color(0.018f, 0.02f, 0.025f),
+			HeightFalloff = heightFalloff,
+			EdgeFade = edge
+		};
+
+		var volume = new FogVolume
+		{
+			Name = name,
+			Shape = shape,
+			Size = size,
+			Material = mat,
+			Position = position
+		};
+		parent.AddChild(volume);
+	}
+
+	/// <summary>Tall soft steam fingers rising from the fog bank — subtle motion, no spin.</summary>
+	private static GpuParticles3D MakeSteamTendrils()
 	{
 		var mat = new ParticleProcessMaterial
 		{
 			EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Box,
-			EmissionBoxExtents = new Vector3(2.4f, 0.1f, 1.5f),
-			Direction = new Vector3(0.08f, 1f, 0.12f),
-			Spread = 22f,
-			InitialVelocityMin = 0.06f,
-			InitialVelocityMax = 0.22f,
-			Gravity = new Vector3(0f, 0.08f, 0f),
-			DampingMin = 0.1f,
-			DampingMax = 0.35f,
-			AngularVelocityMin = -14f,
-			AngularVelocityMax = 14f,
-			ScaleMin = 1.6f,
-			ScaleMax = 3.2f,
-			Color = new Color(0.78f, 0.84f, 0.9f, 1f)
+			EmissionBoxExtents = new Vector3(3.2f, 0.05f, 1.8f),
+			Direction = new Vector3(0.02f, 1f, 0.03f),
+			Spread = 8f,
+			InitialVelocityMin = 0.12f,
+			InitialVelocityMax = 0.28f,
+			Gravity = new Vector3(0f, 0.06f, 0f),
+			DampingMin = 0.35f,
+			DampingMax = 0.7f,
+			AngularVelocityMin = 0f,
+			AngularVelocityMax = 0f,
+			ScaleMin = 0.7f,
+			ScaleMax = 1.35f,
+			Color = new Color(0.82f, 0.86f, 0.9f, 1f),
+			ParticleFlagAlignY = true
 		};
 
 		var gradient = new Gradient
 		{
-			Offsets = new[] { 0f, 0.1f, 0.3f, 0.5f, 0.7f, 0.85f, 0.95f, 1f },
+			Offsets = new[] { 0f, 0.12f, 0.35f, 0.65f, 0.88f, 1f },
 			Colors = new[]
 			{
 				new Color(1f, 1f, 1f, 0f),
-				new Color(1f, 1f, 1f, 0.1f),
-				new Color(1f, 1f, 1f, 0.16f),
-				new Color(1f, 1f, 1f, 0.12f),
-				new Color(1f, 1f, 1f, 0.07f),
-				new Color(1f, 1f, 1f, 0.03f),
+				new Color(1f, 1f, 1f, 0.055f),
+				new Color(1f, 1f, 1f, 0.04f),
+				new Color(1f, 1f, 1f, 0.022f),
 				new Color(1f, 1f, 1f, 0.008f),
 				new Color(1f, 1f, 1f, 0f)
 			}
 		};
-		mat.ColorRamp = new GradientTexture1D
-		{
-			Gradient = gradient,
-			Width = 256
-		};
+		mat.ColorRamp = new GradientTexture1D { Gradient = gradient, Width = 256 };
 
 		var scaleCurve = new Curve();
-		scaleCurve.AddPoint(new Vector2(0f, 0.45f), 0f, 1.2f);
-		scaleCurve.AddPoint(new Vector2(0.35f, 1f));
-		scaleCurve.AddPoint(new Vector2(0.75f, 1.25f));
-		scaleCurve.AddPoint(new Vector2(1f, 1.55f), 0.4f, 0f);
+		scaleCurve.AddPoint(new Vector2(0f, 0.45f));
+		scaleCurve.AddPoint(new Vector2(0.25f, 0.9f));
+		scaleCurve.AddPoint(new Vector2(0.7f, 1.35f));
+		scaleCurve.AddPoint(new Vector2(1f, 1.7f));
 		mat.ScaleCurve = new CurveTexture { Curve = scaleCurve };
 
-		var mesh = new QuadMesh { Size = new Vector2(2.6f, 1.35f) };
+		// Tall thin card — reads as a rising tendril, not a flat fog blotch.
+		var mesh = new QuadMesh { Size = new Vector2(0.55f, 2.4f) };
 		var drawMat = new StandardMaterial3D
 		{
 			Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
 			ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
 			VertexColorUseAsAlbedo = true,
-			AlbedoColor = new Color(0.82f, 0.87f, 0.92f, 0.7f),
-			AlbedoTexture = MakeWispyFogTexture(),
+			AlbedoColor = new Color(0.88f, 0.9f, 0.93f, 0.55f),
+			AlbedoTexture = MakeTendrilTexture(),
 			BillboardMode = BaseMaterial3D.BillboardModeEnum.Particles,
+			ParticlesAnimHFrames = 1,
+			ParticlesAnimVFrames = 1,
 			CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-			DisableReceiveShadows = true
+			DisableReceiveShadows = true,
+			ProximityFadeEnabled = true,
+			ProximityFadeDistance = 0.8f
 		};
 		mesh.Material = drawMat;
 
 		return new GpuParticles3D
 		{
-			Amount = 42,
-			Lifetime = 11f,
+			Amount = 10,
+			Lifetime = 7.5f,
 			Explosiveness = 0f,
-			Randomness = 0.25f,
+			Randomness = 0.55f,
 			LocalCoords = false,
 			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-			VisibilityAabb = new Aabb(new Vector3(-6f, -1f, -6f), new Vector3(12f, 8f, 12f)),
+			VisibilityAabb = new Aabb(new Vector3(-6f, -1f, -5f), new Vector3(12f, 8f, 10f)),
 			ProcessMaterial = mat,
 			DrawPass1 = mesh
 		};
+	}
+
+	/// <summary>Vertical soft streak — steam finger, not a round puff.</summary>
+	private static ImageTexture MakeTendrilTexture()
+	{
+		const int w = 48;
+		const int h = 128;
+		var image = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+		var cx = (w - 1) * 0.5f;
+		for (var y = 0; y < h; y++)
+		{
+			var v = y / (float)(h - 1);
+			// Stronger near base, dissolves toward tip.
+			var along = Mathf.Sin(v * Mathf.Pi);
+			along = Mathf.Pow(along, 0.65f);
+			for (var x = 0; x < w; x++)
+			{
+				var u = (x - cx) / cx;
+				// Soft vertical core with slight sideways wobble.
+				var wobble = 0.12f * Mathf.Sin(v * 9.5f + u * 2f);
+				var dist = Mathf.Abs(u - wobble);
+				var radial = Mathf.Clamp(1f - dist * 1.35f, 0f, 1f);
+				radial = radial * radial * (3f - 2f * radial);
+				var n = Fract(Mathf.Sin(u * 17.1f + v * 23.7f) * 43758.55f);
+				var alpha = radial * along * (0.55f + 0.35f * n) * 0.7f;
+				image.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+			}
+		}
+
+		return ImageTexture.CreateFromImage(image);
 	}
 
 	private static ImageTexture MakeWispyFogTexture()
@@ -450,7 +571,7 @@ public partial class MainMenuHangar : Node3D
 				LightColor = warm ? new Color(1f, 0.82f, 0.55f) : new Color(0.78f, 0.86f, 1f),
 				LightEnergy = energy,
 				LightIndirectEnergy = 0.65f,
-				LightVolumetricFogEnergy = 1.8f,
+				LightVolumetricFogEnergy = 1.6f,
 				SpotRange = 11f,
 				SpotAngle = 32f,
 				SpotAngleAttenuation = 0.7f,

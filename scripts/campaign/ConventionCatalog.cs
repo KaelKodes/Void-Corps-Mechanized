@@ -374,12 +374,13 @@ public static class ConventionCatalog
 			BackpackId = "backpack_tri_mend",
 			SystemsId = "systems_tri_coolant"
 		});
-		profile.OwnedCounts.Clear();
+		profile.OwnedInstances.Clear();
+		profile.EquippedInstanceIds.Clear();
 		profile.Loadout = loadout;
 		profile.GrantLoadoutOwnership(loadout);
 		profile.SetAffiliation("trinova");
 		profile.Scrap = 20;
 		profile.LivesBank = PlayerProfile.StartingLives;
-		profile.AddReputation("trinova", 1);
+		profile.UnlockOwnedBlueprints();
 	}
 }

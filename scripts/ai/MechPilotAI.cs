@@ -707,7 +707,16 @@ public partial class MechPilotAI : Node
 			var part = _mech.Abilities.BoundAbilities[i];
 			switch (part.AbilityId)
 			{
-				case AbilityId.MissileSalvo when hasLos && distance > 12f && distance < 48f:
+				case AbilityId.MissileSalvo:
+					if (!_mech.Abilities.CanActivate(i))
+						continue;
+					if (part.MissileGuidance == MissileGuidanceMode.Paint)
+					{
+						if (!(hasLos && distance > 12f && distance < 48f))
+							continue;
+					}
+					else if (distance > part.Range)
+						continue;
 					if (!UseAbilitiesAggressively && _rng.Randf() > 0.35f)
 						continue;
 					cmd.AbilityIndex = i;

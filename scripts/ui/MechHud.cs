@@ -10,20 +10,26 @@ namespace Mechanize;
 public partial class MechHud : Control
 {
 	private IntegritySchematic? _schematic;
+	private EnemyTargetSchematic? _enemySchematic;
 
 	private Control? _rootRow;
 	private Control? _powerColumn;
 	private Control? _heatColumn;
+	private Control? _speedColumn;
 	private ProgressBar? _powerBar;
 	private ProgressBar? _heatBar;
+	private ProgressBar? _speedBar;
 	private Label? _powerLabel;
 	private Label? _heatLabel;
+	private Label? _speedLabel;
 
 	private Control? _flankRoot;
 	private ProgressBar? _flankPowerBar;
 	private ProgressBar? _flankHeatBar;
+	private ProgressBar? _flankSpeedBar;
 	private Label? _flankPowerLabel;
 	private Label? _flankHeatLabel;
+	private Label? _flankSpeedLabel;
 	private MechController? _trackedMech;
 
 	private readonly List<ModuleRow> _weaponRows = new();
@@ -33,6 +39,7 @@ public partial class MechHud : Control
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
 	private static readonly Color PowerFill = new(0.35f, 0.7f, 1f);
 	private static readonly Color HeatFill = new(0.95f, 0.45f, 0.2f);
+	private static readonly Color SpeedFill = new(0.45f, 0.9f, 0.55f);
 
 	private const float MeterColumnWidth = 36f;
 	private const float CornerMeterBarHeight = 200f;
@@ -50,12 +57,13 @@ public partial class MechHud : Control
 		public Label BodyLabel = null!;
 	}
 
-	private const float BaseWidth = 620f;
-	private const float BaseHeight = 280f;
+	private const float BaseWidth = 840f;
+	private const float BaseHeight = 310f;
 
 	public override void _Ready()
 	{
 		MouseFilter = MouseFilterEnum.Ignore;
+		ClipContents = false;
 		Build();
 		ApplyLayout();
 		GameSettings.Changed += ApplyLayout;
@@ -71,20 +79,24 @@ public partial class MechHud : Control
 
 	public override void _Notification(int what)
 	{
-		if (what == NotificationVisibilityChanged && _flankRoot != null)
-			_flankRoot.Visible = Visible && GameSettings.MetersBesideMech;
+		if (what != NotificationVisibilityChanged)
+			return;
+
+		SyncFlankVisibility();
+		if (Visible)
+			CallDeferred(MethodName.ApplyLayout);
 	}
 
 	public override void _Process(double delta)
 	{
-		if (!Visible || !GameSettings.MetersBesideMech || _trackedMech == null)
+		if (!ShouldShowFlankMeters())
 		{
 			if (_flankRoot != null)
 				_flankRoot.Visible = false;
 			return;
 		}
 
-		UpdateFlankPositions(_trackedMech);
+		UpdateFlankPositions(_trackedMech!);
 	}
 
 	/// <summary>Applies scale + screen position from <see cref="GameSettings"/>.</summary>
@@ -103,27 +115,27 @@ public partial class MechHud : Control
 		var beside = GameSettings.MetersBesideMech;
 		SetCornerMeterVisible(_powerColumn, !beside);
 		SetCornerMeterVisible(_heatColumn, !beside);
+		// SPD only appears while the speed governor is below full — refreshed each frame.
 
 		var width = BaseWidth;
-		_rootRow.CustomMinimumSize = new Vector2(width, BaseHeight);
-		_rootRow.Size = new Vector2(width, BaseHeight);
-		_rootRow.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		var scale = Mathf.Clamp(GameSettings.HudScale, 0.5f, 1.5f);
 
-		var scale = GameSettings.HudScale;
 		Scale = new Vector2(scale, scale);
-		// Scale from bottom-center so resize keeps the HUD centered.
 		PivotOffset = new Vector2(width * 0.5f, BaseHeight);
 
+		// Bottom-anchored under CanvasLayer — same model as UI/Hint.
 		AnchorLeft = 0f;
 		AnchorRight = 0f;
 		AnchorTop = 1f;
 		AnchorBottom = 1f;
 
 		var vp = GetViewport()?.GetVisibleRect().Size ?? new Vector2(1920, 1080);
+		if (vp.X < 32f || vp.Y < 32f)
+			vp = new Vector2(1920, 1080);
+
 		var scaledW = width * scale;
 		var halfTravel = Mathf.Max(0f, (vp.X - scaledW) * 0.5f - 12f);
 		var maxLift = Mathf.Max(0f, vp.Y * 0.4f);
-		// HudOffsetX 0.5 = bottom-center (default); 0/1 slide toward the edges.
 		var centerLeft = vp.X * 0.5f - width * 0.5f;
 		var left = centerLeft + (GameSettings.HudOffsetX - 0.5f) * 2f * halfTravel;
 		var bottom = 14f + GameSettings.HudOffsetY * maxLift;
@@ -135,9 +147,41 @@ public partial class MechHud : Control
 		CustomMinimumSize = new Vector2(width, BaseHeight);
 		Size = CustomMinimumSize;
 
+		// FullRect AFTER parent size is known — ordering was why Reset "fixed" a dead layout.
+		_rootRow.Scale = Vector2.One;
+		_rootRow.PivotOffset = Vector2.Zero;
+		_rootRow.CustomMinimumSize = new Vector2(width, BaseHeight);
+		_rootRow.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+
+		if (_schematic != null)
+		{
+			_schematic.Visible = true;
+			_schematic.CustomMinimumSize = new Vector2(210, 304);
+		}
+
+		if (_enemySchematic != null)
+		{
+			_enemySchematic.Visible = true;
+			_enemySchematic.CustomMinimumSize = new Vector2(210, 304);
+		}
+
 		EnsureFlankOverlay();
-		if (_flankRoot != null)
-			_flankRoot.Visible = Visible && beside;
+		SyncFlankVisibility();
+	}
+
+	public void QueueApplyLayout() => CallDeferred(MethodName.ApplyLayout);
+
+	private bool ShouldShowFlankMeters() =>
+		Visible
+		&& GameSettings.MetersBesideMech
+		&& _trackedMech != null
+		&& GetTree() is { Paused: false };
+
+	private void SyncFlankVisibility()
+	{
+		if (_flankRoot == null || !GodotObject.IsInstanceValid(_flankRoot))
+			return;
+		_flankRoot.Visible = ShouldShowFlankMeters();
 	}
 
 	private void Build()
@@ -159,13 +203,28 @@ public partial class MechHud : Control
 
 		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel);
 		root.AddChild(_powerColumn);
+		root.AddChild(BuildEnemySchematicColumn());
 		root.AddChild(BuildSchematicColumn());
 		root.AddChild(BuildModulesColumn());
 		_heatColumn = BuildMeterColumn("HEAT", HeatFill, out _heatBar, out _heatLabel);
 		root.AddChild(_heatColumn);
+		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel);
+		root.AddChild(_speedColumn);
+		SetCornerMeterVisible(_speedColumn, false);
 		EnsureFlankOverlay();
 	}
 
+	private Control BuildEnemySchematicColumn()
+	{
+		_enemySchematic = new EnemyTargetSchematic
+		{
+			CustomMinimumSize = new Vector2(210, 304),
+			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+			SizeFlagsVertical = SizeFlags.ShrinkEnd,
+			MouseFilter = MouseFilterEnum.Stop
+		};
+		return _enemySchematic;
+	}
 	private static void SetCornerMeterVisible(Control? column, bool visible)
 	{
 		if (column == null)
@@ -206,21 +265,28 @@ public partial class MechHud : Control
 		{
 			Name = "MechFlankMeters",
 			MouseFilter = MouseFilterEnum.Ignore,
-			Visible = false
+			Visible = false,
+			// Stay with combat HUD; pause menu sits above via its own ZIndex.
+			ZIndex = 0
 		};
 		_flankRoot.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 		parent.AddChild(_flankRoot);
-		// Keep under pause / overlays but above world.
-		_flankRoot.ZIndex = 5;
 
 		(_flankPowerBar, _flankPowerLabel) = MakeVerticalMeter(
 			_flankRoot, "PWR", PowerFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
 		(_flankHeatBar, _flankHeatLabel) = MakeVerticalMeter(
 			_flankRoot, "HEAT", HeatFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
+		(_flankSpeedBar, _flankSpeedLabel) = MakeVerticalMeter(
+			_flankRoot, "SPD", SpeedFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
 		if (_flankPowerBar?.GetParent() is Control powerWrap)
 			powerWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
 		if (_flankHeatBar?.GetParent() is Control heatWrap)
 			heatWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
+		if (_flankSpeedBar?.GetParent() is Control speedWrap)
+		{
+			speedWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
+			speedWrap.Visible = false;
+		}
 	}
 
 	private void UpdateFlankPositions(MechController mech)
@@ -250,9 +316,19 @@ public partial class MechHud : Control
 			return;
 		}
 
-		_flankRoot.Visible = Visible;
+		_flankRoot.Visible = ShouldShowFlankMeters();
 		PlaceFlankMeter(_flankPowerBar, _flankPowerLabel, screen + new Vector2(-FlankSideOffset, 0f));
 		PlaceFlankMeter(_flankHeatBar, _flankHeatLabel, screen + new Vector2(FlankSideOffset, 0f));
+		if (_flankSpeedBar != null && mech.IsSpeedGovernorActive)
+		{
+			if (_flankSpeedBar.GetParent() is Control speedWrap)
+				speedWrap.Visible = true;
+			PlaceFlankMeter(_flankSpeedBar, _flankSpeedLabel, screen + new Vector2(0f, FlankBarHeight * 0.65f));
+		}
+		else if (_flankSpeedBar?.GetParent() is Control hiddenWrap)
+		{
+			hiddenWrap.Visible = false;
+		}
 	}
 
 	private static void PlaceFlankMeter(ProgressBar bar, Label? label, Vector2 center)
@@ -488,11 +564,17 @@ public partial class MechHud : Control
 
 		RefreshMeters(mech);
 		_schematic?.Refresh(mech);
+		_enemySchematic?.Refresh(mech);
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
 
 		if (GameSettings.MetersBesideMech)
-			UpdateFlankPositions(mech);
+		{
+			if (ShouldShowFlankMeters())
+				UpdateFlankPositions(mech);
+			else
+				SyncFlankVisibility();
+		}
 	}
 
 	private void RefreshMeters(MechController mech)
@@ -510,6 +592,31 @@ public partial class MechHud : Control
 			beside ? _flankHeatLabel : _heatLabel,
 			power,
 			stats?.HeatCap ?? 0f);
+		ApplySpeedMeter(mech, beside);
+	}
+
+	private void ApplySpeedMeter(MechController mech, bool beside)
+	{
+		var show = mech.IsSpeedGovernorActive;
+		var bar = beside ? _flankSpeedBar : _speedBar;
+		var label = beside ? _flankSpeedLabel : _speedLabel;
+
+		if (!beside)
+			SetCornerMeterVisible(_speedColumn, show);
+		else if (_flankSpeedBar?.GetParent() is Control wrap)
+			wrap.Visible = show && ShouldShowFlankMeters();
+
+		if (bar == null)
+			return;
+
+		bar.Value = mech.SpeedGovernor;
+		if (label == null)
+			return;
+
+		label.Text = show
+			? $"SPD\n{mech.SpeedGovernor * 100f:0}%"
+			: "SPD";
+		label.Modulate = new Color(0.65f, 0.95f, 0.7f);
 	}
 
 	private static void ApplyPowerMeter(ProgressBar? bar, Label? label, MechPowerHeat? power)
@@ -564,6 +671,9 @@ public partial class MechHud : Control
 		return new Color(0.95f, 0.75f, 0.25f).Lerp(EmptyColor, (ratio - 0.55f) / 0.45f);
 	}
 
+	private static bool IsFirstPersonHud(MechController mech) =>
+		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
+
 	private void RefreshWeapons(MechController mech)
 	{
 		RefreshWeaponRow(0, mech, PartSlot.WeaponL, "fire_primary");
@@ -610,8 +720,13 @@ public partial class MechHud : Control
 		else
 		{
 			status = hp.IsDestroyed ? "DOWN" : "READY";
+			var elev = !IsFirstPersonHud(mech)
+			           && part.AllowsFireElevation
+			           && Mathf.Abs(mech.FireElevationNormalized) > 0.02f
+				? $"  ELV {(mech.FireElevationPitchRadians >= 0f ? "+" : "")}{Mathf.RadToDeg(mech.FireElevationPitchRadians):0}°"
+				: "";
 			details =
-				$"{part.DisplayName}\nDMG {part.Damage:0}  RNG {part.Range:0}\nH {part.HeatPerShot:0} | P {part.PowerPerShot:0} | {status}";
+				$"{part.DisplayName}\nDMG {part.Damage:0}  RNG {part.Range:0}{elev}\nH {part.HeatPerShot:0} | P {part.PowerPerShot:0} | {status}";
 		}
 
 		var bg = hp.IsDestroyed || (part.IsHeldShield && mech.IsHeldShieldBroken(slot))
@@ -651,8 +766,13 @@ public partial class MechHud : Control
 
 	private static string AbilityBlurb(PartData part) => part.AbilityId switch
 	{
-		AbilityId.MissileSalvo => "Paint lock → salvo",
-		AbilityId.MendPulse => "Paint → heal beacon",
+		AbilityId.MissileSalvo => part.MissileGuidance switch
+		{
+			MissileGuidanceMode.SensorVision => "TAB lock · needs vision",
+			MissileGuidanceMode.SensorContact => "TAB lock · scanner track",
+			_ => "Paint lock → salvo"
+		},
+		AbilityId.MendPulse => "Paint beacon · Ctrl self",
 		AbilityId.PulseRepair => "Hold channel repair",
 		AbilityId.Shroud => "Cloak pulse",
 		_ => "Module"

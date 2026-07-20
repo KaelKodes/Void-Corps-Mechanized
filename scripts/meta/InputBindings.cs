@@ -32,6 +32,9 @@ public static class InputBindings
 		new("sprint", "Sprint", "Movement"),
 		new("fire_primary", "Fire Primary", "Combat"),
 		new("fire_secondary", "Fire Secondary", "Combat"),
+		new("target_next", "Sensor Target Next", "Combat"),
+		new("target_clear", "Sensor Target Clear", "Combat"),
+		new("target_focus_cycle", "Sensor Focus Cycle", "Combat"),
 		new("ability_1", "Ability 1", "Combat"),
 		new("ability_2", "Ability 2", "Combat"),
 		new("ability_3", "Ability 3", "Combat"),
@@ -66,7 +69,30 @@ public static class InputBindings
 	{
 		EnsureAction("pause", Key.Escape);
 		EnsureAction("buy_life", Key.B);
-		EnsureAction("interact", Key.E);
+		EnsureAction("interact", Key.F);
+		EnsureAction("target_next", Key.Tab);
+		EnsureAction("target_clear", Key.X);
+		EnsureAction("target_focus_cycle", Key.C);
+		MigrateInteractDefaultToF();
+	}
+
+	/// <summary>One-shot: old builds bound Interact to E (now used for FP strafe).</summary>
+	public static void MigrateInteractDefaultToF()
+	{
+		if (!InputMap.HasAction("interact"))
+		{
+			EnsureAction("interact", Key.F);
+			return;
+		}
+
+		var events = InputMap.ActionGetEvents("interact");
+		if (events.Count != 1 || events[0] is not InputEventKey { PhysicalKeycode: Key.E })
+			return;
+
+		InputMap.ActionEraseEvents("interact");
+		InputMap.ActionAddEvent("interact", new InputEventKey { PhysicalKeycode = Key.F });
+		if (_defaultsCaptured)
+			Defaults["interact"] = InputMap.ActionGetEvents("interact").Duplicate();
 	}
 
 	private static void EnsureAction(string action, Key key)
@@ -209,6 +235,8 @@ public static class InputBindings
 					InputMap.ActionAddEvent(info.Action, ev);
 			}
 		}
+
+		MigrateInteractDefaultToF();
 	}
 
 	private static Godot.Collections.Dictionary SerializeEvent(InputEvent ev)

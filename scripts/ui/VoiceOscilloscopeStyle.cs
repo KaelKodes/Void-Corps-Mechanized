@@ -49,6 +49,7 @@ public sealed class VoiceOscilloscopeStyle
 		TextVoiceService.AcademyProfile => Academy,
 		TextVoiceService.CorpOpsProfile => CorpOps,
 		TextVoiceService.MicaProfile => Mica,
+		"relay_control" => Relay,
 		_ => CorpOps
 	};
 
@@ -169,6 +170,30 @@ public sealed class VoiceOscilloscopeStyle
 		Amplitude = 1f,
 		Frequency = 1.15f,
 		Caption = "JAX ROOK"
+	};
+
+	/// <summary>Anonymous traffic-control channel — no named character.</summary>
+	public static readonly VoiceOscilloscopeStyle Relay = new()
+	{
+		Id = "relay",
+		Accent = new Color(0.5f, 0.78f, 0.85f),
+		Trace = new Color(0.72f, 0.92f, 0.98f),
+		Ghost = new Color(0.35f, 0.65f, 0.75f, 0.28f),
+		Grid = new Color(0.25f, 0.4f, 0.48f, 0.4f),
+		Panel = new Color(0.02f, 0.035f, 0.045f, 1f),
+		Bezel = new Color(0.45f, 0.7f, 0.78f, 0.9f),
+		LineWidth = 1.8f,
+		GhostWidth = 1.1f,
+		Amplitude = 0.9f,
+		Frequency = 1.25f,
+		Decay = 8f,
+		IdleHum = 0.025f,
+		GlowStrength = 0.28f,
+		Squareness = 0.22f,
+		Harmonic = 0.12f,
+		GhostLag = 0.04f,
+		ShowReticles = true,
+		Caption = "SECTOR RELAY"
 	};
 
 	public static readonly VoiceOscilloscopeStyle Mica = new()

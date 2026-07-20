@@ -111,6 +111,14 @@ public static class ShopService
 
 	public static int SellValue(PartData part) => Mathf.Max(8, PriceFor(part) / 2);
 
+	public static int SellValue(PartData part, PartCondition condition)
+	{
+		var full = SellValue(part);
+		if (condition.Destroyed)
+			return Mathf.Max(4, Mathf.RoundToInt(full * 0.15f));
+		return Mathf.Max(4, Mathf.RoundToInt(full * Mathf.Lerp(0.2f, 1f, condition.AverageRatio)));
+	}
+
 	public static bool TryBuy(PlayerProfile profile, ShopOffer offer)
 	{
 		if (profile.Scrap < offer.Price)
@@ -124,15 +132,26 @@ public static class ShopService
 	{
 		if (PlayerProfile.IsUnlimited(partId))
 			return false;
-		if (profile.SpareCount(partId) <= 0)
+		var spare = profile.GetSpareInstances(partId).FirstOrDefault();
+		if (spare == null)
 			return false;
-		var part = GameCatalog.GetPart(partId);
+		return TrySellInstance(profile, spare.InstanceId);
+	}
+
+	public static bool TrySellInstance(PlayerProfile profile, string instanceId)
+	{
+		var instance = profile.GetInstance(instanceId);
+		if (instance == null || PlayerProfile.IsUnlimited(instance.PartId))
+			return false;
+		if (profile.EquippedInstanceIds.Values.Contains(instanceId))
+			return false;
+		var part = GameCatalog.GetPart(instance.PartId);
 		if (part == null || part.VisualKind == "empty")
 			return false;
 
-		if (!profile.TryRemoveOwned(partId))
+		if (!profile.TryRemoveInstance(instanceId))
 			return false;
-		profile.Scrap += SellValue(part);
+		profile.Scrap += SellValue(part, instance.Condition);
 		return true;
 	}
 }

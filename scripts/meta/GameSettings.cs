@@ -21,7 +21,7 @@ public static class GameSettings
 	/// <summary>0 = bottom edge, 1 = lifted toward mid-screen.</summary>
 	public static float HudOffsetY { get; private set; } = DefaultHudOffsetY;
 	/// <summary>When true, PWR/HEAT flank the player MAP on-screen instead of sitting in the corner HUD.</summary>
-	public static bool MetersBesideMech { get; private set; } = true;
+	public static bool MetersBesideMech { get; private set; }
 
 	public static event Action? Changed;
 
@@ -35,7 +35,7 @@ public static class GameSettings
 			HudScale = DefaultHudScale;
 			HudOffsetX = DefaultHudOffsetX;
 			HudOffsetY = DefaultHudOffsetY;
-			MetersBesideMech = true;
+			MetersBesideMech = false;
 			return;
 		}
 
@@ -43,7 +43,7 @@ public static class GameSettings
 		HudScale = Mathf.Clamp((float)cfg.GetValue("hud", "scale", DefaultHudScale), 0.5f, 1.5f);
 		HudOffsetX = Mathf.Clamp((float)cfg.GetValue("hud", "offset_x", DefaultHudOffsetX), 0f, 1f);
 		HudOffsetY = Mathf.Clamp((float)cfg.GetValue("hud", "offset_y", DefaultHudOffsetY), 0f, 1f);
-		MetersBesideMech = (bool)cfg.GetValue("hud", "meters_beside_mech", true);
+		MetersBesideMech = (bool)cfg.GetValue("hud", "meters_beside_mech", false);
 
 		// v1 shipped with 0 lift; adopt the new 10% default once.
 		if (version < 2)
@@ -51,12 +51,18 @@ public static class GameSettings
 		// v2 shipped bottom-left; adopt bottom-center once.
 		if (version < 3)
 			HudOffsetX = DefaultHudOffsetX;
+		// v3 shipped meters beside the MAP; adopt corner HUD once.
+		if (version < 4)
+			MetersBesideMech = false;
+
+		if (version < 4)
+			Save();
 	}
 
 	public static void Save()
 	{
 		var cfg = new ConfigFile();
-		cfg.SetValue("meta", "version", 3);
+		cfg.SetValue("meta", "version", 4);
 		cfg.SetValue("hud", "scale", HudScale);
 		cfg.SetValue("hud", "offset_x", HudOffsetX);
 		cfg.SetValue("hud", "offset_y", HudOffsetY);
@@ -93,7 +99,7 @@ public static class GameSettings
 		HudScale = DefaultHudScale;
 		HudOffsetX = DefaultHudOffsetX;
 		HudOffsetY = DefaultHudOffsetY;
-		MetersBesideMech = true;
+		MetersBesideMech = false;
 		PersistAndNotify();
 	}
 

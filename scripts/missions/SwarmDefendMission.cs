@@ -126,7 +126,8 @@ public sealed class SwarmDefendMission : MissionBase
 			};
 
 			var name = $"Swarm_{wave}_{i}";
-			Host.SpawnSupport(name, unitId, TeamId.Enemy, pos);
+			var mobile = unitId != "gun_tower";
+			Host.SpawnSupport(name, unitId, TeamId.Enemy, pos, viaTelegraph: mobile);
 		}
 	}
 

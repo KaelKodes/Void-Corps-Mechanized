@@ -26,6 +26,14 @@ public sealed class EscortMission : MissionBase
 	private float _mineElapsed;
 	private bool _mounted;
 	private bool _awaitingDismountToDrill;
+	private MissionPressure? _pressure;
+
+	/// <summary>
+	/// True while this mission owns Interact (F) for mount/dismount — field crates must yield.
+	/// </summary>
+	public static bool ReservesFieldInteract { get; private set; }
+
+	public static void ClearFieldInteractReservation() => ReservesFieldInteract = false;
 
 	public EscortMission() : base(MissionType.Escort) { }
 
@@ -56,6 +64,10 @@ public sealed class EscortMission : MissionBase
 			PilotDifficulty.Medium => 48f,
 			_ => 38f
 		};
+
+		var rng = new RandomNumberGenerator();
+		rng.Randomize();
+		_pressure = MissionPressure.Create(Host, "Escort", rng);
 
 		_marker = MissionZone.Create("MiningVein", _veinPos, 10f, new Color(0.85f, 0.65f, 0.3f), "VEIN");
 		root.AddChild(_marker);
@@ -90,12 +102,16 @@ public sealed class EscortMission : MissionBase
 	public override void Tick(float dt)
 	{
 		if (!Host.IsFighting || ObjectivesComplete || _rig == null)
+		{
+			ReservesFieldInteract = false;
 			return;
+		}
 
 		_rig.SetEscort(Host.Player);
 
 		if (_rig.IsDestroyed)
 		{
+			ReservesFieldInteract = false;
 			if (_mounted)
 				ForceDismount();
 			SfxService.Play("alarm");
@@ -103,6 +119,7 @@ public sealed class EscortMission : MissionBase
 			return;
 		}
 
+		RefreshInteractReservation();
 		HandleMountInput();
 
 		switch (_phase)
@@ -158,10 +175,12 @@ public sealed class EscortMission : MissionBase
 
 		var fill = Mathf.Clamp(_mineElapsed / _mineDuration, 0f, 1f);
 		_rig.SetCargoFill(fill);
+		_pressure?.NotifyProgress(fill, _veinPos);
 
 		if (fill < 1f)
 			return;
 
+		_pressure?.NotifyObjectiveSecured(_veinPos);
 		BeginReturn();
 	}
 
@@ -181,6 +200,19 @@ public sealed class EscortMission : MissionBase
 
 	private bool MountAllowed =>
 		_phase is Phase.ToVein or Phase.Returning && _rig is { IsDestroyed: false };
+
+	private void RefreshInteractReservation()
+	{
+		var player = Host.Player;
+		ReservesFieldInteract =
+			_mounted
+			|| _awaitingDismountToDrill
+			|| (MountAllowed
+			    && player != null
+			    && GodotObject.IsInstanceValid(player)
+			    && _rig != null
+			    && _rig.CanMountFrom(player.GlobalPosition));
+	}
 
 	private void HandleMountInput()
 	{
@@ -257,12 +289,12 @@ public sealed class EscortMission : MissionBase
 		var hp = _rig.HealthRatio * 100f;
 
 		if (_awaitingDismountToDrill)
-			return $"OBJECTIVE  Dismount (E) to begin drilling  (HP {hp:0}%)";
+			return $"OBJECTIVE  Dismount (F) to begin drilling  (HP {hp:0}%)";
 
 		if (_mounted)
 			return _phase == Phase.Returning
-				? $"OBJECTIVE  Riding rig home — Shift overdrive{OverdriveState()}  ·  E dismount  (HP {hp:0}%)"
-				: $"OBJECTIVE  Riding rig to vein — Shift overdrive{OverdriveState()}  ·  E dismount  (HP {hp:0}%)";
+				? $"OBJECTIVE  Riding rig home — Shift overdrive{OverdriveState()}  ·  F dismount  (HP {hp:0}%)"
+				: $"OBJECTIVE  Riding rig to vein — Shift overdrive{OverdriveState()}  ·  F dismount  (HP {hp:0}%)";
 
 		return _phase switch
 		{
@@ -285,7 +317,7 @@ public sealed class EscortMission : MissionBase
 		var net = player.GetNodeOrNull<NetSession>("/root/NetSession");
 		if (net is { IsOnline: true })
 			return "";
-		return _rig.CanMountFrom(player.GlobalPosition) ? "  |  E to mount & ride" : "";
+		return _rig.CanMountFrom(player.GlobalPosition) ? "  |  F to mount & ride" : "";
 	}
 
 	private string OverdriveState() =>

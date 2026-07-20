@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace Mechanize;
@@ -39,7 +41,6 @@ public partial class ArenaController : Node3D, IMissionHost
 	private PauseMenuUi? _pauseMenu;
 	private DropBeacon? _playerDropBeacon;
 	private bool _objectivesComplete;
-	private readonly List<DropInSequence> _dropIns = new();
 	private VoidCorpsIdentity.ClaimSite _claim;
 	private MatchPhase _phase = MatchPhase.Prep;
 	private float _countdownRemaining;
@@ -56,23 +57,23 @@ public partial class ArenaController : Node3D, IMissionHost
 	private string _activeRivalEnemyName = "";
 	private bool _rivalAssigned;
 	private MechChassisClass _activeBossChassisClass = MechChassisClass.Standard;
+	private readonly List<FieldPartCrate> _fieldCrates = new();
+	private readonly Dictionary<string, PendingTradeClaim> _pendingTradeClaims = new();
 
-	private sealed class DropInSequence
+	private sealed class PendingTradeClaim
 	{
+		public required int OwnerPeerId;
+		public required PartSlot Slot;
+		public required string InstanceId;
+		public required string PartId;
+		public required Vector3 Position;
 		public required MechController Mech;
-		public required Vector3 Landing;
-		public required float FallDuration;
-		public float OpenDuration = 0.75f;
-		public DropBeacon? Beacon;
-		public bool EnableAiWhenDone;
-		public float Elapsed;
-		public float StartY;
-		public bool Opening;
 	}
 
 	private bool _playerDropStarted;
 
 	private NetCombatBus? _netCombat;
+	private DeploymentDirector? _deployment;
 	private float _matchHudSyncTimer;
 
 	public override void _Ready()
@@ -84,6 +85,19 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_netCombat = new NetCombatBus();
 		_netCombat.EnsureUnder(this);
+		_deployment = new DeploymentDirector { Name = "DeploymentDirector" };
+		AddChild(_deployment);
+		_deployment.Bind(
+			this,
+			PickAiTarget,
+			() => _phase == MatchPhase.Fighting && !_matchResolved,
+			() => _playerDropBeacon,
+			beacon =>
+			{
+				if (_objectivesComplete && beacon == _playerDropBeacon)
+					_playerDropBeacon?.ArmExtract();
+			});
+		_deployment.PhaseChanged += OnDeploymentPhaseChanged;
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		if (session != null)
@@ -154,6 +168,7 @@ public partial class ArenaController : Node3D, IMissionHost
 				_garage.LoadoutApplied += OnCoopReadyPressed;
 			else
 				_garage.LoadoutApplied += OnReadyPressed;
+			_garage.FieldDeliveryRequested += OnFieldDeliveryRequested;
 			_garage.VisibilityChanged += OnGarageVisibilityChanged;
 			_garage.Visible = true;
 			_garage.MoveToFront();
@@ -207,9 +222,12 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_pauseMenu = ui.GetNodeOrNull<PauseMenuUi>("PauseMenuUi");
 		if (_pauseMenu != null)
+		{
+			_pauseMenu.ZIndex = 100;
 			return;
+		}
 
-		_pauseMenu = new PauseMenuUi { Name = "PauseMenuUi" };
+		_pauseMenu = new PauseMenuUi { Name = "PauseMenuUi", ZIndex = 100 };
 		ui.AddChild(_pauseMenu);
 	}
 
@@ -229,6 +247,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			_pauseMenu.Close();
 			GetTree().Paused = false;
+			_mechHud?.Refresh(_mech);
 			return;
 		}
 
@@ -241,6 +260,7 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_pauseMenu.Open();
 		GetTree().Paused = true;
+		_mechHud?.Refresh(_mech);
 	}
 
 	private void OnGarageVisibilityChanged()
@@ -268,7 +288,14 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_missionHud != null)
 			_missionHud.Visible = visible;
 		if (_mechHud != null)
+		{
 			_mechHud.Visible = visible;
+			if (visible)
+			{
+				_mechHud.MoveToFront();
+				_mechHud.QueueApplyLayout();
+			}
+		}
 
 		var brief = GetNodeOrNull<Label>("UI/ClaimBrief");
 		if (brief != null)
@@ -768,12 +795,22 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		ui.GetNodeOrNull("ComponentIntegrityHud")?.QueueFree();
 
-		_mechHud = ui.GetNodeOrNull<MechHud>("MechHud");
+		// Drop the failed UiHost experiment — Controls under CanvasLayer use viewport space.
+		var staleHost = ui.GetNodeOrNull<Control>("UiHost");
+		_mechHud = ui.GetNodeOrNull<MechHud>("MechHud")
+			?? staleHost?.GetNodeOrNull<MechHud>("MechHud");
 		if (_mechHud != null && GodotObject.IsInstanceValid(_mechHud))
 		{
-			_mechHud.ApplyLayout();
+			if (_mechHud.GetParent() != ui)
+				_mechHud.Reparent(ui);
+			if (staleHost != null && GodotObject.IsInstanceValid(staleHost))
+				staleHost.QueueFree();
+			_mechHud.QueueApplyLayout();
 			return;
 		}
+
+		if (staleHost != null && GodotObject.IsInstanceValid(staleHost))
+			staleHost.QueueFree();
 
 		_mechHud = new MechHud
 		{
@@ -781,7 +818,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			Visible = false
 		};
 		ui.AddChild(_mechHud);
-		_mechHud.ApplyLayout();
+		_mechHud.QueueApplyLayout();
 	}
 
 	// --- IMissionHost ---
@@ -819,11 +856,8 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	void IMissionHost.DespawnEnemyMech(string name) => DespawnEnemyMech(name);
 
-	SupportUnit IMissionHost.SpawnSupport(string name, string unitId, TeamId team, Vector3 position)
-	{
-		SpawnSupport(name, unitId, team, position);
-		return GetNodeOrNull<SupportUnit>(name)!;
-	}
+	SupportUnit IMissionHost.SpawnSupport(string name, string unitId, TeamId team, Vector3 position, bool viaTelegraph) =>
+		SpawnSupport(name, unitId, team, position, viaTelegraph);
 
 	void IMissionHost.DespawnSupport(string name) => DespawnSupport(name);
 
@@ -831,28 +865,43 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	void IMissionHost.FaceToward(Node3D body, Vector3 worldPoint) => FaceToward(body, worldPoint);
 
-	private void SpawnSupport(string name, string unitId, TeamId team, Vector3 position)
+	private SupportUnit SpawnSupport(string name, string unitId, TeamId team, Vector3 position, bool viaTelegraph = false)
 	{
 		var existing = GetNodeOrNull<SupportUnit>(name);
+		SupportUnit unit;
 		if (existing != null)
 		{
 			existing.Configure(unitId, team);
-			existing.GlobalPosition = position;
-			existing.Visible = true;
-			existing.ProcessMode = ProcessModeEnum.Inherit;
-			FaceToward(existing, Vector3.Zero);
-			if (GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true })
-				existing.AttachHostReplication();
-			return;
+			unit = existing;
+		}
+		else
+		{
+			unit = SupportUnit.Create(unitId, team, name);
+			AddChild(unit);
+			unit.Configure(unitId, team);
 		}
 
-		var unit = SupportUnit.Create(unitId, team, name);
-		AddChild(unit);
-		unit.Configure(unitId, team);
-		unit.GlobalPosition = position;
 		FaceToward(unit, Vector3.Zero);
 		if (GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true })
 			unit.AttachHostReplication();
+
+		if (viaTelegraph && team == TeamId.Enemy && _phase == MatchPhase.Fighting)
+		{
+			var approach = position * 1.35f;
+			approach.Y = 0f;
+			if (approach.LengthSquared() < 4f)
+				approach = position + new Vector3(0f, 0f, -16f);
+			unit.GlobalPosition = approach;
+			unit.Visible = false;
+			unit.ProcessMode = ProcessModeEnum.Disabled;
+			ScheduleSupportApproach(unit, position, approach, warningSeconds: 2f);
+			return unit;
+		}
+
+		unit.GlobalPosition = position;
+		unit.Visible = true;
+		unit.ProcessMode = ProcessModeEnum.Inherit;
+		return unit;
 	}
 
 	private void DespawnSupport(string name)
@@ -947,7 +996,7 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		if (viaDropBeacon)
 		{
-			BeginDropIn(enemy, position, enableAiWhenDone: true, createBeacon: true);
+			BeginDropIn(enemy, position, enableAiWhenDone: true, createBeacon: false, warningSeconds: 2f);
 		}
 		else
 		{
@@ -981,53 +1030,38 @@ public partial class ArenaController : Node3D, IMissionHost
 	private const float PlayerDropHeight = 28f;
 	private const float VesselOpenDuration = 0.75f;
 
-	private void BeginDropIn(MechController mech, Vector3 landing, bool enableAiWhenDone, bool createBeacon, float? durationOverride = null)
+	private void BeginDropIn(
+		MechController mech,
+		Vector3 landing,
+		bool enableAiWhenDone,
+		bool createBeacon,
+		float? durationOverride = null,
+		float warningSeconds = 1.5f)
 	{
-		DropBeacon? beacon = null;
-		if (createBeacon)
-		{
-			var beaconName = $"DropBeacon_{mech.Name}";
-			var old = GetNodeOrNull<DropBeacon>(beaconName);
-			old?.QueueFree();
-
-			var pad = DropBeacon.PadBesideSpawn(landing, limit: _layout.PadLimitX, limitZ: _layout.PadLimitZ);
-			beacon = DropBeacon.Create(beaconName, pad, mech.Team);
-			landing = new Vector3(pad.X, 0f, pad.Z);
-			AddChild(beacon);
-		}
-		else
-		{
-			beacon = _playerDropBeacon;
-			if (beacon != null)
-				landing = new Vector3(beacon.GlobalPosition.X, 0f, beacon.GlobalPosition.Z);
-			else
-				landing = new Vector3(landing.X, 0f, landing.Z);
-		}
+		if (_deployment == null)
+			return;
 
 		var duration = durationOverride ?? (mech.ChassisClass == MechChassisClass.Titan ? 1.85f : 1.35f);
 		var dropHeight = mech.ChassisClass == MechChassisClass.Titan
 			? PlayerDropHeight * 1.75f
 			: PlayerDropHeight;
-		var startY = mech.GlobalPosition.Y > landing.Y + 4f
-			? mech.GlobalPosition.Y
-			: landing.Y + dropHeight;
 
-		SealMechInVessel(mech, beacon, landing, startY);
-
-		_dropIns.Add(new DropInSequence
+		_deployment.SetPlayerDropBeacon(_playerDropBeacon);
+		_deployment.Schedule(new DeploymentRequest
 		{
+			JobId = "",
+			Kind = DeploymentKind.VesselDrop,
+			Target = landing,
+			Team = mech.Team,
+			WarningSeconds = warningSeconds,
+			FallSeconds = duration,
+			OpenSeconds = VesselOpenDuration,
+			DropHeight = dropHeight,
+			CreateBeacon = createBeacon,
+			ExistingBeacon = createBeacon ? null : _playerDropBeacon,
 			Mech = mech,
-			Landing = landing,
-			FallDuration = duration,
-			OpenDuration = VesselOpenDuration,
-			Beacon = beacon,
-			EnableAiWhenDone = enableAiWhenDone,
-			Elapsed = 0f,
-			StartY = startY,
-			Opening = false
+			EnableAiWhenDone = enableAiWhenDone
 		});
-
-		SfxService.Play("alarm", 1.15f, -7f);
 	}
 
 	private static void SealMechInVessel(MechController mech, DropBeacon? beacon, Vector3 landing, float altitude)
@@ -1057,6 +1091,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		EnsurePlayerDropBeacon();
+		_deployment?.SetPlayerDropBeacon(_playerDropBeacon);
 		var land = _playerSpawn;
 		if (_playerDropBeacon != null)
 		{
@@ -1069,75 +1104,441 @@ public partial class ArenaController : Node3D, IMissionHost
 		SealMechInVessel(_mech, _playerDropBeacon, land, land.Y + PlayerDropHeight);
 	}
 
-	private void TickDropIns(float dt)
+	private void OnDeploymentPhaseChanged(string jobId, DeploymentPhase phase, Vector3 target, int team)
 	{
-		for (var i = _dropIns.Count - 1; i >= 0; i--)
+		if (Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer())
+			_netCombat?.HostDeploymentPhase(jobId, (int)phase, target, team);
+	}
+
+	public bool TryRequestFieldPart(PartSlot slot, string instanceId)
+	{
+		if (_matchResolved || _phase != MatchPhase.Fighting)
+			return false;
+
+		// Each peer owns their inventory — requests are local, never host-gated.
+		return LocalRequestFieldPart(slot, instanceId);
+	}
+
+	public bool LocalRequestFieldPart(PartSlot slot, string instanceId)
+	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null || _mech == null || _deployment == null)
+			return false;
+
+		var instance = session.Profile.GetInstance(instanceId);
+		if (instance == null || instance.Reserved)
+			return false;
+		var part = GameCatalog.GetPart(instance.PartId);
+		if (part == null || part.Slot != slot)
+			return false;
+
+		instance.Reserved = true;
+		session.Match.TrackRecovery(instance.InstanceId);
+
+		var landing = PickFieldLandingNear(_mech.GlobalPosition);
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		var ownerPeer = net?.LocalPeerId ?? 0;
+		var crate = FieldPartCrate.Create(
+			instance.InstanceId,
+			instance.PartId,
+			slot,
+			landing + new Vector3(0f, 18f, 0f),
+			ownerPeerId: ownerPeer);
+		crate.Visible = false;
+		AddChild(crate);
+		_fieldCrates.Add(crate);
+
+		_deployment.Schedule(new DeploymentRequest
 		{
-			var seq = _dropIns[i];
-			if (!IsInstanceValid(seq.Mech))
-			{
-				_dropIns.RemoveAt(i);
+			JobId = "",
+			Kind = DeploymentKind.CargoPod,
+			Target = landing,
+			Team = TeamId.Player,
+			WarningSeconds = 1.5f,
+			FallSeconds = 1.15f,
+			OpenSeconds = 0.45f,
+			DropHeight = 18f,
+			CreateBeacon = false,
+			Cargo = crate
+		});
+
+		_netCombat?.BroadcastFieldCargoPod(
+			ownerPeer,
+			(int)slot,
+			instance.InstanceId,
+			instance.PartId,
+			landing);
+		return true;
+	}
+
+	/// <summary>Cosmetic cargo pod for another peer's resupply — no local inventory mutation.</summary>
+	public void ObserveRemoteFieldCargoPod(int ownerPeer, PartSlot slot, string instanceId, string partId, Vector3 landing)
+	{
+		if (_deployment == null)
+			return;
+
+		var crate = FieldPartCrate.Create(
+			instanceId,
+			partId,
+			slot,
+			landing + new Vector3(0f, 18f, 0f),
+			ownerPeerId: ownerPeer,
+			visualOnly: true);
+		crate.Visible = false;
+		AddChild(crate);
+		_fieldCrates.Add(crate);
+
+		_deployment.Schedule(new DeploymentRequest
+		{
+			JobId = "",
+			Kind = DeploymentKind.CargoPod,
+			Target = landing,
+			Team = TeamId.Player,
+			WarningSeconds = 1.5f,
+			FallSeconds = 1.15f,
+			OpenSeconds = 0.45f,
+			DropHeight = 18f,
+			CreateBeacon = false,
+			Cargo = crate
+		});
+	}
+
+	public void ObserveRemoteFieldCrateLanded(int ownerPeer, PartSlot slot, string instanceId, string partId, Vector3 position)
+	{
+		// Replace any in-flight visual crate with a grounded one.
+		foreach (var existing in _fieldCrates.ToArray())
+		{
+			if (!IsInstanceValid(existing))
 				continue;
-			}
-
-			seq.Elapsed += dt;
-
-			if (!seq.Opening)
+			if (existing.InstanceId == instanceId && existing.VisualOnly)
 			{
-				var t = Mathf.Clamp(seq.Elapsed / Mathf.Max(0.05f, seq.FallDuration), 0f, 1f);
-				var eased = t * t;
-				var y = Mathf.Lerp(seq.StartY, seq.Landing.Y, eased);
-				var pos = new Vector3(seq.Landing.X, y, seq.Landing.Z);
-				seq.Mech.GlobalPosition = pos;
-				seq.Mech.Velocity = Vector3.Zero;
-				if (seq.Beacon != null && IsInstanceValid(seq.Beacon))
-					seq.Beacon.GlobalPosition = pos;
-
-				if (t < 1f)
-					continue;
-
-				seq.Opening = true;
-				seq.Elapsed = 0f;
-				seq.Mech.GlobalPosition = seq.Landing;
-				if (seq.Beacon != null && IsInstanceValid(seq.Beacon))
-				{
-					seq.Beacon.GlobalPosition = seq.Landing;
-					seq.Beacon.MarkOpening();
-					seq.Beacon.SetOpenAmount(0f);
-				}
-
-				SfxService.Play("drop_impact", 1f, -2f);
-				continue;
+				MeshMat.QueueFreeSafe(existing);
+				_fieldCrates.Remove(existing);
 			}
-
-			var openT = Mathf.Clamp(seq.Elapsed / Mathf.Max(0.05f, seq.OpenDuration), 0f, 1f);
-			seq.Beacon?.SetOpenAmount(openT);
-
-			if (openT >= 0.45f && !seq.Mech.Visible)
-			{
-				seq.Mech.Visible = true;
-				seq.Mech.GlobalPosition = seq.Landing + new Vector3(0f, 0.05f, 0f);
-			}
-
-			if (openT < 1f)
-				continue;
-
-			seq.Mech.Visible = true;
-			seq.Mech.GlobalPosition = seq.Landing;
-			seq.Mech.SetControlsEnabled(_phase == MatchPhase.Fighting);
-			seq.Beacon?.MarkReady();
-			if (_objectivesComplete && seq.Beacon == _playerDropBeacon)
-				_playerDropBeacon?.ArmExtract();
-
-			if (seq.EnableAiWhenDone && !seq.Mech.IsPlayerControlled && _phase == MatchPhase.Fighting)
-			{
-				var pilot = seq.Mech.GetNodeOrNull<MechPilotAI>("MechPilotAI");
-				if (pilot != null)
-					pilot.SetTarget(PickAiTarget());
-			}
-
-			_dropIns.RemoveAt(i);
 		}
+
+		var crate = FieldPartCrate.Create(instanceId, partId, slot, position, ownerPeerId: ownerPeer, visualOnly: true);
+		crate.MarkLanded();
+		AddChild(crate);
+		_fieldCrates.Add(crate);
+	}
+
+	public void ObserveRemoteFieldCrateConsumed(string instanceId)
+	{
+		foreach (var existing in _fieldCrates.ToArray())
+		{
+			if (!IsInstanceValid(existing))
+				continue;
+			if (existing.InstanceId != instanceId)
+				continue;
+			MeshMat.QueueFreeSafe(existing);
+			_fieldCrates.Remove(existing);
+		}
+	}
+
+	public bool TryInstallFieldCrate(FieldPartCrate crate, MechController mech)
+	{
+		if (!crate.Landed || _matchResolved)
+			return false;
+		if (!mech.IsPlayerControlled)
+			return false;
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return false;
+
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		var localPeer = net?.LocalPeerId ?? 0;
+		if (crate.OwnerPeerId != 0 && localPeer != 0 && crate.OwnerPeerId != localPeer)
+		{
+			if (_pendingTradeClaims.ContainsKey(crate.InstanceId))
+				return false;
+
+			_pendingTradeClaims[crate.InstanceId] = new PendingTradeClaim
+			{
+				OwnerPeerId = crate.OwnerPeerId,
+				Slot = crate.Slot,
+				InstanceId = crate.InstanceId,
+				PartId = crate.PartId,
+				Position = crate.GlobalPosition,
+				Mech = mech
+			};
+			_netCombat?.RequestFieldTradeClaim(
+				crate.OwnerPeerId,
+				localPeer,
+				(int)crate.Slot,
+				crate.InstanceId,
+				crate.PartId);
+			return true;
+		}
+
+		var incoming = session.Profile.GetInstance(crate.InstanceId);
+		var part = GameCatalog.GetPart(crate.PartId);
+		if (incoming == null || part == null)
+			return false;
+
+		return InstallOwnedFieldInstance(crate, mech, incoming, part, localPeer);
+	}
+
+	private bool InstallOwnedFieldInstance(
+		FieldPartCrate crate,
+		MechController mech,
+		OwnedPartInstance incoming,
+		PartData part,
+		int localPeer)
+	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return false;
+
+		var outgoing = session.Profile.GetEquippedInstance(crate.Slot);
+		PartCondition? outgoingCondition = null;
+		string? outgoingInstanceId = null;
+		string? outgoingPartId = null;
+		if (outgoing != null && mech.Assembler?.Hardpoints.TryGetValue(crate.Slot, out var hp) == true)
+		{
+			outgoingCondition = hp.CaptureCondition();
+			outgoing.Condition = outgoingCondition.Clone();
+			outgoingInstanceId = outgoing.InstanceId;
+			outgoingPartId = outgoing.PartId;
+		}
+
+		if (!mech.InstallFieldPart(crate.Slot, part, incoming.Condition.Clone()))
+			return false;
+
+		incoming.Reserved = false;
+		session.Profile.SetEquippedInstance(crate.Slot, incoming);
+		session.SetLoadout(session.Profile.Loadout);
+		_fieldCrates.Remove(crate);
+		_netCombat?.BroadcastFieldCrateConsumed(crate.InstanceId);
+
+		if (!string.IsNullOrEmpty(outgoingInstanceId) && !string.IsNullOrEmpty(outgoingPartId))
+		{
+			var dropPos = mech.GlobalPosition + mech.Transform.Basis.Z * -2.2f;
+			dropPos.Y = 0.35f;
+			if (outgoing != null)
+				outgoing.Reserved = true;
+			var dropped = FieldPartCrate.Create(
+				outgoingInstanceId,
+				outgoingPartId,
+				crate.Slot,
+				dropPos,
+				ownerPeerId: localPeer);
+			dropped.MarkLanded();
+			AddChild(dropped);
+			_fieldCrates.Add(dropped);
+			session.Match.TrackRecovery(outgoingInstanceId);
+			if (outgoing != null && outgoingCondition != null)
+				outgoing.Condition = outgoingCondition;
+			_netCombat?.BroadcastFieldCrateLanded(
+				localPeer,
+				(int)crate.Slot,
+				outgoingInstanceId,
+				outgoingPartId,
+				dropPos);
+		}
+
+		return true;
+	}
+
+	/// <summary>
+	/// Runs only on the crate owner's peer. The owner remains authoritative for
+	/// relinquishing their inventory copy, but no host approval is involved.
+	/// </summary>
+	public bool AuthorizeFieldTradeClaim(
+		int claimantPeer,
+		PartSlot slot,
+		string instanceId,
+		string partId,
+		out Godot.Collections.Dictionary condition)
+	{
+		condition = new Godot.Collections.Dictionary();
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null || claimantPeer <= 0)
+			return false;
+
+		var instance = session.Profile.GetInstance(instanceId);
+		if (instance == null || !instance.Reserved || instance.PartId != partId)
+			return false;
+		var part = GameCatalog.GetPart(partId);
+		if (part == null || part.Slot != slot)
+			return false;
+
+		var crate = _fieldCrates.FirstOrDefault(c =>
+			IsInstanceValid(c)
+			&& !c.VisualOnly
+			&& c.InstanceId == instanceId
+			&& c.Slot == slot);
+		if (crate == null)
+			return false;
+		if (GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true })
+		{
+			if (!_wingByPeer.TryGetValue(claimantPeer, out var claimant)
+			    || claimant.GlobalPosition.DistanceTo(crate.GlobalPosition) > 6f)
+				return false;
+		}
+
+		condition = instance.Condition.ToDict();
+		session.Match.UntrackRecovery(instanceId);
+		if (!session.Profile.TryRemoveInstance(instanceId))
+			return false;
+
+		_fieldCrates.Remove(crate);
+		MeshMat.QueueFreeSafe(crate);
+		_netCombat?.BroadcastFieldCrateConsumed(instanceId);
+		session.SaveProfile();
+		return true;
+	}
+
+	public void CompleteFieldTradeClaim(
+		int ownerPeer,
+		PartSlot slot,
+		string instanceId,
+		string partId,
+		Godot.Collections.Dictionary conditionDict)
+	{
+		if (!_pendingTradeClaims.Remove(instanceId, out var pending))
+			return;
+		if (pending.OwnerPeerId != ownerPeer
+		    || pending.Slot != slot
+		    || pending.PartId != partId
+		    || !IsInstanceValid(pending.Mech))
+			return;
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var part = GameCatalog.GetPart(partId);
+		if (session == null || part == null || part.Slot != slot)
+			return;
+
+		var condition = PartCondition.FromDict(conditionDict);
+		var adopted = session.Profile.AdoptTransferredInstance(instanceId, partId, condition);
+		session.Match.TrackRecovery(instanceId);
+
+		var claimCrate = FieldPartCrate.Create(
+			instanceId,
+			partId,
+			slot,
+			pending.Position,
+			ownerPeerId: GetNodeOrNull<NetSession>("/root/NetSession")?.LocalPeerId ?? 0);
+		claimCrate.MarkLanded();
+		AddChild(claimCrate);
+		_fieldCrates.Add(claimCrate);
+
+		var localPeer = GetNodeOrNull<NetSession>("/root/NetSession")?.LocalPeerId ?? 0;
+		if (InstallOwnedFieldInstance(claimCrate, pending.Mech, adopted, part, localPeer))
+		{
+			MeshMat.QueueFreeSafe(claimCrate);
+			session.SaveProfile();
+			SfxService.Confirm();
+		}
+	}
+
+	public void RejectFieldTradeClaim(string instanceId)
+	{
+		if (!_pendingTradeClaims.Remove(instanceId, out var pending))
+			return;
+
+		var existing = _fieldCrates.FirstOrDefault(c =>
+			IsInstanceValid(c)
+			&& c.VisualOnly
+			&& c.InstanceId == instanceId);
+		if (existing != null)
+		{
+			existing.ResetTransferClaim();
+			SfxService.Play("alarm", 1.1f, -6f);
+			return;
+		}
+
+		var restored = FieldPartCrate.Create(
+			pending.InstanceId,
+			pending.PartId,
+			pending.Slot,
+			pending.Position,
+			ownerPeerId: pending.OwnerPeerId,
+			visualOnly: true);
+		restored.MarkLanded();
+		AddChild(restored);
+		_fieldCrates.Add(restored);
+		SfxService.Play("alarm", 1.1f, -6f);
+	}
+
+	private Vector3 PickFieldLandingNear(Vector3 origin)
+	{
+		var rng = new RandomNumberGenerator();
+		rng.Randomize();
+		for (var i = 0; i < 12; i++)
+		{
+			var angle = rng.Randf() * Mathf.Tau;
+			var dist = rng.RandfRange(6f, 14f);
+			var candidate = origin + new Vector3(Mathf.Cos(angle) * dist, 0f, Mathf.Sin(angle) * dist);
+			candidate.X = Mathf.Clamp(candidate.X, -_layout.PadLimitX, _layout.PadLimitX);
+			candidate.Z = Mathf.Clamp(candidate.Z, -_layout.PadLimitZ, _layout.PadLimitZ);
+			candidate.Y = 0f;
+			if ((candidate - origin).Length() >= 5f)
+				return candidate;
+		}
+
+		return new Vector3(
+			Mathf.Clamp(origin.X + 8f, -_layout.PadLimitX, _layout.PadLimitX),
+			0f,
+			Mathf.Clamp(origin.Z, -_layout.PadLimitZ, _layout.PadLimitZ));
+	}
+
+	private void RecoverFieldCrates(GameSession session)
+	{
+		foreach (var crate in _fieldCrates.ToArray())
+		{
+			if (!IsInstanceValid(crate))
+				continue;
+			if (crate.Recoverable && !string.IsNullOrEmpty(crate.InstanceId))
+			{
+				session.Match.TrackRecovery(crate.InstanceId);
+				var instance = session.Profile.GetInstance(crate.InstanceId);
+				if (instance != null)
+					instance.Reserved = false;
+			}
+
+			MeshMat.QueueFreeSafe(crate);
+		}
+
+		_fieldCrates.Clear();
+	}
+
+	public void ScheduleSupportApproach(SupportUnit unit, Vector3 target, Vector3 approachFrom, float warningSeconds = 2f)
+	{
+		_deployment?.Schedule(new DeploymentRequest
+		{
+			JobId = "",
+			Kind = DeploymentKind.GroundApproach,
+			Target = target,
+			ApproachFrom = approachFrom,
+			Team = unit.Team,
+			WarningSeconds = warningSeconds,
+			FallSeconds = 1.6f,
+			Support = unit
+		});
+	}
+
+	private void RemountWithTelegraph(MechController mech, Vector3 pad, LoadoutData loadout, bool fullRepair)
+	{
+		mech.RebuildFromLoadout(loadout, forceFullRepair: fullRepair);
+		mech.GlobalPosition = pad;
+		mech.Velocity = Vector3.Zero;
+		FaceToward(mech, Vector3.Zero);
+		_deployment?.Schedule(new DeploymentRequest
+		{
+			JobId = "",
+			Kind = DeploymentKind.Remount,
+			Target = pad,
+			Team = TeamId.Player,
+			WarningSeconds = 1.5f,
+			FallSeconds = mech.ChassisClass == MechChassisClass.Titan ? 1.85f : 1.35f,
+			OpenSeconds = VesselOpenDuration,
+			DropHeight = PlayerDropHeight,
+			CreateBeacon = false,
+			Mech = mech
+		});
+		SetCombatActive(true);
 	}
 
 	private void TickExtraction(float dt)
@@ -1282,12 +1683,13 @@ public partial class ArenaController : Node3D, IMissionHost
 			              ?? (downed.OwningPeerId == (net?.LocalPeerId ?? 0)
 				              ? session.CurrentLoadout
 				              : GameCatalog.CreateStarterLoadout());
+			// Life insurance: remount with every equipped instance restored to new.
+			if (downed.IsPlayerControlled || downed.OwningPeerId == (net?.LocalPeerId ?? 0))
+				session.Profile.RepairAllEquippedFully();
 			var pad = downed.GlobalPosition with { Y = 0f };
 			if (pad.LengthSquared() < 0.01f)
 				pad = _playerSpawn;
-			downed.RespawnAt(pad, loadout);
-			FaceToward(downed, Vector3.Zero);
-			SetCombatActive(true);
+			RemountWithTelegraph(downed, pad, loadout, fullRepair: true);
 			GD.Print($"Pilot remount (peer {downed.OwningPeerId}). Lives remaining: {session.Match.LivesRemaining}");
 			return;
 		}
@@ -1295,9 +1697,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		// Cadet range cannot fail — free remount forever.
 		if (session is { MatchFromAcademy: true, PendingMission: MissionType.CadetRange })
 		{
-			downed.RespawnAt(_playerSpawn, session.CurrentLoadout);
-			FaceToward(downed, Vector3.Zero);
-			SetCombatActive(true);
+			RemountWithTelegraph(downed, _playerSpawn, session.CurrentLoadout, fullRepair: true);
 			return;
 		}
 
@@ -1359,30 +1759,35 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_matchResolved = true;
 		_phase = MatchPhase.Fighting;
-		_dropIns.Clear();
+		EscortMission.ClearFieldInteractReservation();
 		SetCombatActive(false);
 		if (_garage != null)
 			_garage.Visible = false;
 		SetCombatHudVisible(false);
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session != null)
+		{
+			RecoverFieldCrates(session);
+			if (_mech != null)
+				session.Match.CaptureFinalCondition(_mech.CapturePartConditions());
+		}
+
 		session?.Match.End(outcome);
 		if (session is { MatchFromAcademy: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
 			session.OnAcademyMissionResolved(outcome);
 		else if (session is { MatchFromConvention: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
 			session.OnConventionTrialResolved(outcome);
+		else if (session is { MatchFromSolarCampaign: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
+			session.OnSolarMissionResolved(outcome);
 		else if (session is { MatchFromCampaign: true } && (Multiplayer.MultiplayerPeer == null || Multiplayer.IsServer()))
 			session.OnCampaignNodeResolved(outcome);
 		SfxService.Play(outcome == MatchOutcome.Victory ? "victory" : "defeat", 1f, -2f);
 
 		if (Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer())
 			_netCombat?.HostShowResults((int)outcome);
-		else if (_results != null && session != null)
-		{
-			_results.MouseFilter = Control.MouseFilterEnum.Stop;
-			_results.Open(session);
-			_results.MoveToFront();
-		}
+		else if (session != null)
+			OpenPostMissionFlow(session);
 	}
 
 	private void TryBuyLifeWithScrap()
@@ -1431,7 +1836,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		var dt = (float)delta;
-		TickDropIns(dt);
+		_deployment?.Tick(dt);
 
 		if (_phase == MatchPhase.Countdown)
 			TickCountdown(dt);
@@ -1440,7 +1845,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			&& _phase == MatchPhase.Fighting
 			&& Input.IsActionJustPressed("toggle_garage")
 			&& _garage != null
-			&& _dropIns.Count == 0)
+			&& !(_deployment?.HasActiveJobs ?? false))
 		{
 			_garage.Visible = !_garage.Visible;
 			_garage.ConfigurePrepMode(false);
@@ -1496,28 +1901,26 @@ public partial class ArenaController : Node3D, IMissionHost
 	private void OnReadyPressed(LoadoutData loadout)
 	{
 		if (_phase != MatchPhase.Prep)
-		{
-			// Mid-fight garage apply: only this peer's MAP + profile.
-			var session = GetNodeOrNull<GameSession>("/root/GameSession");
-			session?.SetLoadout(loadout);
-			_mech?.RebuildFromLoadout(loadout);
-			if (IsCoopMatch && Multiplayer.MultiplayerPeer != null && _mech != null)
-				Rpc(MethodName.RpcApplyWingLoadout, Multiplayer.GetUniqueId(), loadout.ToDict());
-			if (_garage != null)
-				_garage.Visible = false;
-			SetLocalWingControls(true);
-			SetCombatHudVisible(true);
 			return;
-		}
-
 		BeginCountdown(loadout);
+	}
+
+	private void OnFieldDeliveryRequested(int slot, string instanceId)
+	{
+		if (_phase != MatchPhase.Fighting || _matchResolved)
+			return;
+		TryRequestFieldPart((PartSlot)slot, instanceId);
+		if (_garage != null)
+			_garage.Visible = false;
+		SetLocalWingControls(true);
+		SetCombatHudVisible(true);
 	}
 
 	private void BeginCountdown(LoadoutData loadout)
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		session?.SetLoadout(loadout);
-		_mech?.RebuildFromLoadout(loadout);
+		_mech?.RebuildFromLoadout(loadout, BuildProfileConditions(session?.Profile));
 
 		if (_garage != null)
 		{
@@ -1528,7 +1931,6 @@ public partial class ArenaController : Node3D, IMissionHost
 		SetCombatHudVisible(false);
 		_enemyResolved.Clear();
 		_objectivesComplete = false;
-		_dropIns.Clear();
 		PlaceCombatants();
 		StagePlayerDropHold();
 		SetCombatActive(false);
@@ -1563,7 +1965,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (IsCoopMatch && _wingByPeer.Count > 0)
 				DropAllWings(fallTime);
 			else
-				BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false, fallTime);
+				BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false, fallTime, warningSeconds: 0.05f);
 		}
 
 		if (_countdownRemaining <= 0f)
@@ -1584,7 +1986,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (!_playerDropStarted && _mech != null)
 			{
 				_playerDropStarted = true;
-				BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false);
+				BeginDropIn(_mech, _playerSpawn, enableAiWhenDone: false, createBeacon: false, warningSeconds: 0.05f);
 			}
 
 			var tree = GetTree();
@@ -1616,16 +2018,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		{
 			if (child is MechController mech)
 			{
-				var dropping = false;
-				foreach (var seq in _dropIns)
-				{
-					if (seq.Mech == mech)
-					{
-						dropping = true;
-						break;
-					}
-				}
-
+				var dropping = _deployment?.IsMechDeploying(mech) ?? false;
 				mech.SetControlsEnabled(active && !dropping);
 				mech.Velocity = Vector3.Zero;
 			}
@@ -1659,16 +2052,7 @@ public partial class ArenaController : Node3D, IMissionHost
 	{
 		if (_mech == null)
 			return;
-		var dropping = false;
-		foreach (var seq in _dropIns)
-		{
-			if (seq.Mech == _mech)
-			{
-				dropping = true;
-				break;
-			}
-		}
-
+		var dropping = _deployment?.IsMechDeploying(_mech) ?? false;
 		_mech.SetControlsEnabled(enabled && !dropping && _phase == MatchPhase.Fighting);
 		if (!enabled)
 			_mech.Velocity = Vector3.Zero;
@@ -1690,12 +2074,112 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (session.Match.Outcome == MatchOutcome.InProgress)
 			session.Match.End(outcome);
 
+		OpenPostMissionFlow(session);
+	}
+
+	private void OpenPostMissionFlow(GameSession session)
+	{
+		if (session.Match.FinalConditionBySlot.Count == 0 && _mech != null)
+			session.Match.CaptureFinalCondition(_mech.CapturePartConditions());
+
+		// Academy / convention loaners skip damage assessment — nothing persistent to repair.
+		var skipDamage = session.MatchFromAcademy || session.MatchFromConvention;
+		if (!skipDamage)
+		{
+			EnsureDamageAssessmentUi();
+			if (_damageAssessment != null)
+			{
+				_damageAssessment.MouseFilter = Control.MouseFilterEnum.Stop;
+				_damageAssessment.Open(session, () => OpenResultsShop(session));
+				_damageAssessment.MoveToFront();
+				return;
+			}
+		}
+
+		OpenResultsShop(session);
+	}
+
+	private void OpenResultsShop(GameSession session)
+	{
 		if (_results == null || _results.Visible)
 			return;
-
 		_results.MouseFilter = Control.MouseFilterEnum.Stop;
 		_results.Open(session);
 		_results.MoveToFront();
+	}
+
+	private DamageAssessmentUi? _damageAssessment;
+	private readonly Dictionary<string, DeploymentTelegraph> _clientTelegraphs = new();
+
+	public void ClientObserveDeployment(string jobId, DeploymentPhase phase, Vector3 target, TeamId team)
+	{
+		if (Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer())
+			return;
+
+		if (phase == DeploymentPhase.Warning)
+		{
+			if (_clientTelegraphs.TryGetValue(jobId, out var existing) && IsInstanceValid(existing))
+				existing.QueueFree();
+			var telegraph = DeploymentTelegraph.Create(
+				$"ClientTelegraph_{jobId}",
+				target,
+				team,
+				warningDuration: 2f);
+			AddChild(telegraph);
+			_clientTelegraphs[jobId] = telegraph;
+			return;
+		}
+
+		if (!_clientTelegraphs.TryGetValue(jobId, out var marker) || !IsInstanceValid(marker))
+			return;
+
+		switch (phase)
+		{
+			case DeploymentPhase.Inbound:
+				marker.MarkInbound();
+				break;
+			case DeploymentPhase.Impact:
+				marker.MarkImpact();
+				break;
+			case DeploymentPhase.Activated:
+				marker.QueueFree();
+				_clientTelegraphs.Remove(jobId);
+				break;
+		}
+	}
+
+	private void EnsureDamageAssessmentUi()
+	{
+		if (_damageAssessment != null)
+			return;
+		var ui = GetNodeOrNull<CanvasLayer>("UI");
+		if (ui == null)
+			return;
+		_damageAssessment = ui.GetNodeOrNull<DamageAssessmentUi>("DamageAssessmentUi");
+		if (_damageAssessment != null)
+			return;
+		_damageAssessment = new DamageAssessmentUi
+		{
+			Name = "DamageAssessmentUi",
+			Visible = false
+		};
+		ui.AddChild(_damageAssessment);
+	}
+
+	private static Dictionary<PartSlot, PartCondition>? BuildProfileConditions(PlayerProfile? profile)
+	{
+		if (profile == null)
+			return null;
+		var map = new Dictionary<PartSlot, PartCondition>();
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var instance = profile.GetEquippedInstance(slot);
+			if (instance == null)
+				continue;
+			map[slot] = instance.Condition.Clone();
+		}
+
+		return map.Count > 0 ? map : null;
 	}
 
 	private void UpdateHud()
@@ -1711,7 +2195,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		var match = session?.Match;
 		var sponsorLine = session?.InCampaign == true && !string.IsNullOrEmpty(session.Profile.AffiliatedManufacturerId)
-			? $"  |  {GameCatalog.GetManufacturer(session.Profile.AffiliatedManufacturerId).DisplayName} REP {session.Profile.ReputationWith(session.Profile.AffiliatedManufacturerId):+0;-0;0}"
+			? $"  |  {GameCatalog.GetManufacturer(session.Profile.AffiliatedManufacturerId).DisplayName} LICENSE"
 			: "";
 		var runLine = match == null
 			? ""
@@ -1767,13 +2251,13 @@ public partial class ArenaController : Node3D, IMissionHost
 					_ when _objectivesComplete && ActiveExtractBeacon() is { } extractPad
 						&& extractPad.Contains(_mech.GlobalPosition)
 						=> extractPad == _playerDropBeacon
-							? "Hold E — signal retrieval at drop beacon"
-							: "Hold E — signal retrieval at Exfil Uplink",
+							? "Hold F — signal retrieval at drop beacon"
+							: "Hold F — signal retrieval at Exfil Uplink",
 					_ when _objectivesComplete
 						=> _mission?.ExtractBeaconOverride != null
-							? "OBJECTIVES COMPLETE — hold E at the Exfil Uplink"
-							: "OBJECTIVES COMPLETE — return to your drop beacon and hold E to extract",
-					_ => "Shift sprint  |  LMB/RMB weapons  |  B buy life  |  E extract  |  1-6 modules  |  T field garage"
+							? "OBJECTIVES COMPLETE — hold F at the Exfil Uplink"
+							: "OBJECTIVES COMPLETE — return to your drop beacon and hold F to extract",
+					_ => "Shift sprint  |  LMB/RMB weapons  |  TAB sensor lock  |  C focus band  |  B buy life  |  F extract  |  1-6 modules  |  T field garage"
 				};
 		}
 	}

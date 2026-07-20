@@ -40,7 +40,7 @@ public partial class MechAssembler : Node
 		CacheSockets();
 	}
 
-	public void Assemble(LoadoutData loadout)
+	public void Assemble(LoadoutData loadout, IReadOnlyDictionary<PartSlot, PartCondition>? conditions = null)
 	{
 		if (_sockets == null)
 			_Ready();
@@ -52,7 +52,14 @@ public partial class MechAssembler : Node
 		{
 			if (!GameCatalog.IsMountAvailable(loadout, slot))
 				continue;
-			EquipSlot(slot, loadout.GetPartId(slot));
+			var partId = loadout.GetPartId(slot);
+			EquipSlot(slot, partId);
+			if (conditions != null
+			    && conditions.TryGetValue(slot, out var condition)
+			    && _hardpoints.TryGetValue(slot, out var hardpoint))
+			{
+				hardpoint.RestoreCondition(condition);
+			}
 		}
 
 		FitMountSocketsToTorso(GameCatalog.GetPart(loadout.TorsoId));

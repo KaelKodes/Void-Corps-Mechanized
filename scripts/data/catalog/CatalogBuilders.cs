@@ -66,11 +66,15 @@ public static class CatalogBuilders
 	public static PartData Weapon(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		PartSlot slot, string kind, float damage, float fireRate, float range, float proj, AimMode aim,
 		float heatShot, float powerLoad, WeaponFamily family,
-		TargetingMode targeting = TargetingMode.Standard) => new()
+		TargetingMode targeting = TargetingMode.Standard,
+		bool? allowsFireElevation = null) => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
 		Tint = m[mfg].AccentColor, Damage = damage, FireRate = fireRate, Range = range,
 		ProjectileSpeed = proj, AimMode = aim, TargetingMode = targeting,
+		// Gimbaled always; fixed mounts default on so pilots can elevate for Titans,
+		// but catalogs may pass false for true hard-fixed barrels.
+		AllowsFireElevation = allowsFireElevation ?? true,
 		HeatPerShot = heatShot, PowerPerShot = powerLoad, IdleHeatPerSec = 0.2f,
 		WeaponFamily = family
 	};
@@ -103,13 +107,14 @@ public static class CatalogBuilders
 		PartSlot slot, string kind, float armor, AbilityId abilityId, float cd, float power,
 		float heatBurst, float powerLoad, float damage = 0f, float range = 40f, float proj = 30f,
 		float radius = 12f, float duration = 3f, float speed = 0f,
-		WeaponFamily family = WeaponFamily.Missile) => new()
+		WeaponFamily family = WeaponFamily.Missile,
+		MissileGuidanceMode missileGuidance = MissileGuidanceMode.Paint) => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, Armor = armor,
 		Tint = m[mfg].AccentColor, VisualKind = kind, AbilityKind = AbilityKind.Active,
 		AbilityId = abilityId, AbilityCooldown = cd, AbilityPower = power, AbilityRadius = radius,
 		AbilityDuration = duration, Damage = damage, Range = range, ProjectileSpeed = proj,
 		MaxSpeed = speed, AbilityHeatBurst = heatBurst, AbilityPowerLoad = powerLoad,
-		IdleHeatPerSec = 0.3f, WeaponFamily = family
+		IdleHeatPerSec = 0.3f, WeaponFamily = family, MissileGuidance = missileGuidance
 	};
 }

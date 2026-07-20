@@ -5,79 +5,119 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Persistent player meta + active run kit (shared by campaign and skirmish for now).
-/// Part ownership is quantity-based — one purchase = one equippable copy.
-/// Implements <see cref="IPartInventory"/> so per-character bags can swap in later.
+/// Persistent player meta + active run kit.
+/// Ownership is instance-based — each purchase is a physical copy with its own condition.
+/// Count APIs remain as derived compatibility helpers.
 /// </summary>
 public sealed class PlayerProfile : IPartInventory
 {
+	public const int SchemaVersion = 4;
 	public const int StartingManufacturerRep = -10;
 	public const int StartingAlignedRep = 20;
 	public const int StartingLives = 2;
 	public const string DefaultInventoryId = "pilot";
 
-	/// <summary>Active bag id. Single-pilot for now; trade/characters will multiply this.</summary>
+	public int Schema { get; set; } = SchemaVersion;
 	public string InventoryId { get; set; } = DefaultInventoryId;
-
 	public int Scrap { get; set; }
 	public int LivesBank { get; set; } = StartingLives;
-	public Dictionary<string, int> OwnedCounts { get; set; } = new();
+	public List<OwnedPartInstance> OwnedInstances { get; set; } = new();
+	public Dictionary<PartSlot, string> EquippedInstanceIds { get; set; } = new();
 	public LoadoutData Loadout { get; set; } = null!;
 	public int SkirmishesPlayed { get; set; }
 	public int SkirmishesWon { get; set; }
 	public string MercCorpName { get; set; } = VoidCorpsIdentity.PlayerCorpCodename;
 	public string AffiliatedManufacturerId { get; set; } = "";
+	public string EmployerCompanyId { get; set; } = "";
+	public string EmployerCompanyName { get; set; } = "";
 	public Dictionary<string, int> ManufacturerReputation { get; set; } = new();
+	public Dictionary<string, int> CraftingMaterials { get; set; } = new();
+	public HashSet<string> UnlockedBlueprints { get; set; } = new();
 
-	/// <summary>Distinct owned part types (for UI totals).</summary>
+	/// <summary>Legacy/compat count map derived from instances (excludes unlimited empties).</summary>
+	public Dictionary<string, int> OwnedCounts =>
+		OwnedInstances
+			.Where(i => !IsUnlimited(i.PartId))
+			.GroupBy(i => i.PartId)
+			.ToDictionary(g => g.Key, g => g.Count());
+
 	public int OwnedTypeCount => OwnedCounts.Count;
-
-	/// <summary>Total owned copies across all parts.</summary>
-	public int OwnedCopyCount => OwnedCounts.Values.Sum();
+	public int OwnedCopyCount => OwnedInstances.Count(i => !IsUnlimited(i.PartId));
 
 	public static PlayerProfile CreateNew()
 	{
 		GameCatalog.EnsureBuilt();
 		var profile = new PlayerProfile
 		{
+			Schema = SchemaVersion,
 			InventoryId = DefaultInventoryId,
 			Scrap = 0,
 			LivesBank = StartingLives,
 			Loadout = GameCatalog.CreateStarterLoadout(),
-			OwnedCounts = new Dictionary<string, int>(),
+			OwnedInstances = new List<OwnedPartInstance>(),
+			EquippedInstanceIds = new Dictionary<PartSlot, string>(),
 			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename,
 			AffiliatedManufacturerId = "",
+			EmployerCompanyId = "",
+			EmployerCompanyName = "",
 			ManufacturerReputation = new Dictionary<string, int>(),
+			CraftingMaterials = new Dictionary<string, int>(),
+			UnlockedBlueprints = new HashSet<string>(),
 			SkirmishesPlayed = 0,
 			SkirmishesWon = 0
 		};
 		profile.EnsureManufacturerState();
 		profile.GrantLoadoutOwnership(profile.Loadout);
 		profile.OwnCombatSliceParts();
+		profile.BindEquippedInstancesFromLoadout();
+		profile.UnlockOwnedBlueprints();
 		return profile;
 	}
 
-	/// <summary>
-	/// Wipe scrap/parts/loadout/affiliation/lives for a new campaign or total life loss.
-	/// Soft meta (W/L, corp name, manufacturer rep) is kept.
-	/// </summary>
 	public void WipeRunInventory()
 	{
 		GameCatalog.EnsureBuilt();
 		Scrap = 0;
 		LivesBank = StartingLives;
-		OwnedCounts.Clear();
+		OwnedInstances.Clear();
+		EquippedInstanceIds.Clear();
 		AffiliatedManufacturerId = "";
+		EmployerCompanyId = "";
+		EmployerCompanyName = "";
 		Loadout = GameCatalog.CreateStarterLoadout();
 		GrantLoadoutOwnership(Loadout);
 		OwnCombatSliceParts();
+		BindEquippedInstancesFromLoadout();
 	}
 
-	/// <summary>Field-kit melee + held shield for garage playtests.</summary>
 	public void OwnCombatSliceParts()
 	{
 		Own("wep_brin_cleaver");
 		Own("wep_tri_bulwark");
+	}
+
+	public int MaterialCount(string materialId) => CraftingMaterials.GetValueOrDefault(materialId);
+
+	public void AddMaterial(string materialId, int amount)
+	{
+		if (!MaterialCatalog.All.ContainsKey(materialId) || amount == 0)
+			return;
+		CraftingMaterials[materialId] = Mathf.Max(0, MaterialCount(materialId) + amount);
+	}
+
+	public bool HasBlueprint(string partId) =>
+		IsUnlimited(partId) || UnlockedBlueprints.Contains(partId);
+
+	public void UnlockOwnedBlueprints()
+	{
+		foreach (var instance in OwnedInstances)
+			UnlockedBlueprints.Add(instance.PartId);
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var partId = Loadout.GetPartId(slot);
+			if (!string.IsNullOrEmpty(partId) && !IsUnlimited(partId))
+				UnlockedBlueprints.Add(partId);
+		}
 	}
 
 	public void EnsureManufacturerState()
@@ -132,12 +172,9 @@ public sealed class PlayerProfile : IPartInventory
 
 		EnsureEmptyMounts();
 		EnforceOwnedEquipLimits(loadout);
+		BindEquippedInstancesFromLoadout();
 	}
 
-	/// <summary>
-	/// Unequip surplus copies when owned count is lower than how many slots use a part.
-	/// Mount slots clear to empty; required slots grant the missing copy instead.
-	/// </summary>
 	public void EnforceOwnedEquipLimits(LoadoutData loadout)
 	{
 		var used = new Dictionary<string, int>();
@@ -157,27 +194,29 @@ public sealed class PlayerProfile : IPartInventory
 				case PartSlot.ShoulderL:
 				case PartSlot.ShoulderR:
 					loadout.SetPartId(slot, "shoulder_none");
+					EquippedInstanceIds.Remove(slot);
 					break;
 				case PartSlot.Backpack:
 					loadout.SetPartId(slot, "backpack_none");
+					EquippedInstanceIds.Remove(slot);
 					break;
 				case PartSlot.Systems:
 					loadout.SetPartId(slot, "systems_none");
+					EquippedInstanceIds.Remove(slot);
 					break;
 				default:
 					used[id]++;
-					SetOwnedCount(id, used[id]);
+					Own(id);
 					break;
 			}
 		}
+
+		BindEquippedInstancesFromLoadout();
 	}
 
-	/// <summary>Empty bays are unlimited placeholders, not loot.</summary>
 	public void EnsureEmptyMounts()
 	{
-		SetOwnedCount("shoulder_none", 99);
-		SetOwnedCount("backpack_none", 99);
-		SetOwnedCount("systems_none", 99);
+		// Unlimited empties are virtual — no instances tracked.
 	}
 
 	public int OwnedCount(string partId)
@@ -186,7 +225,7 @@ public sealed class PlayerProfile : IPartInventory
 			return 0;
 		if (IsUnlimited(partId))
 			return 99;
-		return OwnedCounts.GetValueOrDefault(partId);
+		return OwnedInstances.Count(i => i.PartId == partId);
 	}
 
 	public bool Owns(string partId) => OwnedCount(partId) > 0;
@@ -195,18 +234,95 @@ public sealed class PlayerProfile : IPartInventory
 	{
 		if (string.IsNullOrEmpty(partId) || amount <= 0 || IsUnlimited(partId))
 			return;
-		SetOwnedCount(partId, OwnedCount(partId) + amount);
+		for (var i = 0; i < amount; i++)
+			OwnedInstances.Add(OwnedPartInstance.Create(partId));
+	}
+
+	public OwnedPartInstance OwnInstance(string partId, PartCondition? condition = null)
+	{
+		var instance = OwnedPartInstance.Create(partId, condition);
+		if (!IsUnlimited(partId))
+			OwnedInstances.Add(instance);
+		return instance;
+	}
+
+	/// <summary>Accept a physical copy transferred by another pilot, preserving its stable ID.</summary>
+	public OwnedPartInstance AdoptTransferredInstance(
+		string instanceId,
+		string partId,
+		PartCondition condition)
+	{
+		var existing = GetInstance(instanceId);
+		if (existing != null)
+			return existing;
+
+		var instance = OwnedPartInstance.Create(partId, condition);
+		instance.InstanceId = instanceId;
+		instance.Reserved = false;
+		if (!IsUnlimited(partId))
+			OwnedInstances.Add(instance);
+		return instance;
 	}
 
 	public bool TryRemoveOwned(string partId, int amount = 1)
 	{
 		if (string.IsNullOrEmpty(partId) || amount <= 0 || IsUnlimited(partId))
 			return false;
-		var have = OwnedCount(partId);
-		if (have < amount)
+		var spares = GetSpareInstances(partId);
+		if (spares.Count < amount)
 			return false;
-		SetOwnedCount(partId, have - amount);
+		for (var i = 0; i < amount; i++)
+			OwnedInstances.Remove(spares[i]);
 		return true;
+	}
+
+	public bool TryRemoveInstance(string instanceId)
+	{
+		var idx = OwnedInstances.FindIndex(i => i.InstanceId == instanceId);
+		if (idx < 0)
+			return false;
+		foreach (var (slot, id) in EquippedInstanceIds.ToList())
+		{
+			if (id == instanceId)
+				EquippedInstanceIds.Remove(slot);
+		}
+
+		OwnedInstances.RemoveAt(idx);
+		return true;
+	}
+
+	public OwnedPartInstance? GetInstance(string instanceId) =>
+		OwnedInstances.FirstOrDefault(i => i.InstanceId == instanceId);
+
+	public List<OwnedPartInstance> GetInstances(string partId) =>
+		OwnedInstances.Where(i => i.PartId == partId).ToList();
+
+	public List<OwnedPartInstance> GetSpareInstances(string partId)
+	{
+		var equipped = new HashSet<string>(EquippedInstanceIds.Values);
+		return OwnedInstances
+			.Where(i => i.PartId == partId && !i.Reserved && !equipped.Contains(i.InstanceId))
+			.OrderByDescending(i => i.Condition.AverageRatio)
+			.ToList();
+	}
+
+	public OwnedPartInstance? GetEquippedInstance(PartSlot slot)
+	{
+		if (!EquippedInstanceIds.TryGetValue(slot, out var id))
+			return null;
+		return GetInstance(id);
+	}
+
+	public void SetEquippedInstance(PartSlot slot, OwnedPartInstance? instance)
+	{
+		if (instance == null || IsUnlimited(instance.PartId))
+		{
+			EquippedInstanceIds.Remove(slot);
+			return;
+		}
+
+		EquippedInstanceIds[slot] = instance.InstanceId;
+		Loadout.SetPartId(slot, instance.PartId);
 	}
 
 	/// <summary>
@@ -249,36 +365,79 @@ public sealed class PlayerProfile : IPartInventory
 	{
 		if (IsUnlimited(partId))
 			return 99;
-		return Mathf.Max(0, OwnedCount(partId) - EquippedCount(Loadout, partId));
+		return GetSpareInstances(partId).Count;
 	}
 
-	private void SetOwnedCount(string partId, int count)
+	public void BindEquippedInstancesFromLoadout()
 	{
-		if (string.IsNullOrEmpty(partId))
-			return;
-		if (count <= 0)
-			OwnedCounts.Remove(partId);
-		else
-			OwnedCounts[partId] = count;
+		var claimed = new HashSet<string>();
+		foreach (PartSlot slot in System.Enum.GetValues(typeof(PartSlot)))
+		{
+			var partId = Loadout.GetPartId(slot);
+			if (string.IsNullOrEmpty(partId) || IsUnlimited(partId))
+			{
+				EquippedInstanceIds.Remove(slot);
+				continue;
+			}
+
+			if (EquippedInstanceIds.TryGetValue(slot, out var existingId))
+			{
+				var existing = GetInstance(existingId);
+				if (existing != null && existing.PartId == partId && claimed.Add(existingId))
+					continue;
+			}
+
+			var free = OwnedInstances.FirstOrDefault(i =>
+				i.PartId == partId && !i.Reserved && !claimed.Contains(i.InstanceId));
+			if (free == null)
+			{
+				free = OwnInstance(partId);
+			}
+
+			claimed.Add(free.InstanceId);
+			EquippedInstanceIds[slot] = free.InstanceId;
+		}
 	}
 
-	public static bool IsUnlimited(string partId)
+	public void RepairAllEquippedFully()
 	{
-		var part = GameCatalog.GetPart(partId);
-		return part?.VisualKind == "empty";
+		foreach (var slot in EquippedInstanceIds.Keys.ToList())
+		{
+			var instance = GetEquippedInstance(slot);
+			instance?.Condition.SetFull();
+		}
 	}
 
 	public Dictionary<string, Variant> ToDict()
 	{
-		var owned = new Godot.Collections.Dictionary();
-		foreach (var (id, count) in OwnedCounts.OrderBy(kv => kv.Key))
-			owned[id] = count;
+		var instances = new Godot.Collections.Array();
+		foreach (var instance in OwnedInstances.OrderBy(i => i.PartId).ThenBy(i => i.InstanceId))
+			instances.Add(instance.ToDict());
+
+		var equipped = new Godot.Collections.Dictionary();
+		foreach (var (slot, id) in EquippedInstanceIds.OrderBy(kv => (int)kv.Key))
+			equipped[((int)slot).ToString()] = id;
+
 		var rep = new Godot.Collections.Dictionary();
 		foreach (var (id, value) in ManufacturerReputation.OrderBy(kv => kv.Key))
 			rep[id] = value;
 
+		var materials = new Godot.Collections.Dictionary();
+		foreach (var (id, value) in CraftingMaterials.OrderBy(kv => kv.Key))
+			materials[id] = value;
+
+		var blueprints = new Godot.Collections.Array();
+		foreach (var id in UnlockedBlueprints.OrderBy(id => id))
+			blueprints.Add(id);
+
+		// Keep owned_counts for older tooling / readability.
+		var owned = new Godot.Collections.Dictionary();
+		foreach (var (id, count) in OwnedCounts.OrderBy(kv => kv.Key))
+			owned[id] = count;
+
 		return new Dictionary<string, Variant>
 		{
+			["schema_version"] = SchemaVersion,
 			["inventory_id"] = InventoryId,
 			["scrap"] = Scrap,
 			["lives"] = LivesBank,
@@ -286,7 +445,13 @@ public sealed class PlayerProfile : IPartInventory
 			["skirmishes_won"] = SkirmishesWon,
 			["merc_corp_name"] = MercCorpName,
 			["affiliated_manufacturer"] = AffiliatedManufacturerId,
+			["employer_company"] = EmployerCompanyId,
+			["employer_company_name"] = EmployerCompanyName,
 			["manufacturer_rep"] = rep,
+			["crafting_materials"] = materials,
+			["unlocked_blueprints"] = blueprints,
+			["owned_instances"] = instances,
+			["equipped_instances"] = equipped,
 			["owned_counts"] = owned,
 			["keybinds"] = InputBindings.ToDict(),
 			["loadout"] = LoadoutToDict(Loadout)
@@ -297,6 +462,9 @@ public sealed class PlayerProfile : IPartInventory
 	{
 		GameCatalog.EnsureBuilt();
 		var profile = CreateNew();
+		profile.OwnedInstances.Clear();
+		profile.EquippedInstanceIds.Clear();
+
 		if (dict.ContainsKey("inventory_id"))
 			profile.InventoryId = dict["inventory_id"].AsString();
 		if (dict.ContainsKey("scrap"))
@@ -311,19 +479,10 @@ public sealed class PlayerProfile : IPartInventory
 			profile.MercCorpName = dict["merc_corp_name"].AsString();
 		if (dict.ContainsKey("affiliated_manufacturer"))
 			profile.AffiliatedManufacturerId = dict["affiliated_manufacturer"].AsString();
-
-		profile.OwnedCounts.Clear();
-		if (dict.ContainsKey("owned_counts"))
-		{
-			foreach (var (key, value) in dict["owned_counts"].AsGodotDictionary())
-				profile.SetOwnedCount(key.AsString(), value.AsInt32());
-		}
-		else if (dict.ContainsKey("owned"))
-		{
-			// Legacy save: unique IDs only — give one copy each.
-			foreach (var v in dict["owned"].AsGodotArray())
-				profile.Own(v.AsString());
-		}
+		if (dict.ContainsKey("employer_company"))
+			profile.EmployerCompanyId = dict["employer_company"].AsString();
+		if (dict.ContainsKey("employer_company_name"))
+			profile.EmployerCompanyName = dict["employer_company_name"].AsString();
 
 		profile.ManufacturerReputation.Clear();
 		if (dict.ContainsKey("manufacturer_rep"))
@@ -332,20 +491,108 @@ public sealed class PlayerProfile : IPartInventory
 				profile.ManufacturerReputation[key.AsString()] = value.AsInt32();
 		}
 
+		profile.CraftingMaterials.Clear();
+		if (dict.ContainsKey("crafting_materials"))
+		{
+			foreach (var (key, value) in dict["crafting_materials"].AsGodotDictionary())
+				profile.CraftingMaterials[key.AsString()] = Mathf.Max(0, value.AsInt32());
+		}
+
+		profile.UnlockedBlueprints.Clear();
+		var hasBlueprintSave = dict.ContainsKey("unlocked_blueprints");
+		if (hasBlueprintSave)
+		{
+			foreach (var value in dict["unlocked_blueprints"].AsGodotArray())
+				profile.UnlockedBlueprints.Add(value.AsString());
+		}
+
 		if (dict.ContainsKey("loadout"))
 			profile.Loadout = LoadoutFromDict(dict["loadout"].AsGodotDictionary());
 		else
 			profile.Loadout = GameCatalog.CreateStarterLoadout();
 
+		var schema = dict.ContainsKey("schema_version") ? dict["schema_version"].AsInt32() : 1;
+		profile.Schema = schema;
+
+		if (dict.ContainsKey("owned_instances"))
+		{
+			foreach (var entry in dict["owned_instances"].AsGodotArray())
+			{
+				if (entry.VariantType != Variant.Type.Dictionary)
+					continue;
+				var instance = OwnedPartInstance.FromDict(entry.AsGodotDictionary());
+				if (string.IsNullOrEmpty(instance.PartId) || IsUnlimited(instance.PartId))
+					continue;
+				if (GameCatalog.GetPart(instance.PartId) == null)
+				{
+					GD.PushWarning($"PlayerProfile: skipping unknown part instance {instance.PartId}");
+					continue;
+				}
+
+				profile.OwnedInstances.Add(instance);
+			}
+
+			if (dict.ContainsKey("equipped_instances"))
+			{
+				foreach (var (key, value) in dict["equipped_instances"].AsGodotDictionary())
+				{
+					if (!int.TryParse(key.AsString(), out var slotInt))
+						continue;
+					profile.EquippedInstanceIds[(PartSlot)slotInt] = value.AsString();
+				}
+			}
+		}
+		else
+		{
+			// Legacy count / unique-ID saves → full-condition instances.
+			if (dict.ContainsKey("owned_counts"))
+			{
+				foreach (var (key, value) in dict["owned_counts"].AsGodotDictionary())
+				{
+					var partId = key.AsString();
+					if (IsUnlimited(partId) || GameCatalog.GetPart(partId) == null)
+						continue;
+					var count = value.AsInt32();
+					for (var i = 0; i < count; i++)
+					{
+						var instance = OwnedPartInstance.Create(partId);
+						instance.InstanceId = $"legacy:{partId}:{i}";
+						profile.OwnedInstances.Add(instance);
+					}
+				}
+			}
+			else if (dict.ContainsKey("owned"))
+			{
+				foreach (var v in dict["owned"].AsGodotArray())
+				{
+					var partId = v.AsString();
+					if (IsUnlimited(partId) || GameCatalog.GetPart(partId) == null)
+						continue;
+					var instance = OwnedPartInstance.Create(partId);
+					instance.InstanceId = $"legacy:{partId}:0";
+					profile.OwnedInstances.Add(instance);
+				}
+			}
+		}
+
 		profile.GrantLoadoutOwnership(profile.Loadout);
 		profile.OwnCombatSliceParts();
-		profile.EnsureEmptyMounts();
+		profile.BindEquippedInstancesFromLoadout();
+		if (!hasBlueprintSave)
+			profile.UnlockOwnedBlueprints();
 		profile.EnsureManufacturerState();
+		profile.Schema = SchemaVersion;
 
 		if (dict.ContainsKey("keybinds"))
 			InputBindings.ApplyFromDict(dict["keybinds"].AsGodotDictionary());
 
 		return profile;
+	}
+
+	public static bool IsUnlimited(string partId)
+	{
+		var part = GameCatalog.GetPart(partId);
+		return part?.VisualKind == "empty";
 	}
 
 	private static Godot.Collections.Dictionary LoadoutToDict(LoadoutData l) => new()

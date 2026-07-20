@@ -48,10 +48,11 @@ public partial class NetCombatBus : Node
 		TeamId team,
 		TargetingMode targeting,
 		int preferredSlot,
-		bool ballistic,
+		ProjectileStyle style,
 		float gravity,
 		bool playsWorldImpactSfx = true,
-		bool damagesWorldObjects = true)
+		bool damagesWorldObjects = true,
+		float visualScale = 1f)
 	{
 		var projectile = BuildProjectile(
 			source,
@@ -61,11 +62,12 @@ public partial class NetCombatBus : Node
 			team,
 			targeting,
 			preferredSlot,
-			ballistic,
+			style,
 			gravity,
 			dealsDamage: true,
 			playsWorldImpactSfx,
-			damagesWorldObjects);
+			damagesWorldObjects,
+			visualScale);
 		parent.AddChild(projectile);
 		PlaceProjectile(projectile, position, velocity);
 
@@ -83,10 +85,11 @@ public partial class NetCombatBus : Node
 			(int)team,
 			(int)targeting,
 			preferredSlot,
-			ballistic,
+			(int)style,
 			gravity,
 			playsWorldImpactSfx,
-			damagesWorldObjects);
+			damagesWorldObjects,
+			visualScale);
 	}
 
 	[Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
@@ -99,10 +102,11 @@ public partial class NetCombatBus : Node
 		int team,
 		int targeting,
 		int preferredSlot,
-		bool ballistic,
+		int style,
 		float gravity,
 		bool playsWorldImpactSfx,
-		bool damagesWorldObjects)
+		bool damagesWorldObjects,
+		float visualScale)
 	{
 		Node? source = null;
 		if (!string.IsNullOrEmpty(sourcePath))
@@ -120,11 +124,12 @@ public partial class NetCombatBus : Node
 			(TeamId)team,
 			(TargetingMode)targeting,
 			preferredSlot,
-			ballistic,
+			(ProjectileStyle)style,
 			gravity,
 			dealsDamage: false,
 			playsWorldImpactSfx,
-			damagesWorldObjects);
+			damagesWorldObjects,
+			visualScale);
 		parent.AddChild(projectile);
 		PlaceProjectile(projectile, position, velocity);
 	}
@@ -137,13 +142,14 @@ public partial class NetCombatBus : Node
 		TeamId team,
 		TargetingMode targeting,
 		int preferredSlot,
-		bool ballistic,
+		ProjectileStyle style,
 		float gravity,
 		bool dealsDamage,
 		bool playsWorldImpactSfx,
-		bool damagesWorldObjects)
+		bool damagesWorldObjects,
+		float visualScale)
 	{
-		var projectile = Projectile.Create(ballistic);
+		var projectile = Projectile.Create(style, visualScale);
 		projectile.Source = source;
 		projectile.SourceTeam = team;
 		projectile.Damage = damage;
@@ -191,5 +197,157 @@ public partial class NetCombatBus : Node
 	{
 		var arena = GetParent() as ArenaController;
 		arena?.ClientPresentResults((MatchOutcome)outcome);
+	}
+
+	public void HostDeploymentPhase(string jobId, int phase, Vector3 target, int team)
+	{
+		if (Multiplayer.MultiplayerPeer == null || !Multiplayer.IsServer())
+			return;
+		Rpc(MethodName.RpcDeploymentPhase, jobId, phase, target, team);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
+	private void RpcDeploymentPhase(string jobId, int phase, Vector3 target, int team)
+	{
+		var arena = GetParent() as ArenaController;
+		arena?.ClientObserveDeployment(jobId, (DeploymentPhase)phase, target, (TeamId)team);
+	}
+
+	public void BroadcastFieldCargoPod(int ownerPeer, int slot, string instanceId, string partId, Vector3 landing)
+	{
+		if (Multiplayer.MultiplayerPeer == null)
+			return;
+		Rpc(MethodName.RpcFieldCargoPod, ownerPeer, slot, instanceId, partId, landing);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcFieldCargoPod(int ownerPeer, int slot, string instanceId, string partId, Vector3 landing)
+	{
+		var sender = Multiplayer.GetRemoteSenderId();
+		if (sender != 0 && sender != ownerPeer)
+			return;
+		var arena = GetParent() as ArenaController;
+		arena?.ObserveRemoteFieldCargoPod(ownerPeer, (PartSlot)slot, instanceId, partId, landing);
+	}
+
+	public void BroadcastFieldCrateLanded(int ownerPeer, int slot, string instanceId, string partId, Vector3 position)
+	{
+		if (Multiplayer.MultiplayerPeer == null)
+			return;
+		Rpc(MethodName.RpcFieldCrateLanded, ownerPeer, slot, instanceId, partId, position);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcFieldCrateLanded(int ownerPeer, int slot, string instanceId, string partId, Vector3 position)
+	{
+		var sender = Multiplayer.GetRemoteSenderId();
+		if (sender != 0 && sender != ownerPeer)
+			return;
+		var arena = GetParent() as ArenaController;
+		arena?.ObserveRemoteFieldCrateLanded(ownerPeer, (PartSlot)slot, instanceId, partId, position);
+	}
+
+	public void BroadcastFieldCrateConsumed(string instanceId)
+	{
+		if (Multiplayer.MultiplayerPeer == null || string.IsNullOrEmpty(instanceId))
+			return;
+		Rpc(MethodName.RpcFieldCrateConsumed, instanceId);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcFieldCrateConsumed(string instanceId)
+	{
+		var arena = GetParent() as ArenaController;
+		arena?.ObserveRemoteFieldCrateConsumed(instanceId);
+	}
+
+	public void RequestFieldTradeClaim(
+		int ownerPeer,
+		int claimantPeer,
+		int slot,
+		string instanceId,
+		string partId)
+	{
+		if (Multiplayer.MultiplayerPeer == null
+		    || ownerPeer <= 0
+		    || claimantPeer <= 0
+		    || string.IsNullOrEmpty(instanceId))
+			return;
+		RpcId(
+			ownerPeer,
+			MethodName.RpcRequestFieldTradeClaim,
+			claimantPeer,
+			slot,
+			instanceId,
+			partId);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcRequestFieldTradeClaim(
+		int claimantPeer,
+		int slot,
+		string instanceId,
+		string partId)
+	{
+		if (Multiplayer.GetRemoteSenderId() != claimantPeer)
+			return;
+
+		var arena = GetParent() as ArenaController;
+		var condition = new Godot.Collections.Dictionary();
+		var granted = arena != null && arena.AuthorizeFieldTradeClaim(
+			claimantPeer,
+			(PartSlot)slot,
+			instanceId,
+			partId,
+			out condition);
+
+		var ownerPeer = Multiplayer.GetUniqueId();
+		if (granted)
+		{
+			RpcId(
+				claimantPeer,
+				MethodName.RpcFieldTradeGranted,
+				ownerPeer,
+				slot,
+				instanceId,
+				partId,
+				condition);
+		}
+		else
+		{
+			RpcId(
+				claimantPeer,
+				MethodName.RpcFieldTradeRejected,
+				ownerPeer,
+				instanceId);
+		}
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcFieldTradeGranted(
+		int ownerPeer,
+		int slot,
+		string instanceId,
+		string partId,
+		Godot.Collections.Dictionary condition)
+	{
+		if (Multiplayer.GetRemoteSenderId() != ownerPeer)
+			return;
+		var arena = GetParent() as ArenaController;
+		arena?.CompleteFieldTradeClaim(
+			ownerPeer,
+			(PartSlot)slot,
+			instanceId,
+			partId,
+			condition);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RpcFieldTradeRejected(int ownerPeer, string instanceId)
+	{
+		if (Multiplayer.GetRemoteSenderId() != ownerPeer)
+			return;
+		var arena = GetParent() as ArenaController;
+		arena?.RejectFieldTradeClaim(instanceId);
 	}
 }

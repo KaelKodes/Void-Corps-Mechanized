@@ -28,7 +28,6 @@ public sealed class ConventionState
 
 	public ManufacturerConventionStatus Get(string manufacturerId)
 	{
-		EnsureAllManufacturers();
 		if (!ByManufacturer.TryGetValue(manufacturerId, out var status))
 		{
 			status = ManufacturerConventionStatus.CreateFresh();
@@ -40,7 +39,6 @@ public sealed class ConventionState
 
 	public bool HasAnyQualified()
 	{
-		EnsureAllManufacturers();
 		foreach (var s in ByManufacturer.Values)
 		{
 			if (s.Qualified)
@@ -52,7 +50,8 @@ public sealed class ConventionState
 
 	public bool AllWithdrawnWithNoQualify()
 	{
-		EnsureAllManufacturers();
+		if (ByManufacturer.Count == 0)
+			return false;
 		var anyOpen = false;
 		foreach (var s in ByManufacturer.Values)
 		{
@@ -67,7 +66,6 @@ public sealed class ConventionState
 
 	public bool HasSabotagedOtherThan(string manufacturerId)
 	{
-		EnsureAllManufacturers();
 		foreach (var (id, s) in ByManufacturer)
 		{
 			if (id != manufacturerId && s.Sabotaged)
@@ -79,7 +77,6 @@ public sealed class ConventionState
 
 	public string? FirstSabotagedOtherThan(string manufacturerId)
 	{
-		EnsureAllManufacturers();
 		foreach (var (id, s) in ByManufacturer)
 		{
 			if (id != manufacturerId && s.Sabotaged)
@@ -152,7 +149,8 @@ public sealed class ConventionState
 			}
 		}
 
-		state.EnsureAllManufacturers();
+		if (state.ByManufacturer.Count == 0)
+			state.EnsureAllManufacturers();
 		return state;
 	}
 }

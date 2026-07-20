@@ -37,6 +37,7 @@ public partial class EscortAsset : CharacterBody3D
 	private float _progressAtFollowStart;
 	private float _reverseTimer;
 	private readonly RandomNumberGenerator _rng = new();
+	private string _companyRigTag = "";
 
 	public bool HasArrived => _arrived;
 	public bool IsHolding => _hold;
@@ -275,14 +276,19 @@ public partial class EscortAsset : CharacterBody3D
 		var label = GetNodeOrNull<Label3D>("Label");
 		if (label == null || _health == null)
 			return;
+		if (string.IsNullOrEmpty(_companyRigTag))
+		{
+			var company = GetNodeOrNull<GameSession>("/root/GameSession")?.SolarCampaign.SelectedCompany;
+			_companyRigTag = company == null ? "MINING RIG" : $"{company.ShortName.ToUpperInvariant()} RIG";
+		}
 
 		var hp = $"{Mathf.CeilToInt(_health.CurrentHealth)}/{Mathf.CeilToInt(_health.MaxHealth)}";
 		if (_hold)
-			label.Text = $"MINING  {Mathf.RoundToInt(_cargoFill * 100f)}%  ·  {hp}";
+			label.Text = $"{_companyRigTag}  ·  MINING {Mathf.RoundToInt(_cargoFill * 100f)}%  ·  {hp}";
 		else if (IsOverdriveActive)
-			label.Text = $"MINING RIG  ·  OVERDRIVE  ·  {hp}";
+			label.Text = $"{_companyRigTag}  ·  OVERDRIVE  ·  {hp}";
 		else
-			label.Text = $"MINING RIG  {hp}";
+			label.Text = $"{_companyRigTag}  {hp}";
 	}
 
 	private void ApplyGravity(float dt)
