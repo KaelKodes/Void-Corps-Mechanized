@@ -312,8 +312,8 @@ public partial class PauseMenuUi : Control
 
 		_content.AddChild(MakeButton(
 			GameSettings.MetersBesideMech
-				? "PWR / HEAT: Beside MAP"
-				: "PWR / HEAT: Corner HUD",
+				? "PWR / SPD: Beside MAP"
+				: "PWR / SPD: Beside Integrity",
 			() =>
 			{
 				SfxService.Click();
