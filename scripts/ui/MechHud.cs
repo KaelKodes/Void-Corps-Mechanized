@@ -297,7 +297,7 @@ public partial class MechHud : Control
 			return;
 		}
 
-		var useDiegetic = IsFirstPersonHud(mech) && CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		var useDiegetic = ShouldUseDiegeticPanels(mech);
 		EnsureCockpitHud(mech);
 		_cockpitHud?.Refresh(mech, useDiegetic);
 		SyncDiegeticLayout(useDiegetic);
@@ -307,6 +307,15 @@ public partial class MechHud : Control
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
 	}
+
+	/// <summary>
+	/// First Person HUD mode binds readouts to cockpit dashboard panels.
+	/// Overlay mode keeps the floating bottom HUD even while the camera is in FP.
+	/// </summary>
+	private static bool ShouldUseDiegeticPanels(MechController mech) =>
+		GameSettings.FirstPersonHudMode
+		&& IsFirstPersonHud(mech)
+		&& CockpitDiegeticHud.MechHasCockpitScreens(mech);
 
 	private static bool IsFirstPersonHud(MechController mech) =>
 		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };

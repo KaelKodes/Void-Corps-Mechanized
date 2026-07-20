@@ -310,6 +310,17 @@ public partial class PauseMenuUi : Control
 				? "Bottom"
 				: $"{Mathf.RoundToInt(GameSettings.HudOffsetY * 100f)}% lift"));
 
+		_content.AddChild(MakeButton(
+			GameSettings.FirstPersonHudMode
+				? "HUD bars: First Person (panels)"
+				: "HUD bars: Overlay",
+			() =>
+			{
+				SfxService.Click();
+				GameSettings.SetFirstPersonHudMode(!GameSettings.FirstPersonHudMode);
+				Rebuild();
+			}));
+
 		_content.AddChild(MakeButton("Reset HUD layout", () =>
 		{
 			SfxService.Click();
