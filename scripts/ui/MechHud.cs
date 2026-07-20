@@ -572,13 +572,13 @@ public partial class MechHud : Control
 		_cockpitHud?.Refresh(mech, useDiegetic);
 		SyncDiegeticLayout(useDiegetic);
 
-		RefreshMeters(mech);
+		RefreshMeters(mech, useDiegetic);
 		_schematic?.Refresh(mech);
 		_enemySchematic?.Refresh(mech);
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
 
-		if (GameSettings.MetersBesideMech)
+		if (GameSettings.MetersBesideMech && !hideFlatMeters)
 		{
 			if (ShouldShowFlankMeters())
 				UpdateFlankPositions(mech);
@@ -587,11 +587,11 @@ public partial class MechHud : Control
 		}
 	}
 
-	private void RefreshMeters(MechController mech)
+	private void RefreshMeters(MechController mech, bool hideFlatMeters)
 	{
 		var power = mech.PowerHeat;
 		var stats = mech.Assembler?.Stats;
-		var beside = GameSettings.MetersBesideMech;
+		var beside = GameSettings.MetersBesideMech && !hideFlatMeters;
 
 		ApplyPowerMeter(
 			beside ? _flankPowerBar : _powerBar,
@@ -602,12 +602,12 @@ public partial class MechHud : Control
 			beside ? _flankHeatLabel : _heatLabel,
 			power,
 			stats?.HeatCap ?? 0f);
-		ApplySpeedMeter(mech, beside);
+		ApplySpeedMeter(mech, beside, hideFlatMeters);
 	}
 
-	private void ApplySpeedMeter(MechController mech, bool beside)
+	private void ApplySpeedMeter(MechController mech, bool beside, bool hideFlatMeters)
 	{
-		var show = mech.IsSpeedGovernorActive;
+		var show = mech.IsSpeedGovernorActive && !hideFlatMeters;
 		var bar = beside ? _flankSpeedBar : _speedBar;
 		var label = beside ? _flankSpeedLabel : _speedLabel;
 
@@ -706,6 +706,21 @@ public partial class MechHud : Control
 			_schematic.Visible = !hidePanels;
 		if (_weaponModulesColumn != null)
 			_weaponModulesColumn.Visible = !hidePanels;
+
+		if (hidePanels)
+		{
+			SetCornerMeterVisible(_powerColumn, false);
+			SetCornerMeterVisible(_heatColumn, false);
+			SetCornerMeterVisible(_speedColumn, false);
+			if (_flankRoot != null)
+				_flankRoot.Visible = false;
+		}
+		else
+		{
+			var beside = GameSettings.MetersBesideMech;
+			SetCornerMeterVisible(_powerColumn, !beside);
+			SetCornerMeterVisible(_heatColumn, !beside);
+		}
 
 		if (_rootRow == null)
 			return;

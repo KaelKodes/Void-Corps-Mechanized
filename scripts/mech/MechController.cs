@@ -1192,7 +1192,7 @@ public partial class MechController : CharacterBody3D
 			var absorbed = Mathf.Min(damage, absorbable);
 			if (absorbed > 0.01f && _powerHeat != null)
 			{
-				_powerHeat.AddHeat(absorbed * heatPer);
+				_powerHeat.AddArmHeat(slot, absorbed * heatPer);
 				if (_powerHeat.IsOverheated)
 					BreakHeldShield(slot);
 			}
@@ -2046,7 +2046,7 @@ public partial class MechController : CharacterBody3D
 				continue;
 
 			if (hardpoint.TryMeleeContact(this, aimed, out var contactHeat, out _))
-				_powerHeat?.AddHeat(contactHeat);
+				_powerHeat?.AddArmHeat(slot, contactHeat);
 		}
 	}
 
@@ -2108,7 +2108,7 @@ public partial class MechController : CharacterBody3D
 		_powerHeat?.TrySpend(powerCost);
 		if (IsHumanPilot)
 			TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
-		_powerHeat?.AddHeat(heat * heatOver * ghost);
+		_powerHeat?.AddArmHeat(slot, heat * heatOver * ghost);
 		NoteFamilyFire(part.WeaponFamily, slot);
 	}
 
