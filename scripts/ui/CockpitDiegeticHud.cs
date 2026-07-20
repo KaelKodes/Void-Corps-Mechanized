@@ -6,7 +6,8 @@ namespace Mechanize;
 /// <summary>
 /// Maps cockpit dashboard meshes to combat HUD panels while in first-person (Fleet torso).
 /// Screen_Threat → sensors, Screen_Self → integrity, Screen_WingR → weapons/modules,
-/// Screen_WingL → PWR / total HEAT / SPD systems strip.
+/// Screen_WingL → tactical map placeholder (deferred).
+/// PWR / SPD float beside the Integrity HUD; HEAT lives on the crosshair brackets.
 /// </summary>
 public partial class CockpitDiegeticHud : Node
 {
@@ -18,7 +19,6 @@ public partial class CockpitDiegeticHud : Node
 	private IntegritySchematic? _integrity;
 	private EnemyTargetSchematic? _sensor;
 	private CockpitModulesPanel? _modules;
-	private CockpitSystemsPanel? _systems;
 	private ulong _boundMechId;
 	private bool _active;
 
@@ -59,15 +59,7 @@ public partial class CockpitDiegeticHud : Node
 			return _modules;
 		});
 
-		TryAttach(mech, "Screen_WingL", WingScreenSize, () =>
-		{
-			_systems = new CockpitSystemsPanel
-			{
-				Layout = GameSettings.CockpitSystemsHorizontal ? CockpitSystemsPanel.LayoutMode.Horizontal
-					: CockpitSystemsPanel.LayoutMode.Vertical
-			};
-			return _systems;
-		});
+		TryAttach(mech, "Screen_WingL", WingScreenSize, () => BuildMapPlaceholder());
 	}
 
 	public void Refresh(MechController mech, bool firstPerson)
@@ -87,7 +79,6 @@ public partial class CockpitDiegeticHud : Node
 		_sensor?.Refresh(mech);
 		_integrity?.Refresh(mech);
 		_modules?.Refresh(mech);
-		_systems?.Refresh(mech);
 	}
 
 	public void ApplyActive(bool active)
@@ -107,7 +98,6 @@ public partial class CockpitDiegeticHud : Node
 		_integrity = null;
 		_sensor = null;
 		_modules = null;
-		_systems = null;
 		_boundMechId = 0;
 	}
 
@@ -158,5 +148,55 @@ public partial class CockpitDiegeticHud : Node
 		if (node is Node3D group)
 			return group.GetNodeOrNull<MeshInstance3D>("Quad");
 		return null;
+	}
+
+	private static Control BuildMapPlaceholder()
+	{
+		var panel = new PanelContainer
+		{
+			MouseFilter = Control.MouseFilterEnum.Ignore,
+			CustomMinimumSize = new Vector2(280, 220)
+		};
+		panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+		{
+			BgColor = new Color(0.04f, 0.055f, 0.07f, 0.92f),
+			BorderColor = new Color(0.35f, 0.55f, 0.42f, 0.75f),
+			BorderWidthLeft = 1,
+			BorderWidthTop = 1,
+			BorderWidthRight = 1,
+			BorderWidthBottom = 1,
+			ContentMarginLeft = 8,
+			ContentMarginTop = 8,
+			ContentMarginRight = 8,
+			ContentMarginBottom = 8
+		});
+
+		var col = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+		col.AddThemeConstantOverride("separation", 6);
+		panel.AddChild(col);
+
+		var header = new Label
+		{
+			Text = "// TACTICAL MAP",
+			Modulate = MechUiTheme.Accent,
+			MouseFilter = Control.MouseFilterEnum.Ignore
+		};
+		header.AddThemeFontSizeOverride("font_size", 9);
+		col.AddChild(header);
+
+		var body = new Label
+		{
+			Text = "Reserved\nfor sector\nnavigation.",
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			HorizontalAlignment = HorizontalAlignment.Center,
+			VerticalAlignment = VerticalAlignment.Center,
+			SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+			Modulate = new Color(0.55f, 0.72f, 0.62f),
+			MouseFilter = Control.MouseFilterEnum.Ignore
+		};
+		body.AddThemeFontSizeOverride("font_size", 10);
+		col.AddChild(body);
+
+		return panel;
 	}
 }

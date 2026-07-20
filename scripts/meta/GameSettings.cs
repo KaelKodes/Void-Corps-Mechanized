@@ -20,11 +20,8 @@ public static class GameSettings
 	public static float HudOffsetX { get; private set; } = DefaultHudOffsetX;
 	/// <summary>0 = bottom edge, 1 = lifted toward mid-screen.</summary>
 	public static float HudOffsetY { get; private set; } = DefaultHudOffsetY;
-	/// <summary>When true, PWR/HEAT flank the player MAP on-screen instead of sitting in the corner HUD.</summary>
+	/// <summary>When true, PWR/SPD flank the player MAP on-screen instead of sitting beside Integrity.</summary>
 	public static bool MetersBesideMech { get; private set; }
-
-	/// <summary>When true, cockpit wing-L systems gauges lay out horizontally instead of stacked.</summary>
-	public static bool CockpitSystemsHorizontal { get; private set; }
 
 	public static event Action? Changed;
 
@@ -95,12 +92,6 @@ public static class GameSettings
 	{
 		MetersBesideMech = value;
 		PersistAndNotify();
-	}
-
-	public static void SetCockpitSystemsHorizontal(bool value)
-	{
-		CockpitSystemsHorizontal = value;
-		Changed?.Invoke();
 	}
 
 	public static void ResetHudLayout()

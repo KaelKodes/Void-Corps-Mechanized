@@ -3,7 +3,7 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Center-screen aim reticle with per-arm heat brackets in first person.
+/// Center-screen aim reticle with HEAT brackets ( ) for L/R arm heat.
 /// Wide while moving; tight when planted for the stationary bonus.
 /// </summary>
 public partial class AimCrosshair : Control
@@ -58,13 +58,13 @@ public partial class AimCrosshair : Control
 			return;
 		}
 
-		var firstPerson = mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
 		var hasRanged = CrosshairStyleUtil.TryHasRangedWeapon(mech);
 		var hasArmL = TryLivingArm(mech, PartSlot.WeaponL);
 		var hasArmR = TryLivingArm(mech, PartSlot.WeaponR);
 
 		_showReticle = hasRanged;
-		_showArmHeat = firstPerson && (hasArmL || hasArmR);
+		// HEAT lives on the crosshair brackets, not a HUD bar.
+		_showArmHeat = hasArmL || hasArmR;
 		_drawArmL = hasArmL;
 		_drawArmR = hasArmR;
 		Visible = _showReticle || _showArmHeat;

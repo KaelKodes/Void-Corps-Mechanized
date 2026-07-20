@@ -5,7 +5,8 @@ namespace Mechanize;
 
 /// <summary>
 /// Bottom combat HUD: integrity schematic, weapons + MAP modules.
-/// Power/heat meters live in the corner column or flank the player MAP (see GameSettings).
+/// PWR / SPD float beside the Integrity panel. HEAT lives on the crosshair ( ) brackets.
+/// Optional: PWR / SPD can instead flank the player MAP (see GameSettings).
 /// </summary>
 public partial class MechHud : Control
 {
@@ -13,22 +14,18 @@ public partial class MechHud : Control
 	private EnemyTargetSchematic? _enemySchematic;
 
 	private Control? _rootRow;
+	private Control? _integrityCluster;
 	private Control? _powerColumn;
-	private Control? _heatColumn;
 	private Control? _speedColumn;
 	private ProgressBar? _powerBar;
-	private ProgressBar? _heatBar;
 	private ProgressBar? _speedBar;
 	private Label? _powerLabel;
-	private Label? _heatLabel;
 	private Label? _speedLabel;
 
 	private Control? _flankRoot;
 	private ProgressBar? _flankPowerBar;
-	private ProgressBar? _flankHeatBar;
 	private ProgressBar? _flankSpeedBar;
 	private Label? _flankPowerLabel;
-	private Label? _flankHeatLabel;
 	private Label? _flankSpeedLabel;
 	private MechController? _trackedMech;
 
@@ -37,10 +34,8 @@ public partial class MechHud : Control
 	private CockpitDiegeticHud? _cockpitHud;
 	private Control? _weaponModulesColumn;
 
-	private static readonly Color EmptyColor = new(0.82f, 0.18f, 0.16f);
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
 	private static readonly Color PowerFill = new(0.35f, 0.7f, 1f);
-	private static readonly Color HeatFill = new(0.95f, 0.45f, 0.2f);
 	private static readonly Color SpeedFill = new(0.45f, 0.9f, 0.55f);
 
 	private const float MeterColumnWidth = 36f;
@@ -115,8 +110,7 @@ public partial class MechHud : Control
 			return;
 
 		var beside = GameSettings.MetersBesideMech;
-		SetCornerMeterVisible(_powerColumn, !beside);
-		SetCornerMeterVisible(_heatColumn, !beside);
+		SetClusterMeterVisible(_powerColumn, !beside);
 		// SPD only appears while the speed governor is below full — refreshed each frame.
 
 		var width = BaseWidth;
@@ -203,18 +197,33 @@ public partial class MechHud : Control
 		CustomMinimumSize = root.CustomMinimumSize;
 		Size = root.CustomMinimumSize;
 
-		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel);
-		root.AddChild(_powerColumn);
 		root.AddChild(BuildEnemySchematicColumn());
-		root.AddChild(BuildSchematicColumn());
+		_integrityCluster = BuildIntegrityCluster();
+		root.AddChild(_integrityCluster);
 		_weaponModulesColumn = BuildModulesColumn();
 		root.AddChild(_weaponModulesColumn);
-		_heatColumn = BuildMeterColumn("HEAT", HeatFill, out _heatBar, out _heatLabel);
-		root.AddChild(_heatColumn);
-		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel);
-		root.AddChild(_speedColumn);
-		SetCornerMeterVisible(_speedColumn, false);
 		EnsureFlankOverlay();
+	}
+
+	/// <summary>Floating PWR | // INTEGRITY | SPD cluster (HEAT lives on the crosshair).</summary>
+	private Control BuildIntegrityCluster()
+	{
+		var cluster = new HBoxContainer
+		{
+			Name = "IntegrityCluster",
+			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+			SizeFlagsVertical = SizeFlags.ShrinkEnd,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		cluster.AddThemeConstantOverride("separation", 6);
+
+		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel);
+		cluster.AddChild(_powerColumn);
+		cluster.AddChild(BuildSchematicColumn());
+		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel);
+		cluster.AddChild(_speedColumn);
+		SetClusterMeterVisible(_speedColumn, false);
+		return cluster;
 	}
 
 	private Control BuildEnemySchematicColumn()
@@ -228,7 +237,7 @@ public partial class MechHud : Control
 		};
 		return _enemySchematic;
 	}
-	private static void SetCornerMeterVisible(Control? column, bool visible)
+	private static void SetClusterMeterVisible(Control? column, bool visible)
 	{
 		if (column == null)
 			return;
@@ -277,14 +286,10 @@ public partial class MechHud : Control
 
 		(_flankPowerBar, _flankPowerLabel) = MakeVerticalMeter(
 			_flankRoot, "PWR", PowerFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
-		(_flankHeatBar, _flankHeatLabel) = MakeVerticalMeter(
-			_flankRoot, "HEAT", HeatFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
 		(_flankSpeedBar, _flankSpeedLabel) = MakeVerticalMeter(
 			_flankRoot, "SPD", SpeedFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
 		if (_flankPowerBar?.GetParent() is Control powerWrap)
 			powerWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
-		if (_flankHeatBar?.GetParent() is Control heatWrap)
-			heatWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
 		if (_flankSpeedBar?.GetParent() is Control speedWrap)
 		{
 			speedWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
@@ -294,7 +299,7 @@ public partial class MechHud : Control
 
 	private void UpdateFlankPositions(MechController mech)
 	{
-		if (_flankRoot == null || _flankPowerBar == null || _flankHeatBar == null)
+		if (_flankRoot == null || _flankPowerBar == null)
 			return;
 
 		var cam = mech.GetViewport()?.GetCamera3D();
@@ -321,12 +326,11 @@ public partial class MechHud : Control
 
 		_flankRoot.Visible = ShouldShowFlankMeters();
 		PlaceFlankMeter(_flankPowerBar, _flankPowerLabel, screen + new Vector2(-FlankSideOffset, 0f));
-		PlaceFlankMeter(_flankHeatBar, _flankHeatLabel, screen + new Vector2(FlankSideOffset, 0f));
 		if (_flankSpeedBar != null && mech.IsSpeedGovernorActive)
 		{
 			if (_flankSpeedBar.GetParent() is Control speedWrap)
 				speedWrap.Visible = true;
-			PlaceFlankMeter(_flankSpeedBar, _flankSpeedLabel, screen + new Vector2(0f, FlankBarHeight * 0.65f));
+			PlaceFlankMeter(_flankSpeedBar, _flankSpeedLabel, screen + new Vector2(FlankSideOffset, 0f));
 		}
 		else if (_flankSpeedBar?.GetParent() is Control hiddenWrap)
 		{
@@ -572,13 +576,13 @@ public partial class MechHud : Control
 		_cockpitHud?.Refresh(mech, useDiegetic);
 		SyncDiegeticLayout(useDiegetic);
 
-		RefreshMeters(mech, useDiegetic);
+		RefreshMeters(mech);
 		_schematic?.Refresh(mech);
 		_enemySchematic?.Refresh(mech);
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
 
-		if (GameSettings.MetersBesideMech && !hideFlatMeters)
+		if (GameSettings.MetersBesideMech)
 		{
 			if (ShouldShowFlankMeters())
 				UpdateFlankPositions(mech);
@@ -587,32 +591,26 @@ public partial class MechHud : Control
 		}
 	}
 
-	private void RefreshMeters(MechController mech, bool hideFlatMeters)
+	private void RefreshMeters(MechController mech)
 	{
 		var power = mech.PowerHeat;
-		var stats = mech.Assembler?.Stats;
-		var beside = GameSettings.MetersBesideMech && !hideFlatMeters;
+		var beside = GameSettings.MetersBesideMech;
 
 		ApplyPowerMeter(
 			beside ? _flankPowerBar : _powerBar,
 			beside ? _flankPowerLabel : _powerLabel,
 			power);
-		ApplyHeatMeter(
-			beside ? _flankHeatBar : _heatBar,
-			beside ? _flankHeatLabel : _heatLabel,
-			power,
-			stats?.HeatCap ?? 0f);
-		ApplySpeedMeter(mech, beside, hideFlatMeters);
+		ApplySpeedMeter(mech, beside);
 	}
 
-	private void ApplySpeedMeter(MechController mech, bool beside, bool hideFlatMeters)
+	private void ApplySpeedMeter(MechController mech, bool beside)
 	{
-		var show = mech.IsSpeedGovernorActive && !hideFlatMeters;
+		var show = mech.IsSpeedGovernorActive;
 		var bar = beside ? _flankSpeedBar : _speedBar;
 		var label = beside ? _flankSpeedLabel : _speedLabel;
 
 		if (!beside)
-			SetCornerMeterVisible(_speedColumn, show);
+			SetClusterMeterVisible(_speedColumn, show);
 		else if (_flankSpeedBar?.GetParent() is Control wrap)
 			wrap.Visible = show && ShouldShowFlankMeters();
 
@@ -648,39 +646,6 @@ public partial class MechHud : Control
 				: new Color(0.75f, 0.85f, 1f);
 	}
 
-	private void ApplyHeatMeter(ProgressBar? bar, Label? label, MechPowerHeat? power, float heatCap)
-	{
-		if (bar == null)
-			return;
-
-		bar.Value = power?.HeatRatio ?? 0f;
-		var heatColor = MixHeat(power?.HeatRatio ?? 0f);
-		bar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
-		{
-			BgColor = heatColor,
-			CornerRadiusTopLeft = 6,
-			CornerRadiusTopRight = 6,
-			CornerRadiusBottomRight = 6,
-			CornerRadiusBottomLeft = 6
-		});
-		if (label == null)
-			return;
-
-		label.Text = power == null
-			? "HEAT"
-			: $"HEAT\n{power.CurrentHeat:0}/{heatCap:0}";
-		label.Modulate = power?.IsOverheated == true
-			? new Color(1f, 0.4f, 0.3f)
-			: new Color(1f, 0.75f, 0.55f);
-	}
-
-	private static Color MixHeat(float ratio)
-	{
-		if (ratio < 0.55f)
-			return HeatFill.Lerp(new Color(0.95f, 0.75f, 0.25f), ratio / 0.55f);
-		return new Color(0.95f, 0.75f, 0.25f).Lerp(EmptyColor, (ratio - 0.55f) / 0.45f);
-	}
-
 	private static bool IsFirstPersonHud(MechController mech) =>
 		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
 
@@ -702,30 +667,22 @@ public partial class MechHud : Control
 		var hidePanels = useDiegetic && _cockpitHud is { HasScreens: true };
 		if (_enemySchematic != null)
 			_enemySchematic.Visible = !hidePanels;
-		if (_schematic != null)
-			_schematic.Visible = !hidePanels;
 		if (_weaponModulesColumn != null)
 			_weaponModulesColumn.Visible = !hidePanels;
 
-		if (hidePanels)
-		{
-			SetCornerMeterVisible(_powerColumn, false);
-			SetCornerMeterVisible(_heatColumn, false);
-			SetCornerMeterVisible(_speedColumn, false);
-			if (_flankRoot != null)
-				_flankRoot.Visible = false;
-		}
-		else
-		{
-			var beside = GameSettings.MetersBesideMech;
-			SetCornerMeterVisible(_powerColumn, !beside);
-			SetCornerMeterVisible(_heatColumn, !beside);
-		}
+		// Integrity + flanking PWR/SPD stay as floating screen HUD even in cockpit FP.
+		if (_schematic != null)
+			_schematic.Visible = true;
+		if (_integrityCluster != null)
+			_integrityCluster.Visible = true;
+
+		var beside = GameSettings.MetersBesideMech;
+		SetClusterMeterVisible(_powerColumn, !beside);
 
 		if (_rootRow == null)
 			return;
 
-		_rootRow.Visible = !(hidePanels && GameSettings.MetersBesideMech);
+		_rootRow.Visible = true;
 	}
 
 	private void RefreshWeapons(MechController mech)
