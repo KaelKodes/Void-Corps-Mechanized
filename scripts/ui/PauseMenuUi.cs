@@ -311,13 +311,13 @@ public partial class PauseMenuUi : Control
 				: $"{Mathf.RoundToInt(GameSettings.HudOffsetY * 100f)}% lift"));
 
 		_content.AddChild(MakeButton(
-			GameSettings.MetersBesideMech
-				? "PWR / HEAT: Beside MAP"
-				: "PWR / HEAT: Corner HUD",
+			GameSettings.FirstPersonHudMode
+				? "HUD bars: First Person (panels)"
+				: "HUD bars: Overlay",
 			() =>
 			{
 				SfxService.Click();
-				GameSettings.SetMetersBesideMech(!GameSettings.MetersBesideMech);
+				GameSettings.SetFirstPersonHudMode(!GameSettings.FirstPersonHudMode);
 				Rebuild();
 			}));
 

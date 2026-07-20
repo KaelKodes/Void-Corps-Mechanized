@@ -30,6 +30,10 @@ public partial class MechPowerHeat : Node
 		IsPowerAuthority ? Stats.OperationalMax : _replicatedOperationalMax;
 
 	public float HeatRatio => Stats.HeatCap <= 0.01f ? 0f : CurrentHeat / Stats.HeatCap;
+	public float ArmHeatL { get; private set; }
+	public float ArmHeatR { get; private set; }
+	public float ArmHeatRatioL => Stats.HeatCap <= 0.01f ? 0f : Mathf.Clamp(ArmHeatL / Stats.HeatCap, 0f, 1f);
+	public float ArmHeatRatioR => Stats.HeatCap <= 0.01f ? 0f : Mathf.Clamp(ArmHeatR / Stats.HeatCap, 0f, 1f);
 	public float PowerRatio
 	{
 		get
@@ -101,12 +105,16 @@ public partial class MechPowerHeat : Node
 		{
 			_drainRates.Clear();
 			CurrentHeat = 0f;
+			ArmHeatL = 0f;
+			ArmHeatR = 0f;
 			_overheated = false;
 			CurrentPower = Stats.OperationalMax;
 			return;
 		}
 
 		CurrentHeat = Mathf.Clamp(CurrentHeat, 0f, Stats.HeatCap);
+		ArmHeatL = Mathf.Clamp(ArmHeatL, 0f, Stats.HeatCap);
+		ArmHeatR = Mathf.Clamp(ArmHeatR, 0f, Stats.HeatCap);
 		CurrentPower = Mathf.Clamp(CurrentPower, 0f, Stats.OperationalMax);
 
 		if (CurrentHeat >= Stats.HeatCap - 0.01f)
@@ -126,6 +134,10 @@ public partial class MechPowerHeat : Node
 		CurrentHeat += stats.IdleHeatPerSec * dt;
 		CurrentHeat -= stats.HeatDissipation * dt;
 		CurrentHeat = Mathf.Clamp(CurrentHeat, 0f, stats.HeatCap);
+
+		var armDecay = stats.HeatDissipation * dt;
+		ArmHeatL = Mathf.Max(0f, ArmHeatL - armDecay);
+		ArmHeatR = Mathf.Max(0f, ArmHeatR - armDecay);
 
 		if (CurrentHeat >= stats.HeatCap - 0.01f)
 			_overheated = true;
@@ -177,6 +189,24 @@ public partial class MechPowerHeat : Node
 		CurrentHeat = Mathf.Min(Stats.HeatCap, CurrentHeat + amount);
 		if (CurrentHeat >= Stats.HeatCap - 0.01f)
 			_overheated = true;
+	}
+
+	/// <summary>Apply heat from a weapon arm to the global pool and that arm's bracket meter.</summary>
+	public void AddArmHeat(PartSlot slot, float amount)
+	{
+		if (amount <= 0f || _assembler == null)
+			return;
+
+		AddHeat(amount);
+		switch (slot)
+		{
+			case PartSlot.WeaponL:
+				ArmHeatL = Mathf.Min(Stats.HeatCap, ArmHeatL + amount);
+				break;
+			case PartSlot.WeaponR:
+				ArmHeatR = Mathf.Min(Stats.HeatCap, ArmHeatR + amount);
+				break;
+		}
 	}
 
 	public float FireRateThrottle

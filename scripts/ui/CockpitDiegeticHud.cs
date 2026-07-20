@@ -5,8 +5,9 @@ namespace Mechanize;
 
 /// <summary>
 /// Maps cockpit dashboard meshes to combat HUD panels while in first-person (Fleet torso).
-/// Screen_Threat → sensors, Screen_Self → integrity, Screen_WingR → weapons/modules,
-/// Screen_WingL → tactical map placeholder.
+/// Screen_Threat → sensors, Screen_Self → integrity (incl. on-panel PWR/SPD),
+/// Screen_WingR → weapons/modules, Screen_WingL → tactical map placeholder.
+/// HEAT lives on the crosshair brackets — not a cockpit screen.
 /// </summary>
 public partial class CockpitDiegeticHud : Node
 {

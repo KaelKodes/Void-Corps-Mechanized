@@ -11,8 +11,10 @@ public partial class FleetTorsoVisual : Node3D
 	private static readonly string[] ExteriorMeshPaths =
 	[
 		"Exterior/HullRear",
-		"Exterior/HullSideL",
-		"Exterior/HullSideR",
+		"Exterior/SideWallL/FrameRear",
+		"Exterior/SideWallL/FrameLowerFwd",
+		"Exterior/SideWallR/FrameRear",
+		"Exterior/SideWallR/FrameLowerFwd",
 		"Exterior/HullFloor",
 		"Exterior/HullCeiling",
 		"Exterior/Collar",
@@ -29,9 +31,20 @@ public partial class FleetTorsoVisual : Node3D
 		"ViewFrame/RollBar",
 		"ViewFrame/RollMountL",
 		"ViewFrame/RollMountR",
+		"Exterior/SideWallL/Brace",
+		"Exterior/SideWallR/Brace",
 		"CockpitInterior/Dashboard/DeckShelf",
 		"CockpitInterior/Dashboard/CenterStick/Base",
-		"CockpitInterior/Dashboard/CenterStick/Handle"
+		"CockpitInterior/Dashboard/CenterStick/Handle",
+		"CockpitInterior/SideRailL",
+		"CockpitInterior/SideRailR"
+	];
+
+	private static readonly string[] GlassMeshPaths =
+	[
+		"ViewPanel",
+		"Exterior/SideWallL/GlassWedge",
+		"Exterior/SideWallR/GlassWedge"
 	];
 
 	private static readonly string[] AccentMeshPaths =
@@ -60,8 +73,9 @@ public partial class FleetTorsoVisual : Node3D
 		BindMesh("Exterior/PauldronR", light);
 		BindMeshes(AccentMeshPaths, glow);
 
-		if (GetNodeOrNull<MeshInstance3D>("ViewPanel") is { } glass)
-			MeshMat.Bind(glass, MakeViewGlass());
+		var glass = MakeViewGlass();
+		foreach (var path in GlassMeshPaths)
+			BindMesh(path, glass);
 	}
 
 	private void BindMeshes(string[] paths, Material mat)

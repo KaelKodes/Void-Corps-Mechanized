@@ -4,8 +4,8 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Bottom combat HUD: integrity schematic, weapons + MAP modules.
-/// Power/heat meters live in the corner column or flank the player MAP (see GameSettings).
+/// Bottom combat HUD: integrity schematic (with on-panel PWR/SPD), weapons + MAP modules.
+/// HEAT lives on the crosshair ( ) brackets — not a HUD bar.
 /// </summary>
 public partial class MechHud : Control
 {
@@ -13,42 +13,12 @@ public partial class MechHud : Control
 	private EnemyTargetSchematic? _enemySchematic;
 
 	private Control? _rootRow;
-	private Control? _powerColumn;
-	private Control? _heatColumn;
-	private Control? _speedColumn;
-	private ProgressBar? _powerBar;
-	private ProgressBar? _heatBar;
-	private ProgressBar? _speedBar;
-	private Label? _powerLabel;
-	private Label? _heatLabel;
-	private Label? _speedLabel;
-
-	private Control? _flankRoot;
-	private ProgressBar? _flankPowerBar;
-	private ProgressBar? _flankHeatBar;
-	private ProgressBar? _flankSpeedBar;
-	private Label? _flankPowerLabel;
-	private Label? _flankHeatLabel;
-	private Label? _flankSpeedLabel;
-	private MechController? _trackedMech;
-
 	private readonly List<ModuleRow> _weaponRows = new();
 	private readonly List<ModuleRow> _abilityRows = new();
 	private CockpitDiegeticHud? _cockpitHud;
 	private Control? _weaponModulesColumn;
 
-	private static readonly Color EmptyColor = new(0.82f, 0.18f, 0.16f);
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
-	private static readonly Color PowerFill = new(0.35f, 0.7f, 1f);
-	private static readonly Color HeatFill = new(0.95f, 0.45f, 0.2f);
-	private static readonly Color SpeedFill = new(0.45f, 0.9f, 0.55f);
-
-	private const float MeterColumnWidth = 36f;
-	private const float CornerMeterBarHeight = 200f;
-	private const float FlankBarWidth = 16f;
-	private const float FlankBarHeight = 100f;
-	private const float FlankSideOffset = 64f;
-	private const float FlankAlpha = 0.62f;
 
 	private sealed class ModuleRow
 	{
@@ -74,9 +44,6 @@ public partial class MechHud : Control
 	public override void _ExitTree()
 	{
 		GameSettings.Changed -= ApplyLayout;
-		if (_flankRoot != null && GodotObject.IsInstanceValid(_flankRoot))
-			_flankRoot.QueueFree();
-		_flankRoot = null;
 	}
 
 	public override void _Notification(int what)
@@ -84,21 +51,8 @@ public partial class MechHud : Control
 		if (what != NotificationVisibilityChanged)
 			return;
 
-		SyncFlankVisibility();
 		if (Visible)
 			CallDeferred(MethodName.ApplyLayout);
-	}
-
-	public override void _Process(double delta)
-	{
-		if (!ShouldShowFlankMeters())
-		{
-			if (_flankRoot != null)
-				_flankRoot.Visible = false;
-			return;
-		}
-
-		UpdateFlankPositions(_trackedMech!);
 	}
 
 	/// <summary>Applies scale + screen position from <see cref="GameSettings"/>.</summary>
@@ -114,18 +68,12 @@ public partial class MechHud : Control
 		if (_rootRow == null)
 			return;
 
-		var beside = GameSettings.MetersBesideMech;
-		SetCornerMeterVisible(_powerColumn, !beside);
-		SetCornerMeterVisible(_heatColumn, !beside);
-		// SPD only appears while the speed governor is below full — refreshed each frame.
-
 		var width = BaseWidth;
 		var scale = Mathf.Clamp(GameSettings.HudScale, 0.5f, 1.5f);
 
 		Scale = new Vector2(scale, scale);
 		PivotOffset = new Vector2(width * 0.5f, BaseHeight);
 
-		// Bottom-anchored under CanvasLayer — same model as UI/Hint.
 		AnchorLeft = 0f;
 		AnchorRight = 0f;
 		AnchorTop = 1f;
@@ -149,7 +97,6 @@ public partial class MechHud : Control
 		CustomMinimumSize = new Vector2(width, BaseHeight);
 		Size = CustomMinimumSize;
 
-		// FullRect AFTER parent size is known — ordering was why Reset "fixed" a dead layout.
 		_rootRow.Scale = Vector2.One;
 		_rootRow.PivotOffset = Vector2.Zero;
 		_rootRow.CustomMinimumSize = new Vector2(width, BaseHeight);
@@ -158,7 +105,7 @@ public partial class MechHud : Control
 		if (_schematic != null)
 		{
 			_schematic.Visible = true;
-			_schematic.CustomMinimumSize = new Vector2(210, 304);
+			_schematic.CustomMinimumSize = new Vector2(280, 304);
 		}
 
 		if (_enemySchematic != null)
@@ -166,25 +113,9 @@ public partial class MechHud : Control
 			_enemySchematic.Visible = true;
 			_enemySchematic.CustomMinimumSize = new Vector2(210, 304);
 		}
-
-		EnsureFlankOverlay();
-		SyncFlankVisibility();
 	}
 
 	public void QueueApplyLayout() => CallDeferred(MethodName.ApplyLayout);
-
-	private bool ShouldShowFlankMeters() =>
-		Visible
-		&& GameSettings.MetersBesideMech
-		&& _trackedMech != null
-		&& GetTree() is { Paused: false };
-
-	private void SyncFlankVisibility()
-	{
-		if (_flankRoot == null || !GodotObject.IsInstanceValid(_flankRoot))
-			return;
-		_flankRoot.Visible = ShouldShowFlankMeters();
-	}
 
 	private void Build()
 	{
@@ -203,18 +134,10 @@ public partial class MechHud : Control
 		CustomMinimumSize = root.CustomMinimumSize;
 		Size = root.CustomMinimumSize;
 
-		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel);
-		root.AddChild(_powerColumn);
 		root.AddChild(BuildEnemySchematicColumn());
 		root.AddChild(BuildSchematicColumn());
 		_weaponModulesColumn = BuildModulesColumn();
 		root.AddChild(_weaponModulesColumn);
-		_heatColumn = BuildMeterColumn("HEAT", HeatFill, out _heatBar, out _heatLabel);
-		root.AddChild(_heatColumn);
-		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel);
-		root.AddChild(_speedColumn);
-		SetCornerMeterVisible(_speedColumn, false);
-		EnsureFlankOverlay();
 	}
 
 	private Control BuildEnemySchematicColumn()
@@ -228,202 +151,12 @@ public partial class MechHud : Control
 		};
 		return _enemySchematic;
 	}
-	private static void SetCornerMeterVisible(Control? column, bool visible)
-	{
-		if (column == null)
-			return;
-		column.Visible = visible;
-		column.CustomMinimumSize = visible ? new Vector2(MeterColumnWidth, 0) : Vector2.Zero;
-	}
-
-	private static Control BuildMeterColumn(
-		string caption,
-		Color fill,
-		out ProgressBar bar,
-		out Label label)
-	{
-		var col = new VBoxContainer
-		{
-			CustomMinimumSize = new Vector2(MeterColumnWidth, 0),
-			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
-			SizeFlagsVertical = SizeFlags.ShrinkEnd,
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-
-		(bar, label) = MakeVerticalMeter(
-			col, caption, fill, new Vector2(28, CornerMeterBarHeight));
-		return col;
-	}
-
-	private void EnsureFlankOverlay()
-	{
-		var parent = GetParent();
-		if (parent == null)
-			return;
-
-		if (_flankRoot != null && GodotObject.IsInstanceValid(_flankRoot))
-			return;
-
-		_flankRoot = new Control
-		{
-			Name = "MechFlankMeters",
-			MouseFilter = MouseFilterEnum.Ignore,
-			Visible = false,
-			// Stay with combat HUD; pause menu sits above via its own ZIndex.
-			ZIndex = 0
-		};
-		_flankRoot.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		parent.AddChild(_flankRoot);
-
-		(_flankPowerBar, _flankPowerLabel) = MakeVerticalMeter(
-			_flankRoot, "PWR", PowerFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
-		(_flankHeatBar, _flankHeatLabel) = MakeVerticalMeter(
-			_flankRoot, "HEAT", HeatFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
-		(_flankSpeedBar, _flankSpeedLabel) = MakeVerticalMeter(
-			_flankRoot, "SPD", SpeedFill, new Vector2(FlankBarWidth, FlankBarHeight), freePosition: true);
-		if (_flankPowerBar?.GetParent() is Control powerWrap)
-			powerWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
-		if (_flankHeatBar?.GetParent() is Control heatWrap)
-			heatWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
-		if (_flankSpeedBar?.GetParent() is Control speedWrap)
-		{
-			speedWrap.Modulate = new Color(1f, 1f, 1f, FlankAlpha);
-			speedWrap.Visible = false;
-		}
-	}
-
-	private void UpdateFlankPositions(MechController mech)
-	{
-		if (_flankRoot == null || _flankPowerBar == null || _flankHeatBar == null)
-			return;
-
-		var cam = mech.GetViewport()?.GetCamera3D();
-		if (cam == null || !GodotObject.IsInstanceValid(mech) || !mech.IsInsideTree())
-		{
-			_flankRoot.Visible = false;
-			return;
-		}
-
-		var anchor = mech.GlobalPosition + Vector3.Up * 1.35f;
-		if (cam.IsPositionBehind(anchor))
-		{
-			_flankRoot.Visible = false;
-			return;
-		}
-
-		var screen = cam.UnprojectPosition(anchor);
-		var vp = GetViewport()?.GetVisibleRect().Size ?? Vector2.Zero;
-		if (screen.X < -80f || screen.Y < -80f || screen.X > vp.X + 80f || screen.Y > vp.Y + 80f)
-		{
-			_flankRoot.Visible = false;
-			return;
-		}
-
-		_flankRoot.Visible = ShouldShowFlankMeters();
-		PlaceFlankMeter(_flankPowerBar, _flankPowerLabel, screen + new Vector2(-FlankSideOffset, 0f));
-		PlaceFlankMeter(_flankHeatBar, _flankHeatLabel, screen + new Vector2(FlankSideOffset, 0f));
-		if (_flankSpeedBar != null && mech.IsSpeedGovernorActive)
-		{
-			if (_flankSpeedBar.GetParent() is Control speedWrap)
-				speedWrap.Visible = true;
-			PlaceFlankMeter(_flankSpeedBar, _flankSpeedLabel, screen + new Vector2(0f, FlankBarHeight * 0.65f));
-		}
-		else if (_flankSpeedBar?.GetParent() is Control hiddenWrap)
-		{
-			hiddenWrap.Visible = false;
-		}
-	}
-
-	private static void PlaceFlankMeter(ProgressBar bar, Label? label, Vector2 center)
-	{
-		var wrap = bar.GetParent() as Control;
-		if (wrap == null)
-			return;
-
-		var size = wrap.Size;
-		if (size.X < 1f || size.Y < 1f)
-			size = wrap.CustomMinimumSize;
-
-		wrap.Position = center - size * 0.5f;
-		if (label != null)
-			label.Visible = true;
-	}
-
-	private static (ProgressBar bar, Label caption) MakeVerticalMeter(
-		Control parent,
-		string caption,
-		Color fill,
-		Vector2 barSize,
-		bool freePosition = false)
-	{
-		var wrap = new VBoxContainer
-		{
-			SizeFlagsVertical = freePosition ? SizeFlags.ShrinkCenter : SizeFlags.ShrinkEnd,
-			SizeFlagsHorizontal = freePosition ? SizeFlags.ShrinkCenter : SizeFlags.ShrinkCenter,
-			MouseFilter = MouseFilterEnum.Ignore,
-			CustomMinimumSize = freePosition
-				? new Vector2(barSize.X + 8f, barSize.Y + 28f)
-				: new Vector2(barSize.X + 4f, barSize.Y + 28f)
-		};
-		wrap.AddThemeConstantOverride("separation", 4);
-		parent.AddChild(wrap);
-
-		var bar = new ProgressBar
-		{
-			MinValue = 0,
-			MaxValue = 1,
-			Value = 0,
-			ShowPercentage = false,
-			CustomMinimumSize = barSize,
-			SizeFlagsVertical = SizeFlags.ShrinkCenter,
-			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-		bar.FillMode = (int)ProgressBar.FillModeEnum.BottomToTop;
-		bar.AddThemeStyleboxOverride("background", new StyleBoxFlat
-		{
-			BgColor = new Color(0.06f, 0.08f, 0.1f, 0.82f),
-			BorderColor = new Color(0.55f, 0.45f, 0.25f, 0.75f),
-			BorderWidthLeft = 1,
-			BorderWidthTop = 1,
-			BorderWidthRight = 1,
-			BorderWidthBottom = 1,
-			CornerRadiusTopLeft = 8,
-			CornerRadiusTopRight = 8,
-			CornerRadiusBottomRight = 8,
-			CornerRadiusBottomLeft = 8,
-			ContentMarginLeft = 2,
-			ContentMarginRight = 2,
-			ContentMarginTop = 2,
-			ContentMarginBottom = 2
-		});
-		bar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
-		{
-			BgColor = fill,
-			CornerRadiusTopLeft = 6,
-			CornerRadiusTopRight = 6,
-			CornerRadiusBottomRight = 6,
-			CornerRadiusBottomLeft = 6
-		});
-		wrap.AddChild(bar);
-
-		var label = new Label
-		{
-			Text = caption,
-			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = new Color(0.85f, 0.88f, 0.92f),
-			MouseFilter = MouseFilterEnum.Ignore
-		};
-		label.AddThemeFontSizeOverride("font_size", freePosition ? 12 : 11);
-		wrap.AddChild(label);
-		return (bar, label);
-	}
 
 	private Control BuildSchematicColumn()
 	{
 		_schematic = new IntegritySchematic
 		{
-			CustomMinimumSize = new Vector2(210, 304),
+			CustomMinimumSize = new Vector2(280, 304),
 			SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
 			SizeFlagsVertical = SizeFlags.ShrinkEnd,
 			MouseFilter = MouseFilterEnum.Ignore
@@ -557,129 +290,32 @@ public partial class MechHud : Control
 
 	public void Refresh(MechController? mech)
 	{
-		_trackedMech = mech;
 		if (mech == null)
 		{
 			_cockpitHud?.ApplyActive(false);
 			SyncDiegeticLayout(false);
-			if (_flankRoot != null)
-				_flankRoot.Visible = false;
 			return;
 		}
 
-		var useDiegetic = IsFirstPersonHud(mech) && CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		var useDiegetic = ShouldUseDiegeticPanels(mech);
 		EnsureCockpitHud(mech);
 		_cockpitHud?.Refresh(mech, useDiegetic);
 		SyncDiegeticLayout(useDiegetic);
 
-		RefreshMeters(mech);
 		_schematic?.Refresh(mech);
 		_enemySchematic?.Refresh(mech);
 		RefreshWeapons(mech);
 		RefreshAbilities(mech);
-
-		if (GameSettings.MetersBesideMech)
-		{
-			if (ShouldShowFlankMeters())
-				UpdateFlankPositions(mech);
-			else
-				SyncFlankVisibility();
-		}
 	}
 
-	private void RefreshMeters(MechController mech)
-	{
-		var power = mech.PowerHeat;
-		var stats = mech.Assembler?.Stats;
-		var beside = GameSettings.MetersBesideMech;
-
-		ApplyPowerMeter(
-			beside ? _flankPowerBar : _powerBar,
-			beside ? _flankPowerLabel : _powerLabel,
-			power);
-		ApplyHeatMeter(
-			beside ? _flankHeatBar : _heatBar,
-			beside ? _flankHeatLabel : _heatLabel,
-			power,
-			stats?.HeatCap ?? 0f);
-		ApplySpeedMeter(mech, beside);
-	}
-
-	private void ApplySpeedMeter(MechController mech, bool beside)
-	{
-		var show = mech.IsSpeedGovernorActive;
-		var bar = beside ? _flankSpeedBar : _speedBar;
-		var label = beside ? _flankSpeedLabel : _speedLabel;
-
-		if (!beside)
-			SetCornerMeterVisible(_speedColumn, show);
-		else if (_flankSpeedBar?.GetParent() is Control wrap)
-			wrap.Visible = show && ShouldShowFlankMeters();
-
-		if (bar == null)
-			return;
-
-		bar.Value = mech.SpeedGovernor;
-		if (label == null)
-			return;
-
-		label.Text = show
-			? $"SPD\n{mech.SpeedGovernor * 100f:0}%"
-			: "SPD";
-		label.Modulate = new Color(0.65f, 0.95f, 0.7f);
-	}
-
-	private static void ApplyPowerMeter(ProgressBar? bar, Label? label, MechPowerHeat? power)
-	{
-		if (bar == null)
-			return;
-
-		bar.Value = power?.PowerRatio ?? 0f;
-		if (label == null)
-			return;
-
-		label.Text = power == null
-			? "PWR"
-			: $"PWR\n{power.CurrentPower:0}/{power.EffectiveOperationalMax:0}";
-		label.Modulate = power?.IsOverheated == true
-			? new Color(1f, 0.45f, 0.35f)
-			: power is { CurrentPower: <= 0.5f }
-				? new Color(1f, 0.7f, 0.35f)
-				: new Color(0.75f, 0.85f, 1f);
-	}
-
-	private void ApplyHeatMeter(ProgressBar? bar, Label? label, MechPowerHeat? power, float heatCap)
-	{
-		if (bar == null)
-			return;
-
-		bar.Value = power?.HeatRatio ?? 0f;
-		var heatColor = MixHeat(power?.HeatRatio ?? 0f);
-		bar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
-		{
-			BgColor = heatColor,
-			CornerRadiusTopLeft = 6,
-			CornerRadiusTopRight = 6,
-			CornerRadiusBottomRight = 6,
-			CornerRadiusBottomLeft = 6
-		});
-		if (label == null)
-			return;
-
-		label.Text = power == null
-			? "HEAT"
-			: $"HEAT\n{power.CurrentHeat:0}/{heatCap:0}";
-		label.Modulate = power?.IsOverheated == true
-			? new Color(1f, 0.4f, 0.3f)
-			: new Color(1f, 0.75f, 0.55f);
-	}
-
-	private static Color MixHeat(float ratio)
-	{
-		if (ratio < 0.55f)
-			return HeatFill.Lerp(new Color(0.95f, 0.75f, 0.25f), ratio / 0.55f);
-		return new Color(0.95f, 0.75f, 0.25f).Lerp(EmptyColor, (ratio - 0.55f) / 0.45f);
-	}
+	/// <summary>
+	/// First Person HUD mode binds readouts to cockpit dashboard panels.
+	/// Overlay mode keeps the floating bottom HUD even while the camera is in FP.
+	/// </summary>
+	private static bool ShouldUseDiegeticPanels(MechController mech) =>
+		GameSettings.FirstPersonHudMode
+		&& IsFirstPersonHud(mech)
+		&& CockpitDiegeticHud.MechHasCockpitScreens(mech);
 
 	private static bool IsFirstPersonHud(MechController mech) =>
 		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
@@ -710,7 +346,7 @@ public partial class MechHud : Control
 		if (_rootRow == null)
 			return;
 
-		_rootRow.Visible = !(hidePanels && GameSettings.MetersBesideMech);
+		_rootRow.Visible = !hidePanels;
 	}
 
 	private void RefreshWeapons(MechController mech)
@@ -822,7 +458,6 @@ public partial class MechHud : Control
 		var raw = InputBindings.FormatAction(action);
 		if (string.IsNullOrEmpty(raw) || raw == "—" || raw == "Unbound")
 			return "—";
-		// Prefer first binding, strip Mouse prefix noise.
 		var first = raw.Split(',')[0].Trim();
 		if (first.StartsWith("Mouse "))
 			return first.Replace("Mouse ", "M");
