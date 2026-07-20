@@ -310,17 +310,6 @@ public partial class PauseMenuUi : Control
 				? "Bottom"
 				: $"{Mathf.RoundToInt(GameSettings.HudOffsetY * 100f)}% lift"));
 
-		_content.AddChild(MakeButton(
-			GameSettings.MetersBesideMech
-				? "PWR / SPD: Beside MAP"
-				: "PWR / SPD: Beside Integrity",
-			() =>
-			{
-				SfxService.Click();
-				GameSettings.SetMetersBesideMech(!GameSettings.MetersBesideMech);
-				Rebuild();
-			}));
-
 		_content.AddChild(MakeButton("Reset HUD layout", () =>
 		{
 			SfxService.Click();
