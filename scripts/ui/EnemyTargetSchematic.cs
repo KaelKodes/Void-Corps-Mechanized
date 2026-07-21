@@ -6,6 +6,7 @@ namespace Mechanize;
 /// <summary>
 /// Sensor target dossier — enemy integrity silhouette with clickable focus bands
 /// for TAB-lock aim assist (Legs / Torso / Head / arms).
+/// Keybinds sit to the left of // SENSORS (TAB / C / X).
 /// </summary>
 public partial class EnemyTargetSchematic : Control
 {
@@ -21,8 +22,11 @@ public partial class EnemyTargetSchematic : Control
 		public required Button Hit;
 	}
 
+	private const float KeyColumnWidth = 108f;
 	private const float ContentWidth = 190f;
 	private const float ContentHeight = 268f;
+	private const float FramePadX = 10f;
+	private const float FramePadY = 8f;
 
 	private static readonly Color PlateBg = new(0.05f, 0.07f, 0.09f, 0.94f);
 	private static readonly Color PlateBorder = new(0.35f, 0.55f, 0.62f, 0.9f);
@@ -35,6 +39,7 @@ public partial class EnemyTargetSchematic : Control
 	private static readonly Color LockColor = new(0.45f, 0.82f, 0.95f, 0.95f);
 
 	private readonly Dictionary<PartSlot, Zone> _zones = new();
+	private Label? _binds;
 	private Label? _header;
 	private Label? _sub;
 	private Label? _hint;
@@ -43,10 +48,13 @@ public partial class EnemyTargetSchematic : Control
 
 	[Signal] public delegate void FocusRequestedEventHandler(int slot);
 
+	private static float FrameWidth => KeyColumnWidth + 8f + ContentWidth + FramePadX * 2f;
+	private static float FrameHeight => ContentHeight + FramePadY * 2f + 10f;
+
 	public override void _Ready()
 	{
 		MouseFilter = MouseFilterEnum.Stop;
-		CustomMinimumSize = new Vector2(ContentWidth + 20f, ContentHeight + 18f);
+		CustomMinimumSize = new Vector2(FrameWidth, FrameHeight);
 		Size = CustomMinimumSize;
 		Build();
 	}
@@ -71,6 +79,14 @@ public partial class EnemyTargetSchematic : Control
 		var target = pilot?.SensorLockTarget;
 		var focus = pilot?.SensorFocusSlot;
 
+		if (_binds != null)
+		{
+			_binds.Text =
+				$"{InputBindings.FormatAction("target_next")}  Cycle Target\n" +
+				$"{InputBindings.FormatAction("target_focus_cycle")}  Focus System\n" +
+				$"{InputBindings.FormatAction("target_clear")}  Clear Target";
+		}
+
 		if (_header != null)
 		{
 			_header.Text = target == null ? "// SENSORS" : $"LOCK  ·  {Callsign(target)}";
@@ -80,9 +96,9 @@ public partial class EnemyTargetSchematic : Control
 		if (_sub != null)
 		{
 			_sub.Text = target == null
-				? "TAB acquire contact"
+				? "Acquire contact"
 				: pilot!.SensorLockInVision
-					? "TRACKING  ·  click band to focus AI"
+					? "TRACKING  ·  click band to focus"
 					: "CONTACT  ·  outside vision cone";
 			_sub.Modulate = target != null && pilot!.SensorLockInVision
 				? LockColor
@@ -92,10 +108,10 @@ public partial class EnemyTargetSchematic : Control
 		if (_hint != null)
 		{
 			_hint.Text = target == null
-				? $"{InputBindings.FormatAction("target_next")} cycle  ·  {InputBindings.FormatAction("target_clear")} clear"
+				? ""
 				: focus.HasValue
-					? $"FOCUS  {ShortSlot(focus.Value)}  ·  {InputBindings.FormatAction("target_focus_cycle")} cycle band"
-					: $"Select a band  ·  {InputBindings.FormatAction("target_focus_cycle")}";
+					? $"FOCUS  {ShortSlot(focus.Value)}"
+					: "Select a band";
 		}
 
 		foreach (var slot in _zones.Keys)
@@ -106,7 +122,7 @@ public partial class EnemyTargetSchematic : Control
 	{
 		var frame = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
 		frame.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		frame.CustomMinimumSize = new Vector2(ContentWidth + 20f, ContentHeight + 18f);
+		frame.CustomMinimumSize = new Vector2(FrameWidth, FrameHeight);
 		frame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
 			BgColor = new Color(0.04f, 0.055f, 0.07f, 0.92f),
@@ -115,10 +131,10 @@ public partial class EnemyTargetSchematic : Control
 			BorderWidthTop = 2,
 			BorderWidthRight = 2,
 			BorderWidthBottom = 2,
-			ContentMarginLeft = 10,
-			ContentMarginTop = 8,
-			ContentMarginRight = 10,
-			ContentMarginBottom = 10,
+			ContentMarginLeft = FramePadX,
+			ContentMarginTop = FramePadY,
+			ContentMarginRight = FramePadX,
+			ContentMarginBottom = FramePadY,
 			CornerRadiusTopLeft = 2,
 			CornerRadiusTopRight = 2,
 			CornerRadiusBottomRight = 2,
@@ -126,12 +142,38 @@ public partial class EnemyTargetSchematic : Control
 		});
 		AddChild(frame);
 
+		var row = new HBoxContainer
+		{
+			MouseFilter = MouseFilterEnum.Ignore,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			SizeFlagsVertical = SizeFlags.ExpandFill
+		};
+		row.AddThemeConstantOverride("separation", 8);
+		frame.AddChild(row);
+
+		_binds = new Label
+		{
+			Text =
+				$"{InputBindings.FormatAction("target_next")}  Cycle Target\n" +
+				$"{InputBindings.FormatAction("target_focus_cycle")}  Focus System\n" +
+				$"{InputBindings.FormatAction("target_clear")}  Clear Target",
+			AutowrapMode = TextServer.AutowrapMode.Off,
+			VerticalAlignment = VerticalAlignment.Top,
+			Modulate = MechUiTheme.Muted,
+			MouseFilter = MouseFilterEnum.Ignore,
+			CustomMinimumSize = new Vector2(KeyColumnWidth, ContentHeight)
+		};
+		_binds.AddThemeFontSizeOverride("font_size", 10);
+		row.AddChild(_binds);
+
 		var inner = new Control
 		{
 			MouseFilter = MouseFilterEnum.Ignore,
-			CustomMinimumSize = new Vector2(ContentWidth, ContentHeight)
+			CustomMinimumSize = new Vector2(ContentWidth, ContentHeight),
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			SizeFlagsVertical = SizeFlags.ExpandFill
 		};
-		frame.AddChild(inner);
+		row.AddChild(inner);
 
 		_header = new Label
 		{
@@ -146,7 +188,7 @@ public partial class EnemyTargetSchematic : Control
 
 		_sub = new Label
 		{
-			Text = "TAB acquire contact",
+			Text = "Acquire contact",
 			Modulate = MechUiTheme.Muted,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
@@ -175,8 +217,8 @@ public partial class EnemyTargetSchematic : Control
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		_hint.AddThemeFontSizeOverride("font_size", 10);
-		_hint.Position = new Vector2(0, ContentHeight - 28);
-		_hint.Size = new Vector2(ContentWidth, 28);
+		_hint.Position = new Vector2(0, ContentHeight - 22);
+		_hint.Size = new Vector2(ContentWidth, 22);
 		inner.AddChild(_hint);
 	}
 

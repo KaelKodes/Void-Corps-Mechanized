@@ -19,7 +19,7 @@ public sealed class ConventionState
 	public void EnsureAllManufacturers()
 	{
 		GameCatalog.EnsureBuilt();
-		foreach (var id in GameCatalog.Manufacturers.Keys)
+		foreach (var id in GameCatalog.CampaignManufacturerIds)
 		{
 			if (!ByManufacturer.ContainsKey(id))
 				ByManufacturer[id] = ManufacturerConventionStatus.CreateFresh();

@@ -12,10 +12,10 @@ globs:
 
 These four people represent **manufacturers**, not corps. They hire pilots into deniable merc arrangements. Keep manufacturer vs corp language clean per void-corps-lore.
 
-- **Corp** means a mercenary company: the player's guild/clan-scale organization.
-- **Merc / pilot** means an individual member.
+- **Corp** means a rival mercenary company or other organization — never the player.
+- **Merc / pilot / contractor** means an individual, including the player.
 - **Detachment / squad** means the field unit deployed on a job.
-- Use “corp” for organizational actions such as filing claims, maintaining accounts, hiring members, or receiving company-wide supply. Do not use it as a loose synonym for one pilot or one squad.
+- Employers hire people. Do not say they are “hiring a corp,” and do not call the player’s progress “your corp.”
 
 ## Shared craft rules
 
@@ -66,7 +66,7 @@ These four people represent **manufacturers**, not corps. They hire pilots into 
 ## Supporting voices (later)
 
 - **Nia Calder** — academy instructor
-- **Jax Rook** — player corp operations
+- **Jax Rook** — ops chatter / generic channel voice
 - **MICA** — MAP interface
 
 Do not flatten those into manufacturer voices.

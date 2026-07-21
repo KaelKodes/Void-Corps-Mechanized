@@ -15,8 +15,9 @@ public partial class CockpitModulesPanel : Control
 
 	private readonly List<ModuleRow> _weaponRows = new();
 	private readonly List<ModuleRow> _abilityRows = new();
+	private Label? _runStrip;
+	private Label? _mobilityStrip;
 
-	private static readonly Color EmptyColor = new(0.82f, 0.18f, 0.16f);
 	private static readonly Color DeadColor = new(0.22f, 0.2f, 0.2f);
 
 	public override void _Ready()
@@ -28,24 +29,58 @@ public partial class CockpitModulesPanel : Control
 
 	private void Build()
 	{
-		var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-		col.AddThemeConstantOverride("separation", 2);
-		col.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-		AddChild(col);
+		var root = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+		root.AddThemeConstantOverride("separation", 4);
+		root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		AddChild(root);
+
+		var headerRow = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+		headerRow.AddThemeConstantOverride("separation", 6);
+		root.AddChild(headerRow);
 
 		var header = new Label
 		{
 			Text = "// WEAPONS / MODULES",
 			Modulate = MechUiTheme.Accent,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
 			MouseFilter = MouseFilterEnum.Ignore
 		};
 		header.AddThemeFontSizeOverride("font_size", 9);
-		col.AddChild(header);
+		headerRow.AddChild(header);
+
+		_runStrip = new Label
+		{
+			Text = "",
+			HorizontalAlignment = HorizontalAlignment.Right,
+			VerticalAlignment = VerticalAlignment.Center,
+			Modulate = new Color(0.85f, 0.9f, 0.95f),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		_runStrip.AddThemeFontSizeOverride("font_size", 7);
+		headerRow.AddChild(_runStrip);
+
+		var col = new VBoxContainer
+		{
+			MouseFilter = MouseFilterEnum.Ignore,
+			SizeFlagsVertical = SizeFlags.ExpandFill
+		};
+		col.AddThemeConstantOverride("separation", 2);
+		root.AddChild(col);
 
 		_weaponRows.Add(MakeModuleRow(col));
 		_weaponRows.Add(MakeModuleRow(col));
 		for (var i = 0; i < AbilityController.MaxAbilitySlots; i++)
 			_abilityRows.Add(MakeModuleRow(col));
+
+		_mobilityStrip = new Label
+		{
+			Text = "tap Shift dash  ·  hold sprint  ·  Space jump",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = new Color(0.65f, 0.75f, 0.82f, 0.9f),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		_mobilityStrip.AddThemeFontSizeOverride("font_size", 7);
+		root.AddChild(_mobilityStrip);
 	}
 
 	private static ModuleRow MakeModuleRow(Control parent)
@@ -83,6 +118,12 @@ public partial class CockpitModulesPanel : Control
 		row.AddChild(bodyLabel);
 
 		return new ModuleRow { Root = row, KeyLabel = keyLabel, BodyLabel = bodyLabel };
+	}
+
+	public void SetRunStrip(string text)
+	{
+		if (_runStrip != null)
+			_runStrip.Text = text ?? "";
 	}
 
 	public void Refresh(MechController? mech)

@@ -255,8 +255,23 @@ public partial class Hardpoint : Node3D
 		}
 	}
 
-	public void AimAt(Vector3 worldPoint, Vector3 chassisForward, float elevationPitchRadians = 0f)
+	/// <summary>
+	/// Third-person gimbal body block: total ~215° yaw, outward-biased so the arm
+	/// cannot fold through the torso. Inward ~50°, outward ~165° from chassis forward.
+	/// </summary>
+	private const float GimbalInwardYaw = 0.873f;   // 50°
+	private const float GimbalOutwardYaw = 2.880f;  // 165°
+
+	public void AimAt(
+		Vector3 worldPoint,
+		Vector3 chassisForward,
+		float elevationPitchRadians = 0f,
+		bool clampGimbalBodyArc = false)
 	{
+		// Held shields use the cover pose driver — never LookAt.
+		if (EquippedPart is { IsHeldShield: true })
+			return;
+
 		if (!CanFire)
 			return;
 
@@ -279,6 +294,8 @@ public partial class Hardpoint : Node3D
 			var flat = horiz > 0.001f
 				? new Vector3(to.X, 0f, to.Z).Normalized()
 				: Flatten(chassisForward);
+			if (clampGimbalBodyArc)
+				flat = ClampGimbalYawToBodyArc(flat, chassisForward, Slot);
 			var pitch = horiz > 0.001f ? Mathf.Atan2(to.Y, horiz) : 0f;
 			// Scroll elev (3rd person) stacks on mouse/world aim pitch.
 			pitch = Mathf.Clamp(pitch + appliedPitch, -0.55f, 0.45f);
@@ -303,6 +320,32 @@ public partial class Hardpoint : Node3D
 
 			LookAt(GlobalPosition + PitchedForward(forward, pitch) * 10f, Vector3.Up);
 		}
+	}
+
+	/// <summary>
+	/// Clamps horizontal aim so a right arm prefers outward (+yaw) and a left arm
+	/// prefers outward (−yaw); neither may swing deep through the chassis.
+	/// </summary>
+	private static Vector3 ClampGimbalYawToBodyArc(Vector3 aimFlat, Vector3 chassisForward, PartSlot slot)
+	{
+		var forward = Flatten(chassisForward);
+		if (forward.LengthSquared() < 0.001f)
+			return aimFlat;
+
+		var right = forward.Cross(Vector3.Up);
+		if (right.LengthSquared() < 0.001f)
+			return aimFlat;
+		right = right.Normalized();
+
+		var yaw = Mathf.Atan2(aimFlat.Dot(right), aimFlat.Dot(forward));
+		yaw = slot switch
+		{
+			PartSlot.WeaponR => Mathf.Clamp(yaw, -GimbalInwardYaw, GimbalOutwardYaw),
+			PartSlot.WeaponL => Mathf.Clamp(yaw, -GimbalOutwardYaw, GimbalInwardYaw),
+			_ => yaw
+		};
+
+		return (forward * Mathf.Cos(yaw) + right * Mathf.Sin(yaw)).Normalized();
 	}
 
 	private static Vector3 Flatten(Vector3 v)
@@ -948,13 +991,29 @@ public partial class Hardpoint : Node3D
 
 	private void EnsureDamageSmoke()
 	{
+		var offset = ResolveDamageSmokeLocalOffset();
 		if (_damageSmoke != null && GodotObject.IsInstanceValid(_damageSmoke))
+		{
+			_damageSmoke.Position = offset;
 			return;
+		}
 
 		var scale = ResolveChassisClass() == MechChassisClass.Titan ? 1.8f : 1f;
 		_damageSmoke = DamageSmoke.Create(scale);
-		_damageSmoke.Position = new Vector3(0f, 0.35f, 0f);
+		_damageSmoke.Position = offset;
 		AddChild(_damageSmoke);
+	}
+
+	/// <summary>
+	/// Cockpit hulls are hollow around the hardpoint origin — vent smoke on the
+	/// roof/aft exterior so FP pilots aren't fogged out of their own cabin.
+	/// </summary>
+	private Vector3 ResolveDamageSmokeLocalOffset()
+	{
+		if (Slot == PartSlot.Torso && EquippedPart?.IsCockpitHull == true)
+			return new Vector3(0f, 1.05f, 0.45f);
+
+		return new Vector3(0f, 0.35f, 0f);
 	}
 
 	private void RebuildVisual()
@@ -986,7 +1045,7 @@ public partial class Hardpoint : Node3D
 			if (node is MechController mech && mech.Assembler != null)
 			{
 				var torso = mech.Assembler.Hardpoints.GetValueOrDefault(PartSlot.Torso)?.EquippedPart;
-				return torso?.VisualKind == "torso_fleet";
+				return torso?.IsCockpitHull == true;
 			}
 			node = node.GetParent();
 		}

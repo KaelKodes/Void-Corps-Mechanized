@@ -37,10 +37,26 @@ public partial class MechController : CharacterBody3D
 	private PartSlot? _ghostLastSlot;
 	private WeaponFamily _ghostLastFamily = WeaponFamily.None;
 	private float _ghostLastTime;
+	private float _dryFireReadyL;
+	private float _dryFireReadyR;
+	private bool _overheatFxActive;
 	private bool _shieldRaisedL;
 	private bool _shieldRaisedR;
 	private bool _shieldBrokenL;
 	private bool _shieldBrokenR;
+	private float _shieldPoseBlendL;
+	private float _shieldPoseBlendR;
+	private Vector3 _shieldRestPosL;
+	private Vector3 _shieldRestPosR;
+	private Vector3 _shieldRestRotL;
+	private Vector3 _shieldRestRotR;
+	private bool _shieldRestCachedL;
+	private bool _shieldRestCachedR;
+
+	private const float ShieldRaiseSeconds = 0.2f;
+	// Cover pose: modest forward (~¼ of the first draft), ~80% of the prior center pull.
+	private static readonly Vector3 ShieldCoverOffsetL = new(0.6f, 0.05f, -0.14f);
+	private static readonly Vector3 ShieldCoverOffsetR = new(-0.6f, 0.05f, -0.14f);
 
 	// FP / mobility
 	private Vector3 _moveVelocity;
@@ -108,11 +124,11 @@ public partial class MechController : CharacterBody3D
 		}
 	}
 
-	public void ConfigureNetworkPilot(int peerId, bool human)
+	public void ConfigureNetworkPilot(int peerId, bool human, TeamId team = TeamId.Player)
 	{
 		OwningPeerId = peerId;
 		IsPlayerControlled = human;
-		Team = TeamId.Player;
+		Team = team;
 		SetMultiplayerAuthority(1); // host-authoritative simulation
 		EnsureNetworkSync();
 		if (human && _missileDecal == null)
@@ -277,6 +293,25 @@ public partial class MechController : CharacterBody3D
 	public bool ControlsEnabled => _controlsEnabled;
 	public bool IsSprinting => _sprinting;
 	public bool IsDashing => _dashRemaining > 0.01f;
+	/// <summary>True while local FP hides hips/legs to avoid cockpit mesh poke-through.</summary>
+	public bool FirstPersonHideLowerBody { get; private set; }
+
+	/// <summary>
+	/// Hide hips/leg visuals for local first-person until cockpit shells exist.
+	/// Does not affect collision or other players' view of this MAP.
+	/// </summary>
+	public void SetFirstPersonHideLowerBody(bool hide)
+	{
+		FirstPersonHideLowerBody = hide;
+		ApplyFirstPersonLowerBodyVisibility();
+	}
+
+	private void ApplyFirstPersonLowerBodyVisibility()
+	{
+		var hips = GetNodeOrNull<Node3D>("Sockets/Hips");
+		if (hips != null)
+			hips.Visible = !FirstPersonHideLowerBody;
+	}
 	/// <summary>Locomotion spread tier — wide reticle + projectile cone while moving or dashing.</summary>
 	public bool IsWideFire => _wasMoving || IsDashing || IsSprinting;
 	/// <summary>Planted aim — tight reticle and no ballistic spread.</summary>
@@ -359,8 +394,8 @@ public partial class MechController : CharacterBody3D
 		var loadout = IsPlayerControlled
 			? (session?.CurrentLoadout ?? GameCatalog.CreateStarterLoadout())
 			: GameCatalog.CreateEnemyLoadout();
-		if (HangarDisplayOnly || !IsPlayerControlled)
-			RebuildFromLoadout(loadout);
+		if (HangarDisplayOnly || !IsPlayerControlled || session is { UsingTemporaryLoaner: true })
+			RebuildFromLoadout(loadout, forceFullRepair: true);
 		else
 			RebuildFromLoadout(loadout, BuildPlayerConditionMap(session?.Profile));
 
@@ -402,6 +437,7 @@ public partial class MechController : CharacterBody3D
 		StopSprint();
 		ClearHeldShieldBattleState();
 		SetControlsEnabled(true);
+		ApplyFirstPersonLowerBodyVisibility();
 		GetNodeOrNull<MechLegAnimator>(MechLegAnimator.NodeName)?.CallDeferred("BindRig");
 	}
 
@@ -415,6 +451,26 @@ public partial class MechController : CharacterBody3D
 		_assembler.RefreshStatsAfterDamage();
 		_powerHeat?.Bind(_assembler);
 		_abilities?.Bind(this, _assembler, _health);
+		if (slot == PartSlot.WeaponL)
+		{
+			_shieldPoseBlendL = 0f;
+			_shieldRestCachedL = false;
+			if (part.IsHeldShield)
+			{
+				hardpoint.Position = Vector3.Zero;
+				hardpoint.Rotation = Vector3.Zero;
+			}
+		}
+		else if (slot == PartSlot.WeaponR)
+		{
+			_shieldPoseBlendR = 0f;
+			_shieldRestCachedR = false;
+			if (part.IsHeldShield)
+			{
+				hardpoint.Position = Vector3.Zero;
+				hardpoint.Rotation = Vector3.Zero;
+			}
+		}
 		GetNodeOrNull<MechLegAnimator>(MechLegAnimator.NodeName)?.CallDeferred("BindRig");
 		return true;
 	}
@@ -509,6 +565,8 @@ public partial class MechController : CharacterBody3D
 
 		var net = GetNodeOrNull<NetSession>("/root/NetSession");
 		var online = net is { IsOnline: true };
+
+		TickOverheatAudio();
 
 		// Clients do not simulate host-auth mechs — replication drives their transforms.
 		if (online && !Multiplayer.IsServer())
@@ -649,9 +707,10 @@ public partial class MechController : CharacterBody3D
 
 		UpdateUpperBodyAim(dt);
 		AdvanceMeleeSwings(dt);
-		AimHardpoints();
-		UpdateMeleeContacts();
 		UpdateHeldShields(firePrimary, fireSecondary);
+		AimHardpoints();
+		UpdateHeldShieldPoses(dt);
+		UpdateMeleeContacts();
 
 		if (firePrimary)
 			FireWeapon(PartSlot.WeaponL);
@@ -712,9 +771,10 @@ public partial class MechController : CharacterBody3D
 		UpdateCarrierOverdrive(wantOverdrive, dt);
 		UpdateUpperBodyAim(dt);
 		AdvanceMeleeSwings(dt);
-		AimHardpoints();
-		UpdateMeleeContacts();
 		UpdateHeldShields(firePrimary, fireSecondary);
+		AimHardpoints();
+		UpdateHeldShieldPoses(dt);
+		UpdateMeleeContacts();
 
 		if (firePrimary)
 			FireWeapon(PartSlot.WeaponL);
@@ -1095,6 +1155,7 @@ public partial class MechController : CharacterBody3D
 		_shieldBrokenL = false;
 		_shieldBrokenR = false;
 		LowerHeldShields();
+		ResetHeldShieldPoses();
 	}
 
 	private void LowerHeldShields()
@@ -1113,6 +1174,97 @@ public partial class MechController : CharacterBody3D
 	{
 		UpdateHeldShieldArm(PartSlot.WeaponL, firePrimary, ref _shieldRaisedL, ref _shieldBrokenL);
 		UpdateHeldShieldArm(PartSlot.WeaponR, fireSecondary, ref _shieldRaisedR, ref _shieldBrokenR);
+	}
+
+	/// <summary>
+	/// Pull raised shields forward and toward chassis center (cover pose).
+	/// </summary>
+	private void UpdateHeldShieldPoses(float dt)
+	{
+		var rate = 1f / Mathf.Max(0.05f, ShieldRaiseSeconds);
+		UpdateHeldShieldPoseArm(
+			PartSlot.WeaponL, _shieldRaisedL, ref _shieldPoseBlendL,
+			ref _shieldRestPosL, ref _shieldRestRotL, ref _shieldRestCachedL,
+			ShieldCoverOffsetL, rate, dt);
+		UpdateHeldShieldPoseArm(
+			PartSlot.WeaponR, _shieldRaisedR, ref _shieldPoseBlendR,
+			ref _shieldRestPosR, ref _shieldRestRotR, ref _shieldRestCachedR,
+			ShieldCoverOffsetR, rate, dt);
+	}
+
+	private void UpdateHeldShieldPoseArm(
+		PartSlot slot,
+		bool raised,
+		ref float blend,
+		ref Vector3 restPos,
+		ref Vector3 restRot,
+		ref bool restCached,
+		Vector3 coverOffset,
+		float rate,
+		float dt)
+	{
+		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(slot, out var hp))
+		{
+			restCached = false;
+			blend = 0f;
+			return;
+		}
+
+		if (hp.EquippedPart is not { IsHeldShield: true } || hp.IsDestroyed)
+		{
+			if (restCached)
+				ApplyShieldPose(hp, restPos, restRot, 0f, coverOffset);
+			restCached = false;
+			blend = 0f;
+			return;
+		}
+
+		if (!restCached)
+		{
+			restPos = hp.Position;
+			restRot = hp.Rotation;
+			restCached = true;
+		}
+
+		var target = raised ? 1f : 0f;
+		blend = Mathf.MoveToward(blend, target, rate * dt);
+		ApplyShieldPose(hp, restPos, restRot, blend, coverOffset);
+	}
+
+	private static void ApplyShieldPose(
+		Hardpoint hp, Vector3 restPos, Vector3 restRot, float blend, Vector3 coverOffset)
+	{
+		hp.Position = restPos + coverOffset * blend;
+		// Keep socket-facing rest rotation — plate is authored along local -Z.
+		hp.Rotation = restRot;
+	}
+
+	private void ResetHeldShieldPoses()
+	{
+		SnapShieldPoseToRest(PartSlot.WeaponL, ref _shieldRestPosL, ref _shieldRestRotL, ref _shieldRestCachedL);
+		SnapShieldPoseToRest(PartSlot.WeaponR, ref _shieldRestPosR, ref _shieldRestRotR, ref _shieldRestCachedR);
+		_shieldPoseBlendL = 0f;
+		_shieldPoseBlendR = 0f;
+		_shieldRestCachedL = false;
+		_shieldRestCachedR = false;
+	}
+
+	private void SnapShieldPoseToRest(
+		PartSlot slot, ref Vector3 restPos, ref Vector3 restRot, ref bool restCached)
+	{
+		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(slot, out var hp))
+			return;
+
+		if (restCached)
+		{
+			hp.Position = restPos;
+			hp.Rotation = restRot;
+		}
+		else
+		{
+			hp.Position = Vector3.Zero;
+			hp.Rotation = Vector3.Zero;
+		}
 	}
 
 	private void UpdateHeldShieldArm(PartSlot slot, bool wantRaise, ref bool raised, ref bool broken)
@@ -1214,6 +1366,10 @@ public partial class MechController : CharacterBody3D
 					_powerHeat?.Release(ShieldDrainKey(slot));
 					_shieldRaisedL = false;
 				}
+
+				_shieldPoseBlendL = 0f;
+				SnapShieldPoseToRest(slot, ref _shieldRestPosL, ref _shieldRestRotL, ref _shieldRestCachedL);
+				_shieldRestCachedL = false;
 				break;
 			case PartSlot.WeaponR:
 				_shieldBrokenR = true;
@@ -1222,6 +1378,10 @@ public partial class MechController : CharacterBody3D
 					_powerHeat?.Release(ShieldDrainKey(slot));
 					_shieldRaisedR = false;
 				}
+
+				_shieldPoseBlendR = 0f;
+				SnapShieldPoseToRest(slot, ref _shieldRestPosR, ref _shieldRestRotR, ref _shieldRestCachedR);
+				_shieldRestCachedR = false;
 				break;
 		}
 
@@ -1556,6 +1716,7 @@ public partial class MechController : CharacterBody3D
 
 	/// <summary>
 	/// Ctrl+scroll / Ctrl+middle-click: speed governor (both camera modes).
+	/// Alt+scroll in FP: inspect zoom (handled by TopDownCamera).
 	/// Third person without Ctrl: scroll while firing adjusts barrel elevation.
 	/// </summary>
 	public override void _UnhandledInput(InputEvent @event)
@@ -1587,7 +1748,7 @@ public partial class MechController : CharacterBody3D
 			return;
 		}
 
-		// First person: mouse supplies weapon pitch; bare scroll does nothing.
+		// First person: Alt+scroll is camera inspect zoom; bare scroll does nothing.
 		if (IsLocalFirstPerson())
 			return;
 
@@ -2012,9 +2173,11 @@ public partial class MechController : CharacterBody3D
 			? -_upperBody.GlobalTransform.Basis.Z
 			: -GlobalTransform.Basis.Z;
 		// First person: mouse ray supplies pitch; skip scroll elevation bias.
+		// Third person: clamp gimbal yaw so arms cannot fold through the body (~215° outward-biased).
 		var elevationPitch = IsLocalFirstPerson() ? 0f : FireElevationPitchRadians;
+		var clampGimbalBody = !IsLocalFirstPerson();
 		foreach (var hp in _assembler.Hardpoints.Values)
-			hp.AimAt(_aimPoint, chassisForward, elevationPitch);
+			hp.AimAt(_aimPoint, chassisForward, elevationPitch, clampGimbalBody);
 	}
 
 	private void AdvanceMeleeSwings(float dt)
@@ -2067,7 +2230,10 @@ public partial class MechController : CharacterBody3D
 
 		var powerCost = part.PowerPerShot;
 		if (_powerHeat != null && powerCost > 0.01f && !_powerHeat.CanSpend(powerCost))
+		{
+			TryPlayDryFire(slot, part);
 			return;
+		}
 
 		if (part.WeaponFamily == WeaponFamily.Melee)
 		{
@@ -2110,6 +2276,61 @@ public partial class MechController : CharacterBody3D
 			TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
 		_powerHeat?.AddArmHeat(slot, heat * heatOver * ghost);
 		NoteFamilyFire(part.WeaponFamily, slot);
+	}
+
+	/// <summary>Empty-chamber click when the pilot holds fire without enough power.</summary>
+	private void TryPlayDryFire(PartSlot slot, PartData part)
+	{
+		if (!IsLocalPilot || part.WeaponFamily == WeaponFamily.Melee)
+			return;
+
+		var now = Time.GetTicksMsec() * 0.001f;
+		var interval = part.FireRate > 0.05f ? 1f / part.FireRate : 0.2f;
+		interval = Mathf.Clamp(interval, 0.09f, 0.4f);
+
+		if (slot == PartSlot.WeaponR)
+		{
+			if (now < _dryFireReadyR)
+				return;
+			_dryFireReadyR = now + interval;
+		}
+		else
+		{
+			if (now < _dryFireReadyL)
+				return;
+			_dryFireReadyL = now + interval;
+		}
+
+		SfxService.PlayDryFire(-4f);
+	}
+
+	private void TickOverheatAudio()
+	{
+		if (!IsLocalPilot || HangarDisplayOnly || _powerHeat == null)
+		{
+			if (_overheatFxActive)
+			{
+				SfxService.EndOverheatFx();
+				_overheatFxActive = false;
+			}
+			return;
+		}
+
+		var dead = _health?.IsDead == true || _integrity?.IsCollapsed == true;
+		var overheated = !dead && _powerHeat.IsOverheated;
+		if (overheated == _overheatFxActive)
+			return;
+
+		if (overheated)
+		{
+			SfxService.BeginOverheatFx();
+			_overheatFxActive = true;
+		}
+		else
+		{
+			SfxService.EndOverheatFx();
+			_overheatFxActive = false;
+		}
 	}
 
 	/// <summary>

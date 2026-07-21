@@ -65,6 +65,7 @@ public partial class MusicService : Node
 		_b = MakePlayer("MusicB");
 		AddChild(_a);
 		AddChild(_b);
+		GameSettings.ApplyAudioBuses();
 	}
 
 	private AudioStreamPlayer MakePlayer(string name) => new()
@@ -115,15 +116,23 @@ public partial class MusicService : Node
 	private void CueInternal(MusicCue cue)
 	{
 		if (_tracks.Count == 0)
+		{
+			_currentCue = cue;
+			SfxService.SyncAmbienceForMusicCue(cue);
 			return;
+		}
 
 		// Same surface already playing — leave it alone.
 		if (cue == _currentCue && IsAnythingPlaying())
+		{
+			SfxService.SyncAmbienceForMusicCue(cue);
 			return;
+		}
 
 		_currentCue = cue;
 		var path = PickPathForCue(cue, avoid: _currentPath);
 		CrossfadeTo(path, loop: true);
+		SfxService.SyncAmbienceForMusicCue(cue);
 	}
 
 	private void CueTrackInternal(string fileName)
@@ -140,6 +149,7 @@ public partial class MusicService : Node
 		// Explicit track choice: clear the surface cue so the next Cue() still crossfades.
 		_currentCue = MusicCue.None;
 		CrossfadeTo(path, loop: true);
+		SfxService.SyncAmbienceForMusicCue(MusicCue.None);
 	}
 
 	private void CueAbsoluteInternal(string resPath, bool loop)
@@ -152,6 +162,7 @@ public partial class MusicService : Node
 
 		_currentCue = MusicCue.None;
 		CrossfadeTo(resPath, loop);
+		SfxService.SyncAmbienceForMusicCue(MusicCue.None);
 	}
 
 	private string PickPathForCue(MusicCue cue, string avoid)
@@ -170,6 +181,7 @@ public partial class MusicService : Node
 	private void StopInternal(float fadeSeconds)
 	{
 		_currentCue = MusicCue.None;
+		SfxService.SyncAmbienceForMusicCue(MusicCue.None);
 		_fade?.Kill();
 		_fade = CreateTween();
 		_fade.SetParallel(true);

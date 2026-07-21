@@ -131,7 +131,6 @@ public sealed class CadetRangeMission : MissionBase
 				{
 					_hitApplied = true;
 					player.Health?.ApplyDamage(Mathf.Max(18f, player.Health.MaxHealth * 0.12f));
-					SfxService.PlayDamageSustained();
 				}
 
 				if (!_tookHit && player.Health != null

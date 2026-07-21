@@ -69,7 +69,11 @@ public partial class MechPowerHeat : Node
 	public float ReplicatedHeat
 	{
 		get => CurrentHeat;
-		set => CurrentHeat = Mathf.Max(0f, value);
+		set
+		{
+			CurrentHeat = Mathf.Max(0f, value);
+			SyncOverheatFlag();
+		}
 	}
 
 	/// <summary>Replicates operational power (legacy property name kept for SceneReplicationConfig).</summary>
@@ -116,11 +120,7 @@ public partial class MechPowerHeat : Node
 		ArmHeatL = Mathf.Clamp(ArmHeatL, 0f, Stats.HeatCap);
 		ArmHeatR = Mathf.Clamp(ArmHeatR, 0f, Stats.HeatCap);
 		CurrentPower = Mathf.Clamp(CurrentPower, 0f, Stats.OperationalMax);
-
-		if (CurrentHeat >= Stats.HeatCap - 0.01f)
-			_overheated = true;
-		else if (_overheated && CurrentHeat <= Stats.HeatCap * OverheatHysteresis)
-			_overheated = false;
+		SyncOverheatFlag();
 	}
 
 	public override void _Process(double delta)
@@ -138,11 +138,7 @@ public partial class MechPowerHeat : Node
 		var armDecay = stats.HeatDissipation * dt;
 		ArmHeatL = Mathf.Max(0f, ArmHeatL - armDecay);
 		ArmHeatR = Mathf.Max(0f, ArmHeatR - armDecay);
-
-		if (CurrentHeat >= stats.HeatCap - 0.01f)
-			_overheated = true;
-		else if (_overheated && CurrentHeat <= stats.HeatCap * OverheatHysteresis)
-			_overheated = false;
+		SyncOverheatFlag();
 
 		// Generate, then apply sustained drains (sprint / pulse repair / future shields).
 		CurrentPower += stats.PowerGeneration * dt;
@@ -187,8 +183,7 @@ public partial class MechPowerHeat : Node
 		if (amount <= 0f || _assembler == null)
 			return;
 		CurrentHeat = Mathf.Min(Stats.HeatCap, CurrentHeat + amount);
-		if (CurrentHeat >= Stats.HeatCap - 0.01f)
-			_overheated = true;
+		SyncOverheatFlag();
 	}
 
 	/// <summary>Apply heat from a weapon arm to the global pool and that arm's bracket meter.</summary>
@@ -209,6 +204,27 @@ public partial class MechPowerHeat : Node
 		}
 	}
 
+	private void SyncOverheatFlag()
+	{
+		if (_assembler == null)
+		{
+			_overheated = false;
+			return;
+		}
+
+		var cap = Stats.HeatCap;
+		if (cap <= 0.01f)
+		{
+			_overheated = false;
+			return;
+		}
+
+		if (CurrentHeat >= cap - 0.01f)
+			_overheated = true;
+		else if (_overheated && CurrentHeat <= cap * OverheatHysteresis)
+			_overheated = false;
+	}
+
 	public float FireRateThrottle
 	{
 		get
@@ -227,4 +243,32 @@ public partial class MechPowerHeat : Node
 		!_overheated && Stats.CanSprint && EffectiveOperationalMax > 0.01f && CurrentPower > 0.5f;
 
 	public bool CanUseAbilities => !_overheated && CurrentPower > 0.5f;
+
+	/// <summary>
+	/// Where to paint the OVERHEAT cue: under a leading arm heat bar, or under the
+	/// chassis 60%+ heat bar when the pool overheated without a clear arm culprit.
+	/// </summary>
+	public OverheatCue ResolveOverheatCue()
+	{
+		if (!_overheated)
+			return OverheatCue.None;
+
+		var l = ArmHeatRatioL;
+		var r = ArmHeatRatioR;
+		const float minArm = 0.45f;
+		const float lead = 0.12f;
+		if (l >= minArm && l >= r + lead)
+			return OverheatCue.ArmL;
+		if (r >= minArm && r >= l + lead)
+			return OverheatCue.ArmR;
+		return OverheatCue.Chassis;
+	}
+}
+
+public enum OverheatCue
+{
+	None,
+	ArmL,
+	ArmR,
+	Chassis
 }

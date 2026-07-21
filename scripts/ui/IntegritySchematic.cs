@@ -5,7 +5,8 @@ namespace Mechanize;
 
 /// <summary>
 /// Combat integrity schematic — MAP silhouette plates with health fill and aim lock.
-/// PWR (left) and SPD (right) meters live inside this panel. HEAT is on the crosshair.
+/// PWR (left) and SPD (right) meters live inside this panel.
+/// Chassis HEAT is the crosshair warning bar; per-arm heat is on the cockpit glass.
 /// </summary>
 public partial class IntegritySchematic : Control
 {
@@ -54,11 +55,13 @@ public partial class IntegritySchematic : Control
 	private ProgressBar? _speedBar;
 	private Label? _powerLabel;
 	private Label? _speedLabel;
+	private Label? _throttleMarker;
+	private Control? _speedBarHost;
 	private Control? _speedColumn;
 	private float _pulse;
 	private readonly List<PartSlot> _visibleUtilities = new();
 
-	private static float PanelWidth => MeterWidth + 8f + SilhouetteWidth + 8f + MeterWidth;
+	private static float PanelWidth => MeterWidth + 8f + SilhouetteWidth + 8f + MeterWidth + 14f;
 	private static Vector2 PanelSize => new(PanelWidth + 20f, ContentHeight + 18f);
 
 	public override void _Ready()
@@ -158,9 +161,8 @@ public partial class IntegritySchematic : Control
 
 		body.AddChild(BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel, out _));
 		body.AddChild(BuildSilhouette());
-		_speedColumn = BuildMeterColumn("SPD", SpeedFill, out _speedBar, out _speedLabel, out var speedCol);
-		body.AddChild(speedCol);
-		_speedColumn.Visible = false;
+		_speedColumn = BuildSpeedMeterColumn();
+		body.AddChild(_speedColumn);
 	}
 
 	private Control BuildSilhouette()
@@ -201,6 +203,89 @@ public partial class IntegritySchematic : Control
 		}
 
 		return inner;
+	}
+
+	private Control BuildSpeedMeterColumn()
+	{
+		var col = new VBoxContainer
+		{
+			CustomMinimumSize = new Vector2(MeterWidth + 16f, 0),
+			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+			SizeFlagsVertical = SizeFlags.ShrinkEnd,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		col.AddThemeConstantOverride("separation", 4);
+
+		_speedBarHost = new Control
+		{
+			CustomMinimumSize = new Vector2(MeterWidth + 14f, MeterBarHeight),
+			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		col.AddChild(_speedBarHost);
+
+		_speedBar = new ProgressBar
+		{
+			MinValue = 0,
+			MaxValue = 1,
+			Value = 0,
+			ShowPercentage = false,
+			Position = Vector2.Zero,
+			CustomMinimumSize = new Vector2(MeterWidth, MeterBarHeight),
+			Size = new Vector2(MeterWidth, MeterBarHeight),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		_speedBar.FillMode = (int)ProgressBar.FillModeEnum.BottomToTop;
+		_speedBar.AddThemeStyleboxOverride("background", new StyleBoxFlat
+		{
+			BgColor = new Color(0.06f, 0.08f, 0.1f, 0.82f),
+			BorderColor = new Color(0.55f, 0.45f, 0.25f, 0.75f),
+			BorderWidthLeft = 1,
+			BorderWidthTop = 1,
+			BorderWidthRight = 1,
+			BorderWidthBottom = 1,
+			CornerRadiusTopLeft = 4,
+			CornerRadiusTopRight = 4,
+			CornerRadiusBottomRight = 4,
+			CornerRadiusBottomLeft = 4,
+			ContentMarginLeft = 2,
+			ContentMarginRight = 2,
+			ContentMarginTop = 2,
+			ContentMarginBottom = 2
+		});
+		_speedBar.AddThemeStyleboxOverride("fill", new StyleBoxFlat
+		{
+			BgColor = SpeedFill,
+			CornerRadiusTopLeft = 3,
+			CornerRadiusTopRight = 3,
+			CornerRadiusBottomRight = 3,
+			CornerRadiusBottomLeft = 3
+		});
+		_speedBarHost.AddChild(_speedBar);
+
+		_throttleMarker = new Label
+		{
+			Text = "<",
+			HorizontalAlignment = HorizontalAlignment.Left,
+			VerticalAlignment = VerticalAlignment.Center,
+			MouseFilter = MouseFilterEnum.Ignore,
+			Modulate = new Color(0.95f, 0.88f, 0.45f)
+		};
+		_throttleMarker.AddThemeFontSizeOverride("font_size", 14);
+		_throttleMarker.CustomMinimumSize = new Vector2(12f, 16f);
+		_throttleMarker.Size = _throttleMarker.CustomMinimumSize;
+		_speedBarHost.AddChild(_throttleMarker);
+
+		_speedLabel = new Label
+		{
+			Text = "SPD",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = new Color(0.85f, 0.88f, 0.92f),
+			MouseFilter = MouseFilterEnum.Ignore
+		};
+		_speedLabel.AddThemeFontSizeOverride("font_size", 10);
+		col.AddChild(_speedLabel);
+		return col;
 	}
 
 	private static Control BuildMeterColumn(
@@ -289,18 +374,78 @@ public partial class IntegritySchematic : Control
 			}
 		}
 
-		var showSpeed = mech.IsSpeedGovernorActive;
+		// Always show SPD on the integrity panel (screen HUD and cockpit Screen_Self).
 		if (_speedColumn != null)
-			_speedColumn.Visible = showSpeed;
-		if (_speedBar != null && showSpeed)
+			_speedColumn.Visible = true;
+		if (_speedBar == null)
+			return;
+
+		var stats = mech.Assembler?.Stats;
+		var walk = Mathf.Max(0.1f, mech.Assembler?.MaxSpeed ?? stats?.WalkSpeed ?? 10f);
+		var sprintMult = stats is { CanSprint: true } ? Mathf.Max(1f, stats.SprintMultiplier) : 1f;
+		var topSpeed = walk * sprintMult * Mathf.Max(0.05f, mech.SpeedGovernor);
+		var planar = new Vector3(mech.Velocity.X, 0f, mech.Velocity.Z).Length();
+		var pace = Mathf.Clamp(planar / topSpeed, 0f, 1f);
+
+		if (mech.IsDashing)
 		{
-			_speedBar.Value = mech.SpeedGovernor;
+			_speedBar.Value = 1f;
 			if (_speedLabel != null)
 			{
-				_speedLabel.Text = $"SPD\n{mech.SpeedGovernor * 100f:0}%";
-				_speedLabel.Modulate = new Color(0.65f, 0.95f, 0.7f);
+				_speedLabel.Text = "DASH";
+				_speedLabel.Modulate = new Color(0.55f, 0.95f, 1f);
 			}
 		}
+		else if (mech.IsSprinting)
+		{
+			_speedBar.Value = Mathf.Max(0.55f, pace);
+			if (_speedLabel != null)
+			{
+				_speedLabel.Text = "SPRINT";
+				_speedLabel.Modulate = new Color(0.55f, 1f, 0.65f);
+			}
+		}
+		else
+		{
+			_speedBar.Value = pace;
+			if (_speedLabel != null)
+			{
+				if (mech.IsSpeedGovernorActive)
+				{
+					_speedLabel.Text = $"SPD\n{mech.SpeedGovernor * 100f:0}%";
+					_speedLabel.Modulate = new Color(0.95f, 0.85f, 0.45f);
+				}
+				else
+				{
+					_speedLabel.Text = pace < 0.04f ? "SPD\n—" : $"SPD\n{pace * 100f:0}%";
+					_speedLabel.Modulate = new Color(0.65f, 0.95f, 0.7f);
+				}
+			}
+		}
+
+		UpdateThrottleMarker(mech.SpeedGovernor);
+	}
+
+	/// <summary>
+	/// Positions the &lt; caret on the SPD bar: 100% throttle at the top, lower as Ctrl+scroll reduces governor.
+	/// </summary>
+	private void UpdateThrottleMarker(float governor)
+	{
+		if (_throttleMarker == null || _speedBarHost == null)
+			return;
+
+		var gov = Mathf.Clamp(governor, 0f, 1f);
+		_throttleMarker.Visible = true;
+		_throttleMarker.Modulate = gov >= 0.995f
+			? new Color(0.7f, 0.95f, 0.75f)
+			: new Color(0.95f, 0.88f, 0.45f);
+
+		const float markerH = 16f;
+		var travel = Mathf.Max(0f, MeterBarHeight - markerH);
+		// BottomToTop bar: full throttle sits at the top edge.
+		var y = (1f - gov) * travel;
+		_throttleMarker.Position = new Vector2(MeterWidth + 1f, y);
+		_throttleMarker.Text = "<";
 	}
 
 	private void AddZone(Control parent, PartSlot slot, string title, Vector2 size, Vector2 position)

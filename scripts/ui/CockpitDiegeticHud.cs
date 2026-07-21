@@ -5,9 +5,9 @@ namespace Mechanize;
 
 /// <summary>
 /// Maps cockpit dashboard meshes to combat HUD panels while in first-person (Fleet torso).
-/// Screen_Threat → sensors, Screen_Self → integrity (incl. on-panel PWR/SPD),
-/// Screen_WingR → weapons/modules, Screen_WingL → tactical map placeholder.
-/// HEAT lives on the crosshair brackets — not a cockpit screen.
+/// Screen_Threat → sensors, Screen_Self → integrity,
+/// Screen_WingR → weapons/modules + run strip, Screen_WingL → claim header + map placeholder.
+/// Glass: arm heat + objective/flavor. Stick handle: P / Esc prompts.
 /// </summary>
 public partial class CockpitDiegeticHud : Node
 {
@@ -19,16 +19,45 @@ public partial class CockpitDiegeticHud : Node
 	private IntegritySchematic? _integrity;
 	private EnemyTargetSchematic? _sensor;
 	private CockpitModulesPanel? _modules;
+	private CockpitTacticalMapPanel? _tacticalMap;
+	private CockpitWindowHeatBars? _windowHeat;
+	private CockpitWindowMissionHud? _windowMission;
+	private CockpitStickPromptHud? _stickPrompt;
 	private ulong _boundMechId;
 	private bool _active;
 
+	private string _objective = "";
+	private string _flavor = "";
+	private string _status = "";
+	private string _claimLine = "";
+	private string _contractLine = "";
+	private string _runStrip = "";
+
 	public bool HasScreens => _screens.Count > 0;
+	public bool IsDiegeticActive => _active && HasScreens;
 
 	public static bool MechHasCockpitScreens(MechController mech) =>
 		mech.FindChild("CockpitAnchor", recursive: true, owned: false) != null
 		&& FindScreenMesh(mech, "Screen_Threat") != null;
 
 	public override void _Ready() { }
+
+	public void SetMissionChrome(
+		string claimLine,
+		string contractLine,
+		string objective,
+		string flavor,
+		string status,
+		string runStrip)
+	{
+		_claimLine = claimLine ?? "";
+		_contractLine = contractLine ?? "";
+		_objective = objective ?? "";
+		_flavor = flavor ?? "";
+		_status = status ?? "";
+		_runStrip = runStrip ?? "";
+		ApplyMissionChrome();
+	}
 
 	public void Bind(MechController mech)
 	{
@@ -59,7 +88,13 @@ public partial class CockpitDiegeticHud : Node
 			return _modules;
 		});
 
-		TryAttach(mech, "Screen_WingL", WingScreenSize, () => BuildMapPlaceholder());
+		TryAttach(mech, "Screen_WingL", WingScreenSize, () =>
+		{
+			_tacticalMap = new CockpitTacticalMapPanel();
+			return _tacticalMap;
+		});
+
+		ApplyMissionChrome();
 	}
 
 	public void Refresh(MechController mech, bool firstPerson)
@@ -67,11 +102,20 @@ public partial class CockpitDiegeticHud : Node
 		if (!MechHasCockpitScreens(mech))
 		{
 			ApplyActive(false);
+			if (IsAlive(_windowHeat))
+				_windowHeat!.Refresh(mech, false);
+			if (IsAlive(_windowMission))
+				_windowMission!.Refresh(mech, false);
+			if (IsAlive(_stickPrompt))
+				_stickPrompt!.Refresh(mech, false);
 			return;
 		}
 
 		Bind(mech);
 		ApplyActive(firstPerson);
+		EnsureWindowHeat().Refresh(mech, firstPerson);
+		EnsureWindowMission().Refresh(mech, firstPerson);
+		EnsureStickPrompt().Refresh(mech, firstPerson);
 		if (!firstPerson)
 			return;
 
@@ -79,6 +123,44 @@ public partial class CockpitDiegeticHud : Node
 		_sensor?.Refresh(mech);
 		_integrity?.Refresh(mech);
 		_modules?.Refresh(mech);
+		ApplyMissionChrome();
+	}
+
+	private void ApplyMissionChrome()
+	{
+		_tacticalMap?.SetHeader(_claimLine, _contractLine);
+		_modules?.SetRunStrip(_runStrip);
+		_windowMission?.SetChrome(_objective, _flavor, _status);
+	}
+
+	private CockpitWindowHeatBars EnsureWindowHeat()
+	{
+		if (IsAlive(_windowHeat))
+			return _windowHeat!;
+
+		_windowHeat = new CockpitWindowHeatBars { Name = "WindowHeatBars" };
+		AddChild(_windowHeat);
+		return _windowHeat;
+	}
+
+	private CockpitWindowMissionHud EnsureWindowMission()
+	{
+		if (IsAlive(_windowMission))
+			return _windowMission!;
+
+		_windowMission = new CockpitWindowMissionHud { Name = "WindowMissionHud" };
+		AddChild(_windowMission);
+		return _windowMission;
+	}
+
+	private CockpitStickPromptHud EnsureStickPrompt()
+	{
+		if (IsAlive(_stickPrompt))
+			return _stickPrompt!;
+
+		_stickPrompt = new CockpitStickPromptHud { Name = "StickPromptHud" };
+		AddChild(_stickPrompt);
+		return _stickPrompt;
 	}
 
 	public void ApplyActive(bool active)
@@ -92,14 +174,44 @@ public partial class CockpitDiegeticHud : Node
 	{
 		_active = false;
 		foreach (var display in _screens.Values)
+		{
 			display.Detach();
+			if (IsAlive(display))
+				display.QueueFree();
+		}
+
 		_screens.Clear();
 		_meshIds.Clear();
 		_integrity = null;
 		_sensor = null;
 		_modules = null;
+		_tacticalMap = null;
+		if (_windowHeat != null)
+		{
+			if (IsAlive(_windowHeat))
+				_windowHeat.TearDown();
+			_windowHeat = null;
+		}
+
+		if (_windowMission != null)
+		{
+			if (IsAlive(_windowMission))
+				_windowMission.TearDown();
+			_windowMission = null;
+		}
+
+		if (_stickPrompt != null)
+		{
+			if (IsAlive(_stickPrompt))
+				_stickPrompt.TearDown();
+			_stickPrompt = null;
+		}
+
 		_boundMechId = 0;
 	}
+
+	private static bool IsAlive(Node? node) =>
+		node != null && GodotObject.IsInstanceValid(node) && !node.IsQueuedForDeletion();
 
 	public override void _ExitTree() => ClearBindings();
 
@@ -148,55 +260,5 @@ public partial class CockpitDiegeticHud : Node
 		if (node is Node3D group)
 			return group.GetNodeOrNull<MeshInstance3D>("Quad");
 		return null;
-	}
-
-	private static Control BuildMapPlaceholder()
-	{
-		var panel = new PanelContainer
-		{
-			MouseFilter = Control.MouseFilterEnum.Ignore,
-			CustomMinimumSize = new Vector2(280, 220)
-		};
-		panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-		{
-			BgColor = new Color(0.04f, 0.055f, 0.07f, 0.92f),
-			BorderColor = new Color(0.35f, 0.55f, 0.42f, 0.75f),
-			BorderWidthLeft = 1,
-			BorderWidthTop = 1,
-			BorderWidthRight = 1,
-			BorderWidthBottom = 1,
-			ContentMarginLeft = 8,
-			ContentMarginTop = 8,
-			ContentMarginRight = 8,
-			ContentMarginBottom = 8
-		});
-
-		var col = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-		col.AddThemeConstantOverride("separation", 6);
-		panel.AddChild(col);
-
-		var header = new Label
-		{
-			Text = "// TACTICAL MAP",
-			Modulate = MechUiTheme.Accent,
-			MouseFilter = Control.MouseFilterEnum.Ignore
-		};
-		header.AddThemeFontSizeOverride("font_size", 9);
-		col.AddChild(header);
-
-		var body = new Label
-		{
-			Text = "Reserved\nfor sector\nnavigation.",
-			AutowrapMode = TextServer.AutowrapMode.WordSmart,
-			HorizontalAlignment = HorizontalAlignment.Center,
-			VerticalAlignment = VerticalAlignment.Center,
-			SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-			Modulate = new Color(0.55f, 0.72f, 0.62f),
-			MouseFilter = Control.MouseFilterEnum.Ignore
-		};
-		body.AddThemeFontSizeOverride("font_size", 10);
-		col.AddChild(body);
-
-		return panel;
 	}
 }

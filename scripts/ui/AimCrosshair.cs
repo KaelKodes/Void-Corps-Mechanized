@@ -3,8 +3,9 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Center-screen aim reticle with HEAT brackets ( ) for L/R arm heat.
-/// Wide while moving; tight when planted for the stationary bonus.
+/// Center-screen aim reticle. Wide while moving; tight when planted.
+/// Overall chassis heat: horizontal warning bar under the reticle (shows from 60%+).
+/// OVERHEAT cue: under this bar for system overheat (arm cues live on cockpit glass bars).
 /// </summary>
 public partial class AimCrosshair : Control
 {
@@ -13,20 +14,27 @@ public partial class AimCrosshair : Control
 	private float _targetWideT = 1f;
 	private bool _canFire = true;
 	private bool _showReticle;
-	private bool _showArmHeat;
-	private float _armHeatL;
-	private float _armHeatR;
-	private bool _drawArmL;
-	private bool _drawArmR;
+
+	private float _heatRatio;
+	/// <summary>1 while heat ≥ 60%; fades to 0 after cooling below threshold.</summary>
+	private float _heatWarnT;
+	private bool _heatTracking;
+	private bool _showChassisOverheat;
 
 	private const float WideExtent = 58f;
 	private const float PreciseScale = 0.34f;
 	private const float CornerArm = 16f;
 	private const float LineWidthWide = 2f;
 	private const float LineWidthPrecise = 2.5f;
-	private const float ArmBracketOffsetX = 78f;
-	private const float ArmBracketHeight = 58f;
-	private const float ArmBracketHalfWidth = 12f;
+
+	private const float HeatWarnThreshold = 0.6f;
+	private const float HeatBarHalfWidth = 42f;
+	private const float HeatBarHeight = 5f;
+	private const float HeatBarGapBelow = 14f;
+	private const float HeatFadeSpeed = 2.8f;
+
+	private static readonly Color HeatAtWarn = new(1f, 0.72f, 0.18f);   // yellowish orange @ 60%
+	private static readonly Color HeatAtCap = new(0.72f, 0.06f, 0.04f);  // deep red @ 100%
 
 	public override void _Ready()
 	{
@@ -36,15 +44,27 @@ public partial class AimCrosshair : Control
 		OffsetTop = 0f;
 		OffsetRight = 0f;
 		OffsetBottom = 0f;
+		ZIndex = 40;
 	}
 
 	public override void _Process(double delta)
 	{
-		if (!_showReticle && !_showArmHeat)
+		if (!_showReticle && !_heatTracking && _heatWarnT <= 0.001f && !_showChassisOverheat)
 			return;
 
 		var dt = (float)delta;
-		_wideT = Mathf.Lerp(_wideT, _targetWideT, 1f - Mathf.Exp(-14f * dt));
+		if (_showReticle)
+			_wideT = Mathf.Lerp(_wideT, _targetWideT, 1f - Mathf.Exp(-14f * dt));
+
+		if (_heatRatio >= HeatWarnThreshold)
+			_heatWarnT = 1f;
+		else if (_heatWarnT > 0f)
+			_heatWarnT = Mathf.MoveToward(_heatWarnT, 0f, HeatFadeSpeed * dt);
+
+		if (!_heatTracking && _heatWarnT <= 0.001f)
+			_heatWarnT = 0f;
+
+		Visible = _showReticle || _heatWarnT > 0.001f || _showChassisOverheat;
 		QueueRedraw();
 	}
 
@@ -53,27 +73,28 @@ public partial class AimCrosshair : Control
 		if (mech == null || !mech.IsPlayerControlled || !mech.ControlsEnabled)
 		{
 			_showReticle = false;
-			_showArmHeat = false;
-			Visible = false;
+			_heatTracking = false;
+			_heatRatio = 0f;
+			_showChassisOverheat = false;
+			if (_heatWarnT <= 0.001f)
+				Visible = false;
 			return;
 		}
 
-		var hasRanged = CrosshairStyleUtil.TryHasRangedWeapon(mech);
-		var hasArmL = TryLivingArm(mech, PartSlot.WeaponL);
-		var hasArmR = TryLivingArm(mech, PartSlot.WeaponR);
+		_heatTracking = true;
+		var power = mech.PowerHeat;
+		_heatRatio = Mathf.Clamp(power?.HeatRatio ?? 0f, 0f, 1f);
+		var cue = power?.ResolveOverheatCue() ?? OverheatCue.None;
+		var firstPerson = mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
+		var armBarsLive = firstPerson && CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		// Arm cues sit on the glass bars in FP; otherwise any overheat uses this center bar.
+		_showChassisOverheat = cue == OverheatCue.Chassis
+		                       || (cue is OverheatCue.ArmL or OverheatCue.ArmR && !armBarsLive);
 
-		_showReticle = hasRanged;
-		// HEAT lives on the crosshair brackets, not a HUD bar.
-		_showArmHeat = hasArmL || hasArmR;
-		_drawArmL = hasArmL;
-		_drawArmR = hasArmR;
-		Visible = _showReticle || _showArmHeat;
-
-		if (!_showReticle && !_showArmHeat)
-			return;
-
+		_showReticle = CrosshairStyleUtil.TryHasRangedWeapon(mech);
 		if (_showReticle)
 		{
+			MoveToFront();
 			var firePrimary = Input.IsActionPressed("fire_primary");
 			var fireSecondary = Input.IsActionPressed("fire_secondary");
 			_style = CrosshairStyleUtil.ResolveActive(mech, firePrimary, fireSecondary);
@@ -81,107 +102,121 @@ public partial class AimCrosshair : Control
 			_targetWideT = mech.IsWideFire ? 1f : 0f;
 		}
 
-		var power = mech.PowerHeat;
-		_armHeatL = power?.ArmHeatRatioL ?? 0f;
-		_armHeatR = power?.ArmHeatRatioR ?? 0f;
+		Visible = _showReticle || _heatWarnT > 0.001f || _heatRatio >= HeatWarnThreshold || _showChassisOverheat;
+		if (Visible)
+			MoveToFront();
 	}
 
 	public override void _Draw()
 	{
-		if (!_showReticle && !_showArmHeat)
-			return;
-
 		var center = Size * 0.5f;
-		var scale = Mathf.Lerp(PreciseScale, 1f, _wideT);
 
 		if (_showReticle)
-		{
-			var extent = WideExtent * scale;
-			var arm = CornerArm * scale;
-			var alpha = _canFire ? Mathf.Lerp(0.92f, 0.72f, _wideT) : 0.38f;
-			var color = new Color(1f, 1f, 1f, alpha);
-			var width = Mathf.Lerp(LineWidthPrecise, LineWidthWide, _wideT);
+			DrawReticle(center);
 
-			DrawCornerFrame(center, extent, arm, color, width);
-
-			switch (_style)
-			{
-				case CrosshairStyle.Chevron:
-					DrawChevron(center, scale, color, width);
-					break;
-				case CrosshairStyle.X:
-					DrawX(center, scale, color, width);
-					break;
-				default:
-					DrawCross(center, scale, color, width);
-					break;
-			}
-		}
-
-		if (_showArmHeat)
-		{
-			if (_drawArmL)
-				DrawArmHeatBracket(center, -ArmBracketOffsetX, _armHeatL, leftSide: true);
-			if (_drawArmR)
-				DrawArmHeatBracket(center, ArmBracketOffsetX, _armHeatR, leftSide: false);
-		}
+		if (_heatWarnT > 0.001f || _showChassisOverheat)
+			DrawHeatBar(center);
 	}
 
-	private static bool TryLivingArm(MechController mech, PartSlot slot)
+	private void DrawReticle(Vector2 center)
 	{
-		var hp = mech.Assembler?.Hardpoints.GetValueOrDefault(slot);
-		return hp?.EquippedPart != null && hp.EquippedPart.VisualKind != "empty" && !hp.IsDestroyed;
-	}
+		var scale = Mathf.Lerp(PreciseScale, 1f, _wideT);
+		var extent = WideExtent * scale;
+		var arm = CornerArm * scale;
+		var alpha = _canFire ? Mathf.Lerp(0.92f, 0.72f, _wideT) : 0.38f;
+		var color = new Color(1f, 1f, 1f, alpha);
+		var width = Mathf.Lerp(LineWidthPrecise, LineWidthWide, _wideT);
 
-	private void DrawArmHeatBracket(Vector2 center, float offsetX, float ratio, bool leftSide)
-	{
-		var anchor = center + new Vector2(offsetX, 0f);
-		var color = HeatBracketColor(ratio);
-		var width = Mathf.Lerp(2f, 3.5f, ratio);
-		const int segments = 14;
-		var startAngle = leftSide ? Mathf.DegToRad(250f) : Mathf.DegToRad(-70f);
-		var endAngle = leftSide ? Mathf.DegToRad(110f) : Mathf.DegToRad(70f);
-		var filledEnd = Mathf.Lerp(startAngle, endAngle, Mathf.Clamp(ratio, 0.04f, 1f));
+		DrawCornerFrame(center, extent, arm, color, width);
 
-		var prev = anchor + BracketPoint(startAngle, leftSide);
-		for (var i = 1; i <= segments; i++)
+		switch (_style)
 		{
-			var t = (float)i / segments;
-			var angle = Mathf.Lerp(startAngle, filledEnd, t);
-			var next = anchor + BracketPoint(angle, leftSide);
-			DrawLine(prev, next, color, width);
-			prev = next;
+			case CrosshairStyle.Chevron:
+				DrawChevron(center, scale, color, width);
+				break;
+			case CrosshairStyle.X:
+				DrawX(center, scale, color, width);
+				break;
+			default:
+				DrawCross(center, scale, color, width);
+				break;
 		}
 	}
 
-	private Vector2 BracketPoint(float angle, bool leftSide)
+	private void DrawHeatBar(Vector2 center)
 	{
-		var x = Mathf.Cos(angle) * ArmBracketHalfWidth * (leftSide ? 1f : -1f);
-		var y = Mathf.Sin(angle) * ArmBracketHeight * 0.5f;
-		return new Vector2(x, y);
+		var scale = _showReticle ? Mathf.Lerp(PreciseScale, 1f, _wideT) : 1f;
+		var extent = WideExtent * scale;
+		var y = center.Y + extent + HeatBarGapBelow;
+		var halfW = HeatBarHalfWidth;
+		var h = HeatBarHeight;
+
+		var trackA = 0.22f * Mathf.Max(_heatWarnT, _showChassisOverheat ? 1f : 0f);
+		var track = new Color(0.08f, 0.08f, 0.1f, trackA);
+		var trackRect = new Rect2(center.X - halfW, y - h * 0.5f, halfW * 2f, h);
+		DrawRect(trackRect, track);
+
+		var fill = Mathf.Clamp(_heatRatio, 0f, 1f);
+		if (fill >= 0.01f && _heatWarnT > 0.001f)
+		{
+			var heatColor = HeatColor(_heatRatio, _heatWarnT);
+			var fillW = halfW * 2f * fill;
+			var fillRect = new Rect2(center.X - halfW, y - h * 0.5f, fillW, h);
+			DrawRect(fillRect, heatColor);
+
+			var edge = new Color(heatColor.R, heatColor.G, heatColor.B, heatColor.A * 0.85f);
+			DrawLine(
+				new Vector2(center.X - halfW, y - h * 0.5f),
+				new Vector2(center.X - halfW + fillW, y - h * 0.5f),
+				edge,
+				1.2f);
+		}
+
+		if (!_showChassisOverheat)
+			return;
+
+		var label = "OVERHEAT";
+		var font = ThemeDB.FallbackFont;
+		var fontSize = 13;
+		var textSize = font.GetStringSize(label, HorizontalAlignment.Left, -1, fontSize);
+		var textPos = new Vector2(center.X - textSize.X * 0.5f, y + h * 0.5f + 14f);
+		DrawString(font, textPos + new Vector2(1f, 1f), label, HorizontalAlignment.Left, -1, fontSize,
+			new Color(0f, 0f, 0f, 0.65f));
+		DrawString(font, textPos, label, HorizontalAlignment.Left, -1, fontSize,
+			new Color(1f, 0.35f, 0.2f, 0.95f));
 	}
 
-	private static Color HeatBracketColor(float ratio)
+	/// <summary>
+	/// 60% → yellowish orange, 100% → deep red.
+	/// While fading out below 60%, lerp toward white and drop alpha with <paramref name="warnT"/>.
+	/// </summary>
+	private static Color HeatColor(float ratio, float warnT)
 	{
-		if (ratio <= 0.01f)
-			return new Color(0.82f, 0.88f, 0.92f, 0.42f);
-		if (ratio < 0.55f)
-			return new Color(0.95f, 0.75f, 0.35f, Mathf.Lerp(0.55f, 0.9f, ratio / 0.55f));
-		return new Color(0.98f, 0.42f, 0.22f, Mathf.Lerp(0.85f, 1f, (ratio - 0.55f) / 0.45f));
+		Color baseCol;
+		if (ratio >= HeatWarnThreshold)
+		{
+			var t = Mathf.Clamp((ratio - HeatWarnThreshold) / (1f - HeatWarnThreshold), 0f, 1f);
+			baseCol = HeatAtWarn.Lerp(HeatAtCap, t);
+		}
+		else
+		{
+			// Cooling under threshold: wash toward white as warnT falls.
+			var wash = 1f - warnT;
+			baseCol = HeatAtWarn.Lerp(Colors.White, wash);
+		}
+
+		baseCol.A = Mathf.Clamp(0.55f + 0.4f * Mathf.Clamp(ratio, 0f, 1f), 0.4f, 0.95f) * warnT;
+		return baseCol;
 	}
 
 	private void DrawCornerFrame(Vector2 c, float extent, float arm, Color color, float width)
 	{
-		// Top-left
 		DrawLine(c + new Vector2(-extent, -extent), c + new Vector2(-extent + arm, -extent), color, width);
 		DrawLine(c + new Vector2(-extent, -extent), c + new Vector2(-extent, -extent + arm), color, width);
-		// Top-right
 		DrawLine(c + new Vector2(extent, -extent), c + new Vector2(extent - arm, -extent), color, width);
 		DrawLine(c + new Vector2(extent, -extent), c + new Vector2(extent, -extent + arm), color, width);
-		// Bottom-left
 		DrawLine(c + new Vector2(-extent, extent), c + new Vector2(-extent + arm, extent), color, width);
 		DrawLine(c + new Vector2(-extent, extent), c + new Vector2(-extent, extent - arm), color, width);
-		// Bottom-right
 		DrawLine(c + new Vector2(extent, extent), c + new Vector2(extent - arm, extent), color, width);
 		DrawLine(c + new Vector2(extent, extent), c + new Vector2(extent, extent - arm), color, width);
 	}

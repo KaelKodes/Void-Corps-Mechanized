@@ -14,7 +14,9 @@ public static class ManufacturerBrand
 		["brimforge"] = "res://art/ui/brimforge_mark.png",
 		["ourotech"] = "res://art/ui/ourotech_ouroboros.png",
 		["trinova"] = "res://art/ui/trinova_mark.png",
-		["lumina"] = "res://art/ui/lumina_mark.png"
+		["lumina"] = "res://art/ui/lumina_mark.png",
+		["ashwhisk"] = "res://art/ui/ashwhisk_mark.png",
+		["velhound"] = "res://art/ui/velhound_mark.png"
 	};
 
 	public static bool TryGetTexture(string manufacturerId, out Texture2D texture)

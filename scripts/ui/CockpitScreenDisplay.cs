@@ -83,10 +83,16 @@ public partial class CockpitScreenDisplay : Node
 	public void Detach()
 	{
 		_wantActive = false;
-		if (IsMeshValid && _originalMaterial != null && GodotObject.IsInstanceValid(_originalMaterial))
-			_mesh!.SetSurfaceOverrideMaterial(0, _originalMaterial);
+		if (IsMeshValid
+		    && !_mesh!.IsQueuedForDeletion()
+		    && _mesh.Mesh != null
+		    && _originalMaterial != null
+		    && GodotObject.IsInstanceValid(_originalMaterial))
+		{
+			_mesh.SetSurfaceOverrideMaterial(0, _originalMaterial);
+		}
 
-		if (_viewport != null && GodotObject.IsInstanceValid(_viewport))
+		if (_viewport != null && GodotObject.IsInstanceValid(_viewport) && !_viewport.IsQueuedForDeletion())
 			_viewport.QueueFree();
 
 		_viewport = null;
@@ -106,7 +112,10 @@ public partial class CockpitScreenDisplay : Node
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
 
-		if (_viewport == null || !GodotObject.IsInstanceValid(_viewport))
+		if (_viewport == null
+		    || !GodotObject.IsInstanceValid(_viewport)
+		    || _viewport.IsQueuedForDeletion()
+		    || IsQueuedForDeletion())
 			return;
 
 		BuildScreenMaterial();
@@ -115,7 +124,11 @@ public partial class CockpitScreenDisplay : Node
 
 	private void BuildScreenMaterial()
 	{
-		if (!IsMeshValid || _viewport == null || !GodotObject.IsInstanceValid(_viewport))
+		if (!IsMeshValid
+		    || _mesh!.IsQueuedForDeletion()
+		    || _mesh.Mesh == null
+		    || _viewport == null
+		    || !GodotObject.IsInstanceValid(_viewport))
 			return;
 
 		// Direct viewport texture — ViewportTexture + ViewportPath breaks across instanced torso scenes.
@@ -138,7 +151,7 @@ public partial class CockpitScreenDisplay : Node
 
 	private void ApplyMaterialState()
 	{
-		if (!IsMeshValid)
+		if (!IsMeshValid || _mesh!.IsQueuedForDeletion() || _mesh.Mesh == null)
 			return;
 
 		if (_wantActive)
@@ -146,11 +159,11 @@ public partial class CockpitScreenDisplay : Node
 			if (!_materialReady)
 				return;
 			if (_screenMaterial != null)
-				_mesh!.SetSurfaceOverrideMaterial(0, _screenMaterial);
+				_mesh.SetSurfaceOverrideMaterial(0, _screenMaterial);
 		}
 		else if (_originalMaterial != null && GodotObject.IsInstanceValid(_originalMaterial))
 		{
-			_mesh!.SetSurfaceOverrideMaterial(0, _originalMaterial);
+			_mesh.SetSurfaceOverrideMaterial(0, _originalMaterial);
 		}
 	}
 

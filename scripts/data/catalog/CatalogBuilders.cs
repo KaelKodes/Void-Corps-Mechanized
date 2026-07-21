@@ -74,11 +74,11 @@ public static class CatalogBuilders
 	public static PartData Head(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, float turn, float visionRange, float visionAngle, float close,
 		float scanRange, float scanRes, float idleHeat, float speed = 0f, float fireRateBonus = 0f,
-		Vector3? scale = null) => new()
+		Vector3? scale = null, string visualKind = "head") => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Head,
 		Armor = armor, TurnRateDegrees = turn, MaxSpeed = speed, Tint = m[mfg].AccentColor,
-		VisualKind = "head", VisualScale = scale ?? Vector3.One, FireRateBonus = fireRateBonus,
+		VisualKind = visualKind, VisualScale = scale ?? Vector3.One, FireRateBonus = fireRateBonus,
 		VisionRange = visionRange, VisionAngleDeg = visionAngle, CloseTargeting = close,
 		ScannerRange = scanRange, ScannerResolution = scanRes, IdleHeatPerSec = idleHeat
 	};

@@ -97,7 +97,7 @@ public static class ConventionCatalog
 				DepartureLines =
 				[
 					"There are unsettled sites past the core lanes. Other detachments will contest them.",
-					"Your corp files the claims. Brimforge keeps you supplied. Publicly, we aren't attached to the work.",
+					"You file the claims. Brimforge keeps you supplied. Publicly, we aren't attached to the work.",
 					"Take the ground you can hold. Don't make me explain a burned frame to accounting."
 				],
 				TrialMission = MissionType.CaptureArea,
@@ -168,7 +168,7 @@ public static class ConventionCatalog
 					"Destroying {0}'s floor model was messy, but it cleared a political obstruction. One more attempt. Make the recording useful.",
 				DepartureLines =
 				[
-					"Your corp will operate as an independent acquisition concern. That is not a joke. Keep the paperwork clean.",
+					"You will operate as an independent contractor. That is not a joke. Keep the paperwork clean.",
 					"When a claim is verified, OuroTech may license development rights. We are not obligated to, and you should not advertise otherwise.",
 					"Do the work carefully. I dislike revising projections after the fact."
 				],
@@ -210,7 +210,7 @@ public static class ConventionCatalog
 				LiaisonName = "Mara Keel",
 				LiaisonShortName = "Keel",
 				LiaisonTitle = "Logistics Desk",
-				BannerSnippet = "Balanced frames, field repair systems, and support kit for newly formed corps.",
+				BannerSnippet = "Balanced frames, field repair systems, and support kit for working pilots.",
 				PitchLines =
 				[
 					"Mara Keel, logistics. I handle trial slots, demo budgets, and the ugly part where a route fails and someone still expects delivery.",
@@ -223,7 +223,7 @@ public static class ConventionCatalog
 				[
 					"Rig arrived, cargo accounted for, crew still breathing. That's a clean delivery.",
 					"You stayed with the asset when peeling off for a fight would've been easier. I notice that.",
-					"Contract's ready. Sign and we'll get your corp supplied for the next leg."
+					"Contract's ready. Sign and we'll get you supplied for the next leg."
 				],
 				FailedReturnLines =
 				[
@@ -241,7 +241,7 @@ public static class ConventionCatalog
 				DepartureLines =
 				[
 					"Past the supported lanes, fuel and repairs stop being someone else's problem. They're yours.",
-					"Keep the corp solvent, file claims that hold, and the accounts stay open.",
+					"Keep yourself solvent, file claims that hold, and the accounts stay open.",
 					"That's the arrangement. No speeches. Just keep the route alive."
 				],
 				TrialMission = MissionType.Escort,
@@ -313,7 +313,7 @@ public static class ConventionCatalog
 				DepartureLines =
 				[
 					"The sector you're entering is not on public charts, and this assignment will not appear in them either.",
-					"Your corp will still file claims under its own name. Lumina's involvement stays off the record.",
+					"You will still file claims under your own name. Lumina's involvement stays off the record.",
 					"Acquire the sites. Report through the channels I give you. Do not improvise beyond that."
 				],
 				TrialMission = MissionType.DataRetrieval,

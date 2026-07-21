@@ -11,14 +11,16 @@ alwaysApply: true
 - **MAP** / **MAD** = operation classes (manned pilot / unmanned drone).
 - **Standard / Titan** = size tiers. Titans are still MAP/MAD by operation class; they are roughly 4× a field MAP and reserved for major claim contests.
 - **Manufacturers** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) license parts and frames. They are **not** Corps. Do not call them Corps in UI, briefs, or catalogue copy.
-- **Corps** = organizations from guild-scale to large businesses. Players join corps; corp success ↔ member success. Rival NPC corps field named pilots (mini-bosses) and Titans (sector Warning bosses).
+- **Employer companies** = independent organizations hiring people for frontier operations (settlement, mining, survey, security). Players are contracted individuals, not the company.
+- **Corps** = rival organizations from guild-scale to large businesses. Rival NPC corps field named pilots (mini-bosses) and Titans (sector Warning bosses).
 - Rumors that the Big Four manufacturers secretly back some corps may exist, but that is **not public** at campaign start. Do not present manufacturer→corp backing as established fact in early-game copy.
 
 ## Player fantasy (campaign)
 
-- Player joins an **upstart corp** and rises through its ranks.
-- Linear campaign with path choice (current sector-map style) is the near-term delivery.
-- Placeholder corp framing lives on `VoidCorpsIdentity.PlayerCorpCodename` / `PlayerCorpBlurb`.
+- The player is a **person**: a pilot / merc / contractor under hire.
+- They are hired into a **pre-existing company operation**, starting at the bottom of that company's rank ladder.
+- They are **not** a corp, not a boss, and not the organization. Never address the player as a corp in dialogue or UI.
+- Prefer: pilot, merc, contractor, operative, you. Use “corp” only for rival organizations.
 
 ## Long-term pillars (do not build yet unless asked)
 
@@ -27,6 +29,7 @@ alwaysApply: true
 
 ## Copy checklist
 
-- Garage / shop / HUD: manufacturer names = kit brands; “corp” only for organizations.
+- Garage / shop / HUD: manufacturer names = kit brands; “corp” only for rival organizations.
 - Ability keys / modules are MAP gear, not “Corps abilities.”
-- Claim briefs: corps fight for claims; manufacturers may appear as site flavor (e.g. abandoned foundry) without being the fighting faction.
+- Claim briefs: people and rival corps fight for claims; manufacturers may appear as site flavor (e.g. abandoned foundry) without being the fighting faction.
+- Convention / departure / employer pitches hire **people**, never “a corp.”

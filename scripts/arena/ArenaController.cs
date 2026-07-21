@@ -163,7 +163,8 @@ public partial class ArenaController : Node3D, IMissionHost
 		else
 			HookPlayerDeath();
 
-		var skipHangarPrep = session is { MatchFromAcademy: true } && !IsCoopMatch;
+		var skipHangarPrep = session?.SkirmishLoaner != null
+			|| (session is { MatchFromAcademy: true } && !IsCoopMatch);
 		if (_garage != null)
 		{
 			_garage.ConfigurePrepMode(true);
@@ -186,8 +187,12 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		if (skipHangarPrep)
 		{
-			// Cadet tutorials use a fixed loaner — skip hangar and drop straight into the match.
-			BeginCountdown(session!.CurrentLoadout.Clone());
+			// Academy / skirmish loaners skip hangar and drop straight into the match.
+			var loaner = session!.CurrentLoadout.Clone();
+			if (IsCoopMatch)
+				OnCoopReadyPressed(loaner);
+			else
+				BeginCountdown(loaner);
 			UpdateHud();
 			return;
 		}
@@ -236,14 +241,24 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		_pauseMenu = ui.GetNodeOrNull<PauseMenuUi>("PauseMenuUi");
-		if (_pauseMenu != null)
+		if (_pauseMenu == null)
 		{
-			_pauseMenu.ZIndex = 100;
-			return;
+			_pauseMenu = new PauseMenuUi { Name = "PauseMenuUi", ZIndex = 100 };
+			ui.AddChild(_pauseMenu);
 		}
 
-		_pauseMenu = new PauseMenuUi { Name = "PauseMenuUi", ZIndex = 100 };
-		ui.AddChild(_pauseMenu);
+		_pauseMenu.ZIndex = 100;
+		_pauseMenu.Closed -= OnPauseMenuClosed;
+		_pauseMenu.Closed += OnPauseMenuClosed;
+	}
+
+	private void OnPauseMenuClosed()
+	{
+		if (GetTree() != null)
+			GetTree().Paused = false;
+		SetCameraUiCaptureBlocked(false);
+		_mechHud?.Refresh(_mech);
+		_aimCrosshair?.Refresh(_mech);
 	}
 
 	private bool CanOpenPause()
@@ -261,10 +276,6 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_pauseMenu.IsOpen)
 		{
 			_pauseMenu.Close();
-			GetTree().Paused = false;
-			SetCameraUiCaptureBlocked(false);
-			_mechHud?.Refresh(_mech);
-		_aimCrosshair?.Refresh(_mech);
 			return;
 		}
 
@@ -323,7 +334,11 @@ public partial class ArenaController : Node3D, IMissionHost
 			}
 		}
 		if (_aimCrosshair != null)
+		{
 			_aimCrosshair.Visible = visible;
+			if (visible)
+				_aimCrosshair.MoveToFront();
+		}
 
 		var brief = GetNodeOrNull<Label>("UI/ClaimBrief");
 		if (brief != null)
@@ -379,7 +394,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		brief.OffsetRight = 1124;
 		brief.OffsetBottom = 62;
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		var corp = session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename;
+		var pilot = session?.Profile.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename;
 		string contract;
 		if (session is { MatchFromCampaign: true, PendingMission: MissionType.BossEncounter })
 		{
@@ -405,7 +420,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			contract = "open contract";
 		}
 
-		brief.Text = $"{corp} // {contract}\n{_claim.Brief}";
+		brief.Text = $"{pilot} // {contract}\n{_claim.Brief}";
 		brief.Modulate = new Color(0.72f, 0.8f, 0.86f, 0.9f);
 
 		if (_hud != null)
@@ -1656,8 +1671,6 @@ public partial class ArenaController : Node3D, IMissionHost
 			if (amount <= 0.01f || !playerOwned)
 				return;
 			GetNodeOrNull<GameSession>("/root/GameSession")?.Match.Telemetry.RecordDamageTaken(amount, kind);
-			if (kind == TelemetryTargetKind.Map)
-				SfxService.PlayDamageSustained();
 		};
 	}
 
@@ -1673,6 +1686,12 @@ public partial class ArenaController : Node3D, IMissionHost
 				return;
 			GetNodeOrNull<GameSession>("/root/GameSession")
 				?.Match.Telemetry.RecordDamageTaken(amount, TelemetryTargetKind.Map);
+		};
+
+		integrity.ComponentDestroyed += _ =>
+		{
+			if (!playerOwned)
+				return;
 			SfxService.PlayDamageSustained();
 		};
 	}
@@ -1975,7 +1994,11 @@ public partial class ArenaController : Node3D, IMissionHost
 	{
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		session?.SetLoadout(loadout);
-		_mech?.RebuildFromLoadout(loadout, BuildProfileConditions(session?.Profile));
+		// Loaner kits (skirmish / academy / convention) spawn pristine — ignore garage wear.
+		if (session is { UsingTemporaryLoaner: true })
+			_mech?.RebuildFromLoadout(loadout, forceFullRepair: true);
+		else
+			_mech?.RebuildFromLoadout(loadout, BuildProfileConditions(session?.Profile));
 
 		if (_garage != null)
 		{
@@ -2137,8 +2160,10 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (session.Match.FinalConditionBySlot.Count == 0 && _mech != null)
 			session.Match.CaptureFinalCondition(_mech.CapturePartConditions());
 
-		// Academy / convention loaners skip damage assessment — nothing persistent to repair.
-		var skipDamage = session.MatchFromAcademy || session.MatchFromConvention;
+		// Academy / convention / skirmish loaners skip damage assessment — nothing persistent to repair.
+		var skipDamage = session.MatchFromAcademy
+			|| session.MatchFromConvention
+			|| session.SkirmishLoaner != null;
 		if (!skipDamage)
 		{
 			EnsureDamageAssessmentUi();
@@ -2245,11 +2270,42 @@ public partial class ArenaController : Node3D, IMissionHost
 		_mechHud?.Refresh(_mech);
 		_aimCrosshair?.Refresh(_mech);
 
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var match = session?.Match;
+		var corp = session?.Profile.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename;
+		var contract = ResolveContractLine(session);
+		var claimLine = $"[{ArenaSizeUtil.Label(_layout.Size)}] {_claim.Code} — {_claim.DisplayName}";
+		var contractLine = $"{corp} // {contract}";
+		var flavor = _claim.Brief ?? "";
+
+		var objective = _mission?.GetHudLine() ?? "";
+		// Keep FP glass readable — rival / floor-model notes stay on floating TP chrome only.
+		var status = "";
+		if (_objectivesComplete)
+		{
+			status = _mission?.ExtractBeaconOverride != null
+				? "OBJECTIVES COMPLETE — hold F at Exfil Uplink"
+				: "OBJECTIVES COMPLETE — hold F at drop beacon";
+			if (ActiveExtractBeacon() is { } pad && pad.Contains(_mech.GlobalPosition))
+			{
+				status = pad == _playerDropBeacon
+					? "Hold F — signal retrieval at drop beacon"
+					: "Hold F — signal retrieval at Exfil Uplink";
+			}
+		}
+
+		var runStrip = match == null
+			? ""
+			: $"LIVES {match.LivesRemaining}  ·  SCRAP {match.RunScrap}  ·  B buy ({match.NextLifeCost})";
+
+		_mechHud?.SetMissionChrome(claimLine, contractLine, objective, flavor, status, runStrip);
+
+		var diegetic = _mechHud?.IsUsingDiegeticCockpit == true;
+		SyncFloatingMissionChrome(!diegetic);
+
 		if (_hud == null)
 			return;
 
-		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		var match = session?.Match;
 		var sponsorLine = session?.InCampaign == true && !string.IsNullOrEmpty(session.Profile.AffiliatedManufacturerId)
 			? $"  |  {GameCatalog.GetManufacturer(session.Profile.AffiliatedManufacturerId).DisplayName} LICENSE"
 			: "";
@@ -2257,26 +2313,31 @@ public partial class ArenaController : Node3D, IMissionHost
 			? ""
 			: $"LIVES {match.LivesRemaining}  |  SCRAP {match.RunScrap}  |  B buy life ({match.NextLifeCost}){sponsorLine}";
 
-		var power = _mech.PowerHeat;
 		var cloaked = _mech.Abilities?.IsCloaked == true ? "  |  SHROUD" : "";
 		var sd = _mech.Integrity?.IsSelfDestructArmed == true
 			? $"  |  DENY-ASSET {Mathf.CeilToInt((_mech.Integrity.SelfDestructProgress) * 100f)}%"
 			: "";
 		var sprint = _mech.IsSprinting ? "  |  SPRINT" : "";
-		var overheat = power?.IsOverheated == true ? "  |  OVERHEAT" : "";
-		_hud.Text = $"{runLine}{sprint}{overheat}{cloaked}{sd}";
+		// OVERHEAT relocates to L/R glass heat bars or the center chassis heat bar.
+		_hud.Text = diegetic
+			? $"{sprint}{cloaked}{sd}".Trim().TrimStart('|', ' ')
+			: $"{runLine}{sprint}{cloaked}{sd}";
 
 		if (_targetHud != null)
 		{
-			_targetHud.Text = string.IsNullOrEmpty(_mech.AimedComponentLabel)
-				? ""
-				: $"SYSTEM LOCK: {_mech.AimedComponentLabel}";
+			// FP cockpit: sensor binds live on Screen_Threat. Only show sharpshooter lock in overlay HUD.
+			var aim = _mech.AimedComponentLabel;
+			var showAim = !diegetic
+				&& !string.IsNullOrEmpty(aim)
+				&& !string.Equals(aim, "no system lock", System.StringComparison.OrdinalIgnoreCase);
+			_targetHud.Visible = showAim;
+			_targetHud.Text = showAim ? $"SYSTEM LOCK: {aim}" : "";
 		}
 
 		if (_missionHud != null)
 		{
-			var line = _mission?.GetHudLine() ?? "";
-			var sessionHud = GetNodeOrNull<GameSession>("/root/GameSession");
+			var line = objective;
+			var sessionHud = session;
 			if (sessionHud?.PendingMission != MissionType.BossEncounter
 			    && !string.IsNullOrEmpty(_activeRivalPilotId)
 			    && !string.IsNullOrEmpty(_activeRivalEnemyName)
@@ -2297,24 +2358,72 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		if (_hint != null && _garage != null)
 		{
-			_hint.Text = _matchResolved
-				? "Skirmish complete — field exchange open"
-				: _phase switch
-				{
-					MatchPhase.Prep => "HANGAR  |  pick a category, preview parts, EQUIP, then READY",
-					MatchPhase.Countdown => "Claim dispute commencing...",
-					_ when _garage.Visible => "T / EXIT close hangar  |  Deploy updates loadout",
-					_ when _objectivesComplete && ActiveExtractBeacon() is { } extractPad
-						&& extractPad.Contains(_mech.GlobalPosition)
-						=> extractPad == _playerDropBeacon
-							? "Hold F — signal retrieval at drop beacon"
-							: "Hold F — signal retrieval at Exfil Uplink",
-					_ when _objectivesComplete
-						=> _mission?.ExtractBeaconOverride != null
-							? "OBJECTIVES COMPLETE — hold F at the Exfil Uplink"
-							: "OBJECTIVES COMPLETE — return to your drop beacon and hold F to extract",
-					_ => "WASD move  |  mouse look (FP)  |  tap Shift dash / hold sprint  |  Space jump  |  LMB/RMB weapons  |  TAB lock  |  1-6 modules  |  P camera  |  Esc pause"
-				};
+			if (diegetic && _phase == MatchPhase.Fighting && !_garage.Visible && !_matchResolved)
+			{
+				// Control tips live on cockpit panels / stick in FP.
+				_hint.Visible = false;
+			}
+			else
+			{
+				_hint.Visible = true;
+				_hint.Text = _matchResolved
+					? "Skirmish complete — field exchange open"
+					: _phase switch
+					{
+						MatchPhase.Prep => "HANGAR  |  pick a category, preview parts, EQUIP, then READY",
+						MatchPhase.Countdown => "Claim dispute commencing...",
+						_ when _garage.Visible => "T / EXIT close hangar  |  Deploy updates loadout",
+						_ when _objectivesComplete && ActiveExtractBeacon() is { } extractPad
+							&& extractPad.Contains(_mech.GlobalPosition)
+							=> extractPad == _playerDropBeacon
+								? "Hold F — signal retrieval at drop beacon"
+								: "Hold F — signal retrieval at Exfil Uplink",
+						_ when _objectivesComplete
+							=> _mission?.ExtractBeaconOverride != null
+								? "OBJECTIVES COMPLETE — hold F at the Exfil Uplink"
+								: "OBJECTIVES COMPLETE — return to your drop beacon and hold F to extract",
+						_ => "WASD move  |  mouse look (FP)  |  tap Shift dash / hold sprint  |  Space jump  |  LMB/RMB weapons  |  TAB lock  |  1-6 modules  |  P camera  |  Esc pause"
+					};
+			}
 		}
+	}
+
+	private void SyncFloatingMissionChrome(bool show)
+	{
+		if (_claimHud != null)
+			_claimHud.Visible = show;
+		var brief = GetNodeOrNull<Label>("UI/ClaimBrief");
+		if (brief != null)
+			brief.Visible = show;
+		if (_missionHud != null)
+			_missionHud.Visible = show;
+		// _hud stays visible for sprint / shroud / deny-asset tags when diegetic.
+	}
+
+	private string ResolveContractLine(GameSession? session)
+	{
+		if (session is { MatchFromCampaign: true, PendingMission: MissionType.BossEncounter })
+		{
+			var encounter = BossEncounterCatalog.Get(session.PendingBossEncounter);
+			return $"{encounter.Corp.ShortName} Titan contest";
+		}
+
+		if (session is { MatchFromCampaign: true, LastMissionManufacturerId.Length: > 0 })
+		{
+			var contract = GameCatalog.GetManufacturer(session.LastMissionManufacturerId).DisplayName;
+			if (!string.IsNullOrEmpty(session.PendingRivalPilotId))
+			{
+				var rival = RivalRosterCatalog.GetPilot(session.PendingRivalPilotId);
+				var rivalCorp = RivalRosterCatalog.GetCorp(rival.CorpId);
+				contract += $" vs {rival.Callsign}/{rivalCorp.ShortName}";
+			}
+
+			return contract;
+		}
+
+		if (session?.Profile.AffiliatedManufacturerId is { Length: > 0 } id)
+			return GameCatalog.GetManufacturer(id).DisplayName;
+
+		return "open contract";
 	}
 }

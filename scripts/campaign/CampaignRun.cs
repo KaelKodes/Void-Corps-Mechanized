@@ -5,8 +5,8 @@ namespace Mechanize;
 /// <summary>Active campaign run — cadet academy, convention gate, or claim-sector ops.</summary>
 public sealed class CampaignRun
 {
-	public const string SavePath = "user://mechanize_campaign.json";
-	public const string SolarOnboardingSavePath = "user://mechanize_solar_onboarding.json";
+	public static string SavePath => SaveService.CampaignPath(SaveService.ActiveSlot);
+	public static string SolarOnboardingSavePath => SaveService.SolarOnboardingPath(SaveService.ActiveSlot);
 	/// <summary>0-based; display as Sector 1..MaxSectors.</summary>
 	public const int MaxSectors = 3;
 
@@ -168,6 +168,7 @@ public sealed class CampaignRun
 
 	public void Save()
 	{
+		SaveService.EnsureSlotDir(SaveService.ActiveSlot);
 		var dict = new Godot.Collections.Dictionary
 		{
 			["seed"] = Seed,
@@ -255,17 +256,11 @@ public sealed class CampaignRun
 
 	public static void ClearSave()
 	{
-		if (!Godot.FileAccess.FileExists(SavePath))
-			return;
-		using var dir = DirAccess.Open("user://");
-		dir?.Remove("mechanize_campaign.json");
+		SaveService.DeleteFileIfExists(SavePath);
 	}
 
 	public static void ClearSolarOnboardingSave()
 	{
-		if (!Godot.FileAccess.FileExists(SolarOnboardingSavePath))
-			return;
-		using var dir = DirAccess.Open("user://");
-		dir?.Remove("mechanize_solar_onboarding.json");
+		SaveService.DeleteFileIfExists(SolarOnboardingSavePath);
 	}
 }

@@ -182,7 +182,7 @@ public static class SolarSystemCatalog
 
 public sealed class SolarCampaignRun
 {
-	public const string SavePath = "user://mechanize_solar_campaign.json";
+	public static string SavePath => SaveService.SolarCampaignPath(SaveService.ActiveSlot);
 	public int CompanySeed { get; set; } = (int)Time.GetTicksMsec();
 	public List<string> ConventionCompanyIds { get; } = new();
 	public string SelectedCompanyId { get; set; } = "";
@@ -300,6 +300,7 @@ public sealed class SolarCampaignRun
 
 	public void Save()
 	{
+		SaveService.EnsureSlotDir(SaveService.ActiveSlot);
 		EnsureCompanies();
 		var unlocked = new Godot.Collections.Array();
 		foreach (var id in UnlockedLocations.OrderBy(id => id))

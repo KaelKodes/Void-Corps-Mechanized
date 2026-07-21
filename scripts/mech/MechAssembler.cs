@@ -62,7 +62,9 @@ public partial class MechAssembler : Node
 			}
 		}
 
-		FitMountSocketsToTorso(GameCatalog.GetPart(loadout.TorsoId));
+		FitMountSocketsToTorso(
+			GameCatalog.GetPart(loadout.TorsoId),
+			GameCatalog.GetPart(loadout.BackpackId));
 		RefreshCockpitDependentVisuals(GameCatalog.GetPart(loadout.TorsoId));
 		Stats = DeriveStats();
 	}
@@ -70,8 +72,9 @@ public partial class MechAssembler : Node
 	/// <summary>
 	/// Torso VisualScale changes hull depth/width; keep Back / Systems / Shoulders on the hull surface.
 	/// Matches PartVisualFactory torso main box: size (1.4, 1.05, 1.0)*scale at local (0, 0.55, 0).
+	/// Backpack mounts disperse by kit — e.g. Ashwhisk stabilizer sits low like a tail; utility packs ride high.
 	/// </summary>
-	private void FitMountSocketsToTorso(PartData? torso)
+	private void FitMountSocketsToTorso(PartData? torso, PartData? backpack = null)
 	{
 		if (!_socketNodes.TryGetValue(PartSlot.Torso, out var torsoSocket))
 			return;
@@ -86,10 +89,22 @@ public partial class MechAssembler : Node
 		var backZ = bodyCenter.Z + halfD;
 
 		if (_socketNodes.TryGetValue(PartSlot.Backpack, out var back))
-			back.Position = new Vector3(bodyCenter.X, bodyCenter.Y + 0.06f, backZ + 0.02f);
+		{
+			// Stabilizer = lower-back dock flush to the hull. Utility packs ride the dorsal shelf.
+			if (backpack?.VisualKind == "ash_stabilizer")
+				back.Position = new Vector3(bodyCenter.X, bodyCenter.Y - 0.36f, backZ + 0.02f);
+			else
+				back.Position = new Vector3(bodyCenter.X, bodyCenter.Y + 0.32f, backZ + 0.02f);
+		}
 
 		if (_socketNodes.TryGetValue(PartSlot.Systems, out var systems))
-			systems.Position = new Vector3(bodyCenter.X, bodyCenter.Y - 0.22f, backZ + 0.06f);
+		{
+			// Keep systems off the tail root when the stabilizer owns the lower dock.
+			if (backpack?.VisualKind == "ash_stabilizer")
+				systems.Position = new Vector3(bodyCenter.X, bodyCenter.Y + 0.22f, backZ + 0.04f);
+			else
+				systems.Position = new Vector3(bodyCenter.X, bodyCenter.Y - 0.05f, backZ + 0.06f);
+		}
 
 		if (_socketNodes.TryGetValue(PartSlot.ShoulderL, out var shoulderL))
 			shoulderL.Position = new Vector3(-(halfW + 0.08f), bodyCenter.Y + halfH * 0.5f, bodyCenter.Z + halfD * 0.12f);
@@ -99,7 +114,7 @@ public partial class MechAssembler : Node
 
 		if (_socketNodes.TryGetValue(PartSlot.PowerCore, out var core))
 		{
-			if (torso?.VisualKind == "torso_fleet")
+			if (torso?.IsCockpitHull == true)
 			{
 				// Aft cavity mount — keeps the core glow out of the viewport.
 				core.Position = torsoSocket.Position + new Vector3(0f, 0.12f, 0.38f);
@@ -115,7 +130,7 @@ public partial class MechAssembler : Node
 		if (!_hardpoints.TryGetValue(PartSlot.PowerCore, out var coreHp))
 			return;
 
-		var encased = torso?.VisualKind == "torso_fleet";
+		var encased = torso?.IsCockpitHull == true;
 		if (coreHp.EquippedPart != null)
 			coreHp.RebuildVisualForCockpit(encased);
 	}

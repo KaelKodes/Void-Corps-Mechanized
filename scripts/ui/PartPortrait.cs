@@ -80,6 +80,11 @@ public static class PartPortrait
 				break;
 			case "torso":
 			case "torso_fleet":
+			case "torso_brin_anvil":
+			case "torso_ouro_thin":
+			case "torso_lum_oracle":
+			case "torso_ash_ashrib":
+			case "torso_vel_ruff":
 				FillRect(image, 0.2f, 0.16f, 0.6f, 0.66f, accent);
 				// Shoulder plates
 				FillRect(image, 0.12f, 0.2f, 0.14f, 0.22f, mid);

@@ -199,6 +199,20 @@ public partial class NetCombatBus : Node
 		arena?.ClientPresentResults((MatchOutcome)outcome);
 	}
 
+	public void HostShowPvpResults(int winnerOwningId, int winningTeam)
+	{
+		if (Multiplayer.MultiplayerPeer == null || !Multiplayer.IsServer())
+			return;
+		Rpc(MethodName.RpcShowPvpResults, winnerOwningId, winningTeam);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
+	private void RpcShowPvpResults(int winnerOwningId, int winningTeam)
+	{
+		var arena = GetParent() as ArenaController;
+		arena?.ClientPresentPvpResults(winnerOwningId, (TeamId)winningTeam);
+	}
+
 	public void HostDeploymentPhase(string jobId, int phase, Vector3 target, int team)
 	{
 		if (Multiplayer.MultiplayerPeer == null || !Multiplayer.IsServer())

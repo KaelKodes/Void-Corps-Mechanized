@@ -669,7 +669,7 @@ public partial class ResultsShopUi : Control
 		_manifestBody.Text =
 			$"Outcome\n  {_match.Outcome}\n\n" +
 			$"Run scrap banked\n  {_match.RunScrap}\n\n" +
-			$"Merc corps\n  {_profile.MercCorpName}\n\n" +
+			$"Pilot\n  {_profile.ResolveAccountHandle()}\n\n" +
 			"Resupply\n  Independent merchants operate from marked system-map locations.\n\n" +
 			$"Recovered parts\n{drops}\n\n" +
 			$"Fabrication salvage\n{materials}";

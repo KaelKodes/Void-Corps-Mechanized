@@ -1,0 +1,33 @@
+---
+description: New MAP part visuals must be authored .tscn scenes, not procedural PartVisualFactory meshes
+alwaysApply: true
+---
+
+# Part visuals — scene-authored first
+
+## Rule
+
+When creating **new** mech parts (legs, torso, head, backpack, weapons, mounts, etc.), give them their **own `.tscn`** under `scenes/parts/` (or a clear subfolder). Wire the catalog `VisualKind` to load/instantiate that scene — same pattern as Fleet Intermediate (`scenes/parts/torso_tri_fleet.tscn` + `FleetTorsoVisual`).
+
+**Do not** build new kit silhouettes as long box/sphere stacks inside `PartVisualFactory` / `TitanPartVisualFactory` unless the user explicitly asks for a quick procedural placeholder.
+
+## Why
+
+Procedural clay is hard for the designer to tweak in the Godot editor. Authored scenes let Kyle adjust proportions, sockets, and silhouette visually.
+
+## Expected shape
+
+1. `scenes/parts/<part_or_line>.tscn` — geometry + markers (e.g. `CockpitAnchor` for hollow 2.0 hulls)
+2. Optional small C# binder (tint from `PartData`, like `FleetTorsoVisual.ApplyPart`)
+3. Catalog `VisualKind` string → factory loads that packed scene
+4. Keep walk-rig / hardpoint contracts the animator and assembler already expect (`Leg_L`/`Leg_R` → `Knee` → `Foot`, etc.)
+
+## Exceptions
+
+- Tiny one-off debug meshes
+- Reusing an existing scene with tint only (document which scene)
+- User says “procedural is fine for now”
+
+## Existing debt
+
+Ashwhisk Coilstriders / Whisker / stabilizer are still procedural. Signature hollow torsos live under `scenes/parts/torso_*.tscn` via `CockpitHullRegistry` — do not invent new procedural slab torsos.

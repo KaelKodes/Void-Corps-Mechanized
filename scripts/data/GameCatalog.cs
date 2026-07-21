@@ -34,6 +34,12 @@ public static class GameCatalog
 			["lumina"] = CatalogBuilders.MakeManufacturer("lumina", "Lumina Vaultworks", new Color(0.78f, 0.62f, 0.95f),
 				"Vault-lab experimental wing. Energy arcs, shroud drives, and classified crawler kits.",
 				"Energy / experimental"),
+			["ashwhisk"] = CatalogBuilders.MakeManufacturer("ashwhisk", "Ashwhisk Corporation", new Color(0.62f, 0.68f, 0.72f),
+				"Private chassis house. Precision posture, clutch mobility, predatory silhouette. Body kits only — guns stay Big Four.",
+				"Feline chassis / clutch mobility"),
+			["velhound"] = CatalogBuilders.MakeManufacturer("velhound", "Velhound", new Color(0.55f, 0.42f, 0.28f),
+				"Pursuit chassis house. Broader stance, charge commitment, pack-proud pressure. Body kits only — guns stay Big Four.",
+				"Canine chassis / pursuit pressure"),
 		};
 
 		var parts = new Dictionary<string, PartData>();
@@ -49,6 +55,16 @@ public static class GameCatalog
 		Manufacturers = manufacturers;
 		Parts = parts;
 	}
+
+	/// <summary>
+	/// Big Four only — convention, research, sector contracts, and reputation seeding.
+	/// Ashwhisk / Velhound exist in <see cref="Manufacturers"/> for catalog tinting and skirmish loaners.
+	/// </summary>
+	public static readonly string[] CampaignManufacturerIds =
+		["brimforge", "ourotech", "trinova", "lumina"];
+
+	public static bool IsCampaignManufacturer(string id) =>
+		!string.IsNullOrEmpty(id) && System.Array.IndexOf(CampaignManufacturerIds, id) >= 0;
 
 	public static ManufacturerData GetManufacturer(string id)
 	{
@@ -280,60 +296,159 @@ public static class GameCatalog
 	public static LoadoutData CreateEnemyLoadout(int variant = 0)
 	{
 		EnsureBuilt();
-		return (variant % 4) switch
+		return CreateSkirmishPremade(variant).Loadout;
+	}
+
+	/// <summary>Skirmish chassis kits (same pool used for generic enemy MAPs).</summary>
+	public static SkirmishPremadeDef[] SkirmishPremades
+	{
+		get
 		{
-			1 => SanitizeLoadout(new LoadoutData
-			{
-				LegsId = "legs_ouro_razorhex",
-				TorsoId = "torso_ouro_thin",
-				HeadId = "head_ouro_reticle",
-				PowerCoreId = "core_ouro_needle",
-				WeaponLId = "wep_ouro_stitch",
-				WeaponRId = "wep_ouro_scalpel",
-				ShoulderLId = "shoulder_ouro_needle",
-				ShoulderRId = "shoulder_ouro_tracker",
-				BackpackId = "backpack_ouro_stitch",
-				SystemsId = "systems_ouro_radiator"
-			}),
-			2 => SanitizeLoadout(new LoadoutData
-			{
-				LegsId = "legs_brin_fortress",
-				TorsoId = "torso_brin_anvil",
-				HeadId = "head_brin_warface",
-				PowerCoreId = "core_brin_citadel",
-				WeaponLId = "wep_brin_maul",
-				WeaponRId = "wep_brin_chain",
-				ShoulderLId = "shoulder_brin_barrage",
-				ShoulderRId = "shoulder_brin_deny",
-				BackpackId = "backpack_brin_citadel",
-				SystemsId = "systems_brin_slag"
-			}),
-			3 => SanitizeLoadout(new LoadoutData
-			{
-				LegsId = "legs_lum_phasehex",
-				TorsoId = "torso_lum_oracle",
-				HeadId = "head_lum_oracle",
-				PowerCoreId = "core_lum_ghost",
-				WeaponLId = "wep_lum_volt",
-				WeaponRId = "wep_lum_oracle",
-				ShoulderLId = "shoulder_lum_ghost",
-				ShoulderRId = "",
-				BackpackId = "backpack_lum_veil",
-				SystemsId = "systems_lum_phase"
-			}),
-			_ => SanitizeLoadout(new LoadoutData
-			{
-				LegsId = "legs_tri_courier",
-				TorsoId = "torso_tri_fleet",
-				HeadId = "head_tri_convoy",
-				PowerCoreId = "core_tri_fleet",
-				WeaponLId = "wep_tri_patrol",
-				WeaponRId = "wep_tri_hybrid",
-				ShoulderLId = "shoulder_tri_fleet",
-				ShoulderRId = "shoulder_tri_patrol",
-				BackpackId = "backpack_tri_mend",
-				SystemsId = "systems_tri_coolant"
-			})
+			EnsureBuilt();
+			return
+			[
+				CreateSkirmishPremade(0),
+				CreateSkirmishPremade(1),
+				CreateSkirmishPremade(2),
+				CreateSkirmishPremade(3),
+				CreateSkirmishPremade(4),
+				CreateSkirmishPremade(5)
+			];
+		}
+	}
+
+	public static SkirmishPremadeDef CreateSkirmishPremade(int variant)
+	{
+		EnsureBuilt();
+		return (variant % 6) switch
+		{
+			1 => new SkirmishPremadeDef(
+				1,
+				"OuroTech Razorhex",
+				"OuroTech",
+				"Gimbaled hex legs, stitch + scalpel, needle pods. Precision skirmisher.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_ouro_razorhex",
+					TorsoId = "torso_ouro_thin",
+					HeadId = "head_ouro_reticle",
+					PowerCoreId = "core_ouro_needle",
+					WeaponLId = "wep_ouro_stitch",
+					WeaponRId = "wep_ouro_scalpel",
+					ShoulderLId = "shoulder_ouro_needle",
+					ShoulderRId = "shoulder_ouro_tracker",
+					BackpackId = "backpack_ouro_stitch",
+					SystemsId = "systems_ouro_radiator"
+				})),
+			2 => new SkirmishPremadeDef(
+				2,
+				"Brimforge Fortress",
+				"Brimforge",
+				"Tracked fortress hull, maul + chain, barrage pods. Slow hammer.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_brin_fortress",
+					TorsoId = "torso_brin_anvil",
+					HeadId = "head_brin_warface",
+					PowerCoreId = "core_brin_citadel",
+					WeaponLId = "wep_brin_maul",
+					WeaponRId = "wep_brin_chain",
+					ShoulderLId = "shoulder_brin_barrage",
+					ShoulderRId = "shoulder_brin_deny",
+					BackpackId = "backpack_brin_citadel",
+					SystemsId = "systems_brin_slag"
+				})),
+			3 => new SkirmishPremadeDef(
+				3,
+				"Lumina Phase Oracle",
+				"Lumina Vaultworks",
+				"Phasehex crawler, volt + oracle lance, veil shroud. Experimental kit.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_lum_phasehex",
+					TorsoId = "torso_lum_oracle",
+					HeadId = "head_lum_oracle",
+					PowerCoreId = "core_lum_ghost",
+					WeaponLId = "wep_lum_volt",
+					WeaponRId = "wep_lum_oracle",
+					ShoulderLId = "shoulder_lum_ghost",
+					ShoulderRId = "",
+					BackpackId = "backpack_lum_veil",
+					SystemsId = "systems_lum_phase"
+				})),
+			4 => new SkirmishPremadeDef(
+				4,
+				"Ashwhisk Whisperframe",
+				"Ashwhisk Corporation",
+				"Coilstrider hull, balance-fin, licensed Stitch carbine + Bulwark plate. One gun, one guard — coil and re-orient.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_ash_coilstriders",
+					TorsoId = "torso_ash_ashrib",
+					HeadId = "head_ash_whisker",
+					PowerCoreId = "core_ouro_needle",
+					WeaponLId = "wep_ouro_stitch",
+					WeaponRId = "wep_tri_bulwark",
+					ShoulderLId = "shoulder_ouro_needle",
+					ShoulderRId = "shoulder_ouro_tracker",
+					BackpackId = "backpack_ash_stabilizer",
+					SystemsId = "systems_ouro_radiator"
+				})),
+			5 => new SkirmishPremadeDef(
+				5,
+				"Velhound Yardbreaker",
+				"Velhound",
+				"Bracehound hull with licensed Brimforge maul + chain. Brace, surge, hold the line.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_vel_bracehounds",
+					TorsoId = "torso_vel_ruff",
+					HeadId = "head_vel_muzzle",
+					PowerCoreId = "core_brin_citadel",
+					WeaponLId = "wep_brin_maul",
+					WeaponRId = "wep_brin_chain",
+					ShoulderLId = "shoulder_brin_barrage",
+					ShoulderRId = "shoulder_brin_deny",
+					BackpackId = "backpack_brin_citadel",
+					SystemsId = "systems_brin_slag"
+				})),
+			_ => new SkirmishPremadeDef(
+				0,
+				"Trinova Fleet Courier",
+				"Trinova",
+				"Courier striders, patrol + hybrid guns, fleet shoulders + mend. Balanced wing kit.",
+				SanitizeLoadout(new LoadoutData
+				{
+					LegsId = "legs_tri_courier",
+					TorsoId = "torso_tri_fleet",
+					HeadId = "head_tri_convoy",
+					PowerCoreId = "core_tri_fleet",
+					WeaponLId = "wep_tri_patrol",
+					WeaponRId = "wep_tri_hybrid",
+					ShoulderLId = "shoulder_tri_fleet",
+					ShoulderRId = "shoulder_tri_patrol",
+					BackpackId = "backpack_tri_mend",
+					SystemsId = "systems_tri_coolant"
+				}))
 		};
 	}
+}
+
+/// <summary>Named premade chassis offered in skirmish mech select (and enemy MAP variants).</summary>
+public readonly struct SkirmishPremadeDef
+{
+	public SkirmishPremadeDef(int variant, string displayName, string manufacturer, string blurb, LoadoutData loadout)
+	{
+		Variant = variant;
+		DisplayName = displayName;
+		Manufacturer = manufacturer;
+		Blurb = blurb;
+		Loadout = loadout;
+	}
+
+	public int Variant { get; }
+	public string DisplayName { get; }
+	public string Manufacturer { get; }
+	public string Blurb { get; }
+	public LoadoutData Loadout { get; }
 }

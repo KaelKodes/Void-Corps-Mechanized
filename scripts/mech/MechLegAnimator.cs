@@ -15,12 +15,18 @@ public partial class MechLegAnimator : Node
 	private MechAssembler? _assembler;
 	private Node3D? _rig;
 	private string _rigKind = "";
+	private string _legsPartId = "";
 	private readonly List<BipedLimb> _bipeds = new();
 	private readonly List<HexLimb> _hexes = new();
 	private float _phase;
 	private float _bindCooldown;
 	private float _pace;
 	private bool _gaitMoving;
+	private float _prevLeftWave;
+	private float _prevRightWave;
+	private float _prevTrip0;
+	private float _prevTrip1;
+	private bool _stepPrimed;
 
 	/// <summary>Shared with FP cockpit bob so the camera feels the same footsteps as the legs.</summary>
 	public float GaitPhase => _phase;
@@ -110,9 +116,11 @@ public partial class MechLegAnimator : Node
 		{
 			case "biped":
 				AnimateBiped(_pace, _gaitMoving);
+				TickBipedSteps(_gaitMoving);
 				break;
 			case "hex":
 				AnimateHex(_pace, _gaitMoving);
+				TickHexSteps(_gaitMoving);
 				break;
 		}
 	}
@@ -123,10 +131,14 @@ public partial class MechLegAnimator : Node
 		_hexes.Clear();
 		_rig = null;
 		_rigKind = "";
+		_legsPartId = "";
+		_stepPrimed = false;
 
 		_assembler ??= _mech?.GetNodeOrNull<MechAssembler>("MechAssembler");
 		if (_assembler == null || !_assembler.Hardpoints.TryGetValue(PartSlot.Legs, out var legsHp))
 			return;
+
+		_legsPartId = legsHp.EquippedPart?.Id ?? "";
 
 		// Prefer the hardpoint's live visual — GetChildren can still include QueueFree'd
 		// leftovers after an equip/rebuild, which left some bipeds stuck without a gait.
@@ -243,6 +255,105 @@ public partial class MechLegAnimator : Node
 			limb.Hip.Rotation = limb.Hip.Rotation.Lerp(hipTarget, 0.35f);
 			limb.Knee.Rotation = limb.Knee.Rotation.Lerp(kneeTarget, 0.35f);
 		}
+	}
+
+	private void TickBipedSteps(bool moving)
+	{
+		var leftWave = Mathf.Sin(_phase);
+		var rightWave = Mathf.Sin(_phase + Mathf.Pi);
+
+		if (!_stepPrimed)
+		{
+			_prevLeftWave = leftWave;
+			_prevRightWave = rightWave;
+			_stepPrimed = true;
+			return;
+		}
+
+		if (moving)
+		{
+			// Plant when the clearance half-cycle ends (wave rises through 0).
+			if (_prevLeftWave < 0f && leftWave >= 0f)
+				PlayFootstep();
+			if (_prevRightWave < 0f && rightWave >= 0f)
+				PlayFootstep();
+		}
+
+		_prevLeftWave = leftWave;
+		_prevRightWave = rightWave;
+	}
+
+	private void TickHexSteps(bool moving)
+	{
+		var trip0 = Mathf.Sin(_phase);
+		var trip1 = Mathf.Sin(_phase + Mathf.Pi);
+
+		if (!_stepPrimed)
+		{
+			_prevTrip0 = trip0;
+			_prevTrip1 = trip1;
+			_stepPrimed = true;
+			return;
+		}
+
+		if (moving)
+		{
+			// Tripod plants as lift wave falls through 0 (feet return to ground).
+			if (_prevTrip0 > 0f && trip0 <= 0f)
+				PlayFootstep();
+			if (_prevTrip1 > 0f && trip1 <= 0f)
+				PlayFootstep();
+		}
+
+		_prevTrip0 = trip0;
+		_prevTrip1 = trip1;
+	}
+
+	/// <summary>~40 feet — beyond this, remote footfalls are silent.</summary>
+	private const float StepHearRange = 12.2f;
+
+	private void PlayFootstep()
+	{
+		if (_mech == null || string.IsNullOrEmpty(_legsPartId))
+			return;
+
+		var volumeDb = -2f;
+		if (_rigKind == "hex")
+			volumeDb -= 2f;
+		volumeDb += Mathf.Lerp(-1f, 0.5f, Mathf.Clamp(_pace, 0f, 1f));
+
+		if (!_mech.IsLocalPilot)
+		{
+			var listener = FindLocalMech();
+			if (listener == null)
+				return;
+
+			var dist = _mech.GlobalPosition.DistanceTo(listener.GlobalPosition);
+			if (dist >= StepHearRange)
+				return;
+
+			// Same near-volume as local; quadratic fade to silence at hear range.
+			var t = dist / StepHearRange;
+			volumeDb += Mathf.Lerp(0f, -48f, t * t);
+		}
+
+		SfxService.PlayMechStepForLegs(_legsPartId, volumeDb);
+	}
+
+	private MechController? FindLocalMech()
+	{
+		var tree = GetTree();
+		if (tree == null)
+			return null;
+
+		foreach (var node in tree.GetNodesInGroup("mechs"))
+		{
+			if (node is MechController { IsLocalPilot: true } local
+			    && GodotObject.IsInstanceValid(local))
+				return local;
+		}
+
+		return null;
 	}
 
 	private void AnimateHex(float pace, bool moving)

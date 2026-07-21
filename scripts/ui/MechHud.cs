@@ -5,7 +5,7 @@ namespace Mechanize;
 
 /// <summary>
 /// Bottom combat HUD: integrity schematic (with on-panel PWR/SPD), weapons + MAP modules.
-/// HEAT lives on the crosshair ( ) brackets — not a HUD bar.
+/// Chassis HEAT warning lives under the aim crosshair (60%+); per-arm heat is on the cockpit glass.
 /// </summary>
 public partial class MechHud : Control
 {
@@ -308,14 +308,27 @@ public partial class MechHud : Control
 		RefreshAbilities(mech);
 	}
 
+	/// <summary>Whether floating combat chrome should hide in favor of cockpit panels / glass.</summary>
+	public bool IsUsingDiegeticCockpit =>
+		_cockpitHud is { IsDiegeticActive: true };
+
+	public void SetMissionChrome(
+		string claimLine,
+		string contractLine,
+		string objective,
+		string flavor,
+		string status,
+		string runStrip) =>
+		_cockpitHud?.SetMissionChrome(claimLine, contractLine, objective, flavor, status, runStrip);
+
 	/// <summary>
-	/// First Person HUD mode binds readouts to cockpit dashboard panels.
-	/// Overlay mode keeps the floating bottom HUD even while the camera is in FP.
+	/// Auto / First Person: bind readouts to cockpit panels while in FP.
+	/// Overlay: keep the floating bottom HUD even in first person.
 	/// </summary>
 	private static bool ShouldUseDiegeticPanels(MechController mech) =>
-		GameSettings.FirstPersonHudMode
-		&& IsFirstPersonHud(mech)
-		&& CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		GameSettings.ShouldUseDiegeticHudBars(
+			IsFirstPersonHud(mech),
+			CockpitDiegeticHud.MechHasCockpitScreens(mech));
 
 	private static bool IsFirstPersonHud(MechController mech) =>
 		mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };

@@ -591,7 +591,7 @@ public partial class ConventionHallUi : Control
 		var sb = new StringBuilder();
 		if (_run.SolarOnboarding)
 		{
-			sb.Append("Four independent companies are hiring one frontier corp. They do not manufacture MAP parts and have no affiliation with the Big Four. ");
+			sb.Append("Four independent companies are hiring pilots and contractors for frontier work. They do not manufacture MAP parts and have no affiliation with the Big Four. ");
 			sb.Append("Compare their motives carefully: your employer's assets, mining rigs, and settlement become your responsibility. ");
 		}
 		else

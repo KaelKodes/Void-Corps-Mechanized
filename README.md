@@ -1,6 +1,6 @@
 # Void Corps: Mechanize
 
-**Version 0.2.2.1** — Surface warfare in the Void Corps universe.
+**Version 0.2.2.2** — Surface warfare in the Void Corps universe.
 
 **Corps** are organizations — guild-scale to large businesses — fighting for territory. You join an upstart corp, rise with it, and share in its wins.
 
@@ -9,6 +9,27 @@
 When orbital claims stall, corps deploy **MAP** detachments — Mechanized Armor Pilots in licensed chassis. Unmanned **MAD** chassis (Mechanized Armor Drones) fill cheaper kill-slots.
 
 North star: territory control facilitated by mechanized battles (Foxhole-like). Campaign is linear with branching paths; a later persistent seasonal MMO layer for player-run corps is deferred.
+
+## What's new in 0.2.2.2
+
+Cleanup, better MAP visuals, and replacing legacy floating UI with cockpit / mode-aware HUD.
+
+### Skirmish & multiplayer
+- Skirmish no longer opens the campaign hangar — pick map/mode, then one of **four premade loaner kits** (same designs OK in co-op).
+- Loaners spawn **pristine** (garage wear does not leak onto skirmish / academy / convention kits).
+- Multiplayer lobby polish (roster, chat, skirmish premade pick) for co-op detachments.
+
+### First-person cockpit HUD
+- **HUD bars** setting: **Auto** (default) / First Person (panels) / Overlay — panels in FP, floating HUD in third person when Auto.
+- Diegetic dashboard screens: sensors, integrity (+ PWR/SPD), weapons/modules, tactical placeholder.
+- Per-arm heat on the cockpit glass; **overall chassis heat** warning bar under the crosshair (appears at 60%+, orange → deep red, fades out when cooling).
+- Sensor binds (**TAB** / **C** / **X**) live beside `// SENSORS` on Screen_Threat; floating `SYSTEM LOCK: no system lock` removed in FP.
+- Damage Sustained VO only when a **component is destroyed**, not on every hit.
+
+### Mech designs & audio
+- Authored torso scenes for manufacturer kits (Ashwhisk, Brimforge, Lumina, OuroTech, Velhound, Fleet polish).
+- Soft-tail / cockpit hull registry / part-visual tscn pipeline notes.
+- Footstep packs, dry-fire / overheat / steam SFX, and audio bus layout updates.
 
 ## What's new in 0.2.2.1
 

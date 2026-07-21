@@ -47,6 +47,8 @@ public partial class PartData : Resource
 	[Export] public Vector3 VisualScale { get; set; } = Vector3.One;
 	[Export] public string VisualKind { get; set; } = "box";
 
+	/// <summary>Hollow Mech 2.0 hull with CockpitAnchor (see <see cref="CockpitHullRegistry"/>).</summary>
+	public bool IsCockpitHull => CockpitHullRegistry.IsCockpitHull(VisualKind);
 	// --- Torso mounts / housing ---
 	[Export] public int ShoulderMountCount { get; set; }
 	[Export] public int BackpackMountCount { get; set; }

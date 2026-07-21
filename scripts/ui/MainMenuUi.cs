@@ -165,9 +165,10 @@ public partial class MainMenuUi : Control
 		barInner.AddThemeConstantOverride("separation", 10);
 		bar.AddChild(barInner);
 
+		var handle = session?.Profile.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename;
 		var status = new Label
 		{
-			Text = $"Profile  ·  Scrap {session?.Profile.Scrap ?? 0}  ·  Parts {session?.Profile.OwnedCopyCount ?? 0}  ·  " +
+			Text = $"{handle}  ·  Scrap {session?.Profile.Scrap ?? 0}  ·  Parts {session?.Profile.OwnedCopyCount ?? 0}  ·  " +
 				   $"Lives bank {session?.Profile.LivesBank ?? 2}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Muted
@@ -183,15 +184,314 @@ public partial class MainMenuUi : Control
 		barInner.AddChild(row);
 
 		row.AddChild(MakeBarButton("SKIRMISH", ShowSkirmishSetup, primary: true));
-		row.AddChild(MakeBarButton("CO-OP", ShowCoopLobby));
+		row.AddChild(MakeBarButton("MULTIPLAYER", ShowMultiplayerLobby));
 		row.AddChild(MakeBarButton("CAMPAIGN", ShowSolarCampaignEntry));
 		row.AddChild(MakeBarButton("ROGUELIKE", ShowRoguelikeEntry));
-		row.AddChild(MakeBarButton("NEW PROFILE", () =>
-		{
-			session?.NewProfile();
-			GetTree().ReloadCurrentScene();
-		}));
+		row.AddChild(MakeBarButton("PROFILE", ShowProfileSlots));
 		row.AddChild(MakeBarButton("QUIT", () => GetTree().Quit()));
+	}
+
+	private void ShowProfileSlots()
+	{
+		MakeSubmenuShell(out var root);
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var selected = session?.ActiveSlotIndex ?? 0;
+		var copyMode = false;
+		var confirmDelete = false;
+
+		var title = new Label
+		{
+			Text = "Profile Slots",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.AccentHot
+		};
+		title.AddThemeFontSizeOverride("font_size", 28);
+		root.AddChild(title);
+
+		var blurb = new Label
+		{
+			Text = "Four local saves. Your slot name is your LAN multiplayer handle.",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = MechUiTheme.Muted
+		};
+		blurb.AddThemeFontSizeOverride("font_size", 13);
+		root.AddChild(blurb);
+
+		var status = new Label
+		{
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Accent,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart
+		};
+		status.AddThemeFontSizeOverride("font_size", 14);
+		root.AddChild(status);
+
+		var slotRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+		slotRow.AddThemeConstantOverride("separation", 10);
+		root.AddChild(slotRow);
+
+		var summary = new Label
+		{
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = MechUiTheme.Text
+		};
+		summary.AddThemeFontSizeOverride("font_size", 14);
+		root.AddChild(summary);
+
+		var handleEdit = new LineEdit
+		{
+			PlaceholderText = "Account handle (1–24 characters)",
+			CustomMinimumSize = new Vector2(360, 36),
+			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+			MaxLength = SaveService.MaxHandleLength
+		};
+		root.AddChild(handleEdit);
+
+		var actions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+		actions.AddThemeConstantOverride("separation", 8);
+		root.AddChild(actions);
+
+		void Refresh()
+		{
+			foreach (var child in slotRow.GetChildren())
+				child.QueueFree();
+
+			var manifest = SaveService.Manifest;
+			for (var i = 0; i < SaveService.MaxSlots; i++)
+			{
+				var idx = i;
+				var occupied = SaveService.SlotOccupied(i);
+				var handle = occupied
+					? (string.IsNullOrEmpty(manifest.Slots[i].AccountHandle)
+						? $"Pilot {i + 1}"
+						: manifest.Slots[i].AccountHandle)
+					: "Empty";
+				var label = occupied
+					? $"Slot {i + 1}\n{handle}"
+					: $"Slot {i + 1}\n— empty —";
+				var active = i == (session?.ActiveSlotIndex ?? -1);
+				var btn = MakeBarButton(label, () =>
+				{
+					if (copyMode)
+					{
+						if (occupied)
+						{
+							status.Text = "Copy needs an empty destination slot.";
+							return;
+						}
+
+						var from = selected;
+						if (session?.CopySlot(from, idx) == true)
+						{
+							SfxService.Confirm();
+							copyMode = false;
+							selected = idx;
+							status.Text = $"Copied slot {from + 1} → {idx + 1}.";
+							Refresh();
+						}
+						else
+							status.Text = "Copy failed.";
+						return;
+					}
+
+					selected = idx;
+					confirmDelete = false;
+					Refresh();
+				}, primary: selected == i);
+				btn.CustomMinimumSize = new Vector2(150, 72);
+				if (active)
+					btn.Modulate = MechUiTheme.AccentHot;
+				slotRow.AddChild(btn);
+			}
+
+			var occ = SaveService.SlotOccupied(selected);
+			var slotInfo = SaveService.Manifest.Slots[selected];
+			if (occ)
+			{
+				var scrapHint = selected == session?.ActiveSlotIndex
+					? $"Scrap {session?.Profile.Scrap ?? 0}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}"
+					: "Occupied save";
+				var last = "";
+				if (slotInfo.LastPlayedUnix > 0)
+				{
+					var dt = System.DateTimeOffset.FromUnixTimeSeconds(slotInfo.LastPlayedUnix).LocalDateTime;
+					last = $"  ·  Last played {dt:g}";
+				}
+				summary.Text =
+					$"Selected Slot {selected + 1}: {slotInfo.AccountHandle}\n{scrapHint}{last}" +
+					(selected == session?.ActiveSlotIndex ? "\n(currently active)" : "");
+				handleEdit.Text = slotInfo.AccountHandle;
+				handleEdit.Editable = true;
+			}
+			else
+			{
+				summary.Text = $"Selected Slot {selected + 1}: empty — enter a handle and press New.";
+				if (string.IsNullOrWhiteSpace(handleEdit.Text))
+					handleEdit.Text = "";
+				handleEdit.Editable = true;
+			}
+
+			if (copyMode)
+				status.Text = "Copy mode: click an empty slot as destination.";
+			else if (confirmDelete)
+				status.Text = "Press Delete again to confirm wipe of this slot.";
+			else if (string.IsNullOrEmpty(status.Text) || status.Text.StartsWith("Copy mode") || status.Text.StartsWith("Press Delete"))
+				status.Text = SaveService.SlotOccupied(session?.ActiveSlotIndex ?? 0)
+					? $"Active: {session?.Profile.ResolveAccountHandle()}"
+					: "Pick a slot.";
+		}
+
+		actions.AddChild(MakeBarButton("Select", () =>
+		{
+			if (session == null)
+				return;
+			if (!SaveService.SlotOccupied(selected))
+			{
+				status.Text = "Slot is empty — use New first.";
+				return;
+			}
+
+			if (selected == session.ActiveSlotIndex)
+			{
+				SfxService.Click();
+				BuildUi();
+				return;
+			}
+
+			if (session.SwitchToSlot(selected))
+			{
+				SfxService.Confirm();
+				GetTree().ReloadCurrentScene();
+			}
+			else
+				status.Text = "Could not switch profile.";
+		}, primary: true));
+
+		actions.AddChild(MakeBarButton("New", () =>
+		{
+			if (session == null)
+				return;
+			if (SaveService.SlotOccupied(selected))
+			{
+				status.Text = "Slot occupied — delete it or pick an empty slot.";
+				return;
+			}
+
+			var handle = SaveService.SanitizeHandle(handleEdit.Text);
+			if (!SaveService.IsValidHandle(handle))
+			{
+				status.Text = "Enter a valid account handle (1–24 characters).";
+				return;
+			}
+
+			if (session.CreateSlot(selected, handle))
+			{
+				SfxService.Confirm();
+				GetTree().ReloadCurrentScene();
+			}
+			else
+				status.Text = "Could not create profile.";
+		}));
+
+		actions.AddChild(MakeBarButton("Rename", () =>
+		{
+			if (session == null)
+				return;
+			if (!SaveService.SlotOccupied(selected))
+			{
+				status.Text = "Nothing to rename.";
+				return;
+			}
+
+			var handle = SaveService.SanitizeHandle(handleEdit.Text);
+			if (!SaveService.IsValidHandle(handle))
+			{
+				status.Text = "Enter a valid account handle (1–24 characters).";
+				return;
+			}
+
+			if (session.RenameSlot(selected, handle))
+			{
+				SfxService.Confirm();
+				status.Text = $"Renamed to {handle}.";
+				confirmDelete = false;
+				copyMode = false;
+				Refresh();
+				if (selected == session.ActiveSlotIndex)
+				{
+					// Refresh main identity without full reload if staying here.
+				}
+			}
+			else
+				status.Text = "Rename failed.";
+		}));
+
+		actions.AddChild(MakeBarButton("Copy To…", () =>
+		{
+			if (!SaveService.SlotOccupied(selected))
+			{
+				status.Text = "Select an occupied slot to copy.";
+				return;
+			}
+
+			var hasEmpty = false;
+			for (var i = 0; i < SaveService.MaxSlots; i++)
+			{
+				if (!SaveService.SlotOccupied(i))
+				{
+					hasEmpty = true;
+					break;
+				}
+			}
+
+			if (!hasEmpty)
+			{
+				status.Text = "No empty slot — delete one first.";
+				return;
+			}
+
+			copyMode = true;
+			confirmDelete = false;
+			Refresh();
+		}));
+
+		actions.AddChild(MakeBarButton("Delete", () =>
+		{
+			if (session == null)
+				return;
+			if (!SaveService.SlotOccupied(selected))
+			{
+				status.Text = "Slot already empty.";
+				return;
+			}
+
+			if (!confirmDelete)
+			{
+				confirmDelete = true;
+				copyMode = false;
+				Refresh();
+				return;
+			}
+
+			if (session.DeleteSlot(selected))
+			{
+				SfxService.Confirm();
+				GetTree().ReloadCurrentScene();
+			}
+			else
+				status.Text = "Delete failed.";
+		}));
+
+		root.AddChild(MakeButton("Back", () =>
+		{
+			copyMode = false;
+			confirmDelete = false;
+			BuildUi();
+		}));
+
+		Refresh();
 	}
 
 	private Control MakeSubmenuShell(out VBoxContainer content)
@@ -246,7 +546,7 @@ public partial class MainMenuUi : Control
 		});
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		root.AddChild(MakeButton("CONTINUE SYSTEM CAMPAIGN", () =>
+		root.AddChild(MakeButton("CONTINUE", () =>
 		{
 			session?.BeginSolarCampaign();
 			if (session?.InSolarOnboarding == true)
@@ -262,13 +562,46 @@ public partial class MainMenuUi : Control
 			else
 				GetTree().ChangeSceneToFile("res://scenes/solar_system_map.tscn");
 		}, primary: true));
-		root.AddChild(MakeButton("NEW FRONTIER CAMPAIGN (KEEP PROFILE)", () =>
+		root.AddChild(MakeButton("NEW", ShowNewSolarCampaignOptions));
+		root.AddChild(MakeButton("Back", BuildUi));
+	}
+
+	private void ShowNewSolarCampaignOptions()
+	{
+		MakeSubmenuShell(out var root);
+		var title = new Label
 		{
+			Text = "NEW CAMPAIGN",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Text
+		};
+		title.AddThemeFontSizeOverride("font_size", 32);
+		root.AddChild(title);
+		root.AddChild(new Label
+		{
+			Text =
+				"Start a fresh system claim.\n\n" +
+				"Take the cadet tutorial first, or skip straight to the job convention and sign with an employer.",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			AutowrapMode = TextServer.AutowrapMode.WordSmart,
+			Modulate = MechUiTheme.Muted
+		});
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		root.AddChild(MakeButton("TUTORIAL", () =>
+		{
+			SfxService.Confirm();
 			session?.BeginSolarCampaign(reset: true);
 			session?.LaunchSolarOnboarding();
 			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+		}, primary: true));
+		root.AddChild(MakeButton("SKIP TO CONVENTION", () =>
+		{
+			SfxService.Confirm();
+			session?.BeginSolarCampaignSkipToConvention();
+			GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
 		}));
-		root.AddChild(MakeButton("Back", BuildUi));
+		root.AddChild(MakeButton("Back", ShowSolarCampaignEntry));
 	}
 
 	private void ShowRoguelikeEntry()
@@ -302,7 +635,7 @@ public partial class MainMenuUi : Control
 		var dossier = new Label
 		{
 			Text =
-				$"Merc corps  ·  {profile?.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename}\n" +
+				$"Handle  ·  {profile?.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename}\n" +
 				$"Manufacturer license (run)  ·  {affiliation}\n" +
 				$"{VoidCorpsIdentity.PlayerCorpBlurb}",
 			HorizontalAlignment = HorizontalAlignment.Center,
@@ -571,25 +904,28 @@ public partial class MainMenuUi : Control
 			{
 				session.PendingDifficulty = difficulty;
 				session.PendingMission = missionType;
-				session.BeginSkirmish();
 			}
-			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+			ShowSkirmishMechSelect();
 		}, primary: true));
 
 		root.AddChild(MakeButton("Back", () => GetTree().ReloadCurrentScene()));
 	}
 
-	private void ShowCoopLobby()
+	private void ShowSkirmishMechSelect()
 	{
-		MakeSubmenuShell(out var root);
+		var panel = MakeSubmenuShell(out var root);
+		panel.CustomMinimumSize = new Vector2(980, 0);
 
-		var net = GetNodeOrNull<NetSession>("/root/NetSession");
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
-		net?.SetLocalDisplayName(session?.Profile.MercCorpName ?? VoidCorpsIdentity.PlayerCorpCodename);
+		GameCatalog.EnsureBuilt();
+		var premades = GameCatalog.SkirmishPremades;
+		var selected = session?.SkirmishPremadeVariant ?? -1;
+		if (selected < 0 && premades.Length > 0)
+			selected = premades[0].Variant;
 
 		var title = new Label
 		{
-			Text = "CO-OP DETACHMENT",
+			Text = "SELECT LOANER MAP",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Text
 		};
@@ -599,147 +935,114 @@ public partial class MainMenuUi : Control
 		var blurb = new Label
 		{
 			Text =
-				"Listen-server wing. Host owns the match. Up to 4 MAP pilots, same team. " +
-				"Guests connect by IP (port forward may be required).",
+				"Skirmish uses fixed premade kits. Your campaign garage loadout is not used or overwritten. " +
+				"In co-op, wingmates may take the same design.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = MechUiTheme.Muted
 		};
 		root.AddChild(blurb);
 
-		var status = new Label
-		{
-			HorizontalAlignment = HorizontalAlignment.Center,
-			Modulate = MechUiTheme.Accent
-		};
-		status.AddThemeFontSizeOverride("font_size", 16);
-		root.AddChild(status);
-
-		var roster = new Label
+		var detail = new Label
 		{
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
-			Modulate = MechUiTheme.Muted
+			Modulate = MechUiTheme.Text
 		};
-		root.AddChild(roster);
+		detail.AddThemeFontSizeOverride("font_size", 16);
+		root.AddChild(detail);
 
-		var addressEdit = new LineEdit
+		var preview = new HangarMechPreview
 		{
-			PlaceholderText = "Host IP (default 127.0.0.1)",
-			Text = "127.0.0.1",
-			CustomMinimumSize = new Vector2(360, 36),
+			CustomMinimumSize = new Vector2(420, 260),
 			SizeFlagsHorizontal = SizeFlags.ShrinkCenter
 		};
-		root.AddChild(addressEdit);
+		root.AddChild(preview);
 
-		var portEdit = new LineEdit
+		var pickRow = new HBoxContainer
 		{
-			PlaceholderText = "Port",
-			Text = NetSession.DefaultPort.ToString(),
-			CustomMinimumSize = new Vector2(160, 36),
-			SizeFlagsHorizontal = SizeFlags.ShrinkCenter
+			Alignment = BoxContainer.AlignmentMode.Center,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill
 		};
-		root.AddChild(portEdit);
+		pickRow.AddThemeConstantOverride("separation", 10);
+		root.AddChild(pickRow);
 
-		void RefreshLobby()
+		var pickButtons = new Button[premades.Length];
+
+		void RefreshSelection()
 		{
-			status.Text = net?.StatusMessage ?? "Offline";
-			if (net == null || !net.IsOnline)
+			SkirmishPremadeDef? chosen = null;
+			foreach (var def in premades)
 			{
-				roster.Text = "Not connected.";
+				if (def.Variant == selected)
+				{
+					chosen = def;
+					break;
+				}
+			}
+
+			chosen ??= premades.Length > 0 ? premades[0] : null;
+			if (chosen == null)
 				return;
-			}
 
-			var lines = new System.Text.StringBuilder();
-			lines.AppendLine($"Peers {net.PeerCount}/{NetSession.MaxCoopPlayers}");
-			foreach (var id in net.GetOrderedPeerIds())
+			selected = chosen.Value.Variant;
+			session?.SetSkirmishPremade(selected);
+			detail.Text =
+				$"{chosen.Value.DisplayName}\n{chosen.Value.Manufacturer}\n{chosen.Value.Blurb}";
+			preview.ShowLoadout(chosen.Value.Loadout.Clone());
+
+			for (var i = 0; i < pickButtons.Length; i++)
 			{
-				var ready = net.IsPeerReady(id) ? "READY" : "staging";
-				lines.AppendLine($"{net.PeerDisplayName(id)}  ·  peer {id}  ·  {ready}");
+				if (pickButtons[i] == null)
+					continue;
+				var isOn = premades[i].Variant == selected;
+				pickButtons[i].Text = isOn
+					? $"▶ {premades[i].DisplayName}"
+					: premades[i].DisplayName;
 			}
-
-			roster.Text = lines.ToString();
 		}
 
-		RefreshLobby();
-		if (net != null)
-			net.RosterChanged += RefreshLobby;
-
-		root.AddChild(MakeButton("HOST WING", () =>
+		for (var i = 0; i < premades.Length; i++)
 		{
-			var port = portEdit.Text.ToInt();
-			if (port <= 0)
-				port = NetSession.DefaultPort;
-			net?.Host(port);
-			RefreshLobby();
+			var def = premades[i];
+			var captured = def.Variant;
+			var btn = new Button
+			{
+				Text = def.DisplayName,
+				CustomMinimumSize = new Vector2(210, 52),
+				SizeFlagsHorizontal = SizeFlags.ShrinkCenter
+			};
+			btn.AddThemeFontSizeOverride("font_size", 14);
+			MechUiTheme.StyleGhostButton(btn);
+			btn.Pressed += () =>
+			{
+				SfxService.Click();
+				selected = captured;
+				RefreshSelection();
+			};
+			pickButtons[i] = btn;
+			pickRow.AddChild(btn);
+		}
+
+		RefreshSelection();
+
+		root.AddChild(MakeButton("DEPLOY", () =>
+		{
+			if (session == null)
+				return;
+			session.SetSkirmishPremade(selected);
+			session.BeginSkirmish();
+			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
 		}, primary: true));
 
-		root.AddChild(MakeButton("JOIN WING", () =>
-		{
-			var port = portEdit.Text.ToInt();
-			if (port <= 0)
-				port = NetSession.DefaultPort;
-			net?.Join(addressEdit.Text, port);
-			RefreshLobby();
-		}, primary: true));
+		root.AddChild(MakeButton("Back", ShowSkirmishSetup));
+	}
 
-		root.AddChild(MakeButton("TOGGLE READY", () =>
-		{
-			if (net is not { IsOnline: true })
-				return;
-			net.SetLocalReady(!net.IsPeerReady(net.LocalPeerId));
-			RefreshLobby();
-		}));
-
-		root.AddChild(MakeButton("START CO-OP SKIRMISH (HOST)", () =>
-		{
-			if (net is not { Mode: NetSession.NetMode.Hosting })
-			{
-				status.Text = "Only the host can start.";
-				return;
-			}
-
-			net.Intent = NetSession.LobbyIntent.CoopSkirmish;
-			if (session != null)
-			{
-				session.CoopMatch = true;
-				session.PendingBossEncounter = BossEncounterId.None;
-			}
-
-			SfxService.Confirm();
-			net.HostLaunchMatch(session?.BuildLaunchPayload(false) ?? new Godot.Collections.Dictionary());
-		}, primary: true));
-
-		root.AddChild(MakeButton("START CO-OP ROGUELIKE (HOST)", () =>
-		{
-			if (net is not { Mode: NetSession.NetMode.Hosting })
-			{
-				status.Text = "Only the host can start.";
-				return;
-			}
-
-			net.Intent = NetSession.LobbyIntent.CoopCampaign;
-			session?.BeginCampaignRun(0);
-			if (session != null)
-				session.CoopMatch = true;
-			SfxService.Confirm();
-			var payload = session?.BuildLaunchPayload(false, "campaign")
-						  ?? new Godot.Collections.Dictionary { ["scene"] = "campaign" };
-			net.HostLaunchMatch(payload);
-		}));
-
-		root.AddChild(MakeButton("DISCONNECT", () =>
-		{
-			net?.DisconnectSession();
-			RefreshLobby();
-		}));
-
-		root.AddChild(MakeButton("Back", () =>
-		{
-			if (net != null)
-				net.RosterChanged -= RefreshLobby;
-			BuildUi();
-		}));
+	private void ShowMultiplayerLobby()
+	{
+		ClearUi();
+		MouseFilter = MouseFilterEnum.Stop;
+		AddChild(MultiplayerLobbyUi.Create(BuildUi));
 	}
 
 	private static Button MakeBarButton(string text, System.Action onPress, bool primary = false)

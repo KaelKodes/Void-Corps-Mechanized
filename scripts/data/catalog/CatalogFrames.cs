@@ -102,6 +102,14 @@ public static class CatalogFrames
 			48, 7.2f, 50f, LegMode.Locked,
 			dashSpeed: 22f, dashDuration: 0.22f, dashCooldown: 1.6f, dashPower: 20f, dashHeat: 16f,
 			moveHeat: 3.8f, idleHeat: 0.9f);
+
+		// --- Ashwhisk / Velhound body houses (skirmish Whisperframe / Yardbreaker; T1 Field) ---
+		parts["legs_ash_coilstriders"] = CatalogBuilders.Leg("legs_ash_coilstriders", "Coilstriders", "ashwhisk", m,
+			16, 14f, 125f, "legs_ash_coil", LegMode.Locked, LegType.Bipedal,
+			canSprint: true, sprintMult: 1.68f, sprintHeat: 15f, sprintLoad: 19f, moveHeat: 1.5f, idleHeat: 0.35f);
+		parts["legs_vel_bracehounds"] = CatalogBuilders.Leg("legs_vel_bracehounds", "Bracehounds", "velhound", m,
+			38, 10.2f, 78f, "legs_biped", LegMode.Locked, LegType.Bipedal,
+			canSprint: true, sprintMult: 1.42f, sprintHeat: 20f, sprintLoad: 26f, moveHeat: 3.0f, idleHeat: 0.65f);
 	}
 
 	private static void RegisterTorsos(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)
@@ -111,7 +119,8 @@ public static class CatalogFrames
 			scale: new Vector3(1.2f, 1.1f, 1.15f), heatCap: 25, idleHeat: 1.5f);
 		parts["torso_brin_anvil"] = CatalogBuilders.Torso("torso_brin_anvil", "Anvil Ribcage", "brimforge", m,
 			95, housing: 3, structureHp: 100, shoulders: 2, backs: 1,
-			scale: new Vector3(1.28f, 1.15f, 1.2f), heatCap: 35, idleHeat: 1.9f);
+			scale: new Vector3(1.28f, 1.15f, 1.2f), heatCap: 35, idleHeat: 1.9f,
+			visualKind: "torso_brin_anvil");
 		parts["torso_brin_citadel"] = CatalogBuilders.Torso("torso_brin_citadel", "Citadel Hull", "brimforge", m,
 			110, housing: 3, structureHp: 110, shoulders: 2, backs: 0,
 			scale: new Vector3(1.35f, 1.2f, 1.25f), heatCap: 40, idleHeat: 2.2f);
@@ -127,7 +136,8 @@ public static class CatalogFrames
 
 		parts["torso_ouro_thin"] = CatalogBuilders.Torso("torso_ouro_thin", "Thinspine Chassis", "ourotech", m,
 			32, housing: 2, structureHp: 55, shoulders: 2, backs: 1,
-			scale: new Vector3(0.92f, 1.05f, 0.95f), heatCap: 12, idleHeat: 0.7f);
+			scale: new Vector3(0.92f, 1.05f, 0.95f), heatCap: 12, idleHeat: 0.7f,
+			visualKind: "torso_ouro_thin");
 		parts["torso_ouro_caliper"] = CatalogBuilders.Torso("torso_ouro_caliper", "Caliper Frame", "ourotech", m,
 			38, housing: 2, structureHp: 60, shoulders: 2, backs: 0,
 			scale: new Vector3(0.9f, 1.08f, 0.92f), heatCap: 14, idleHeat: 0.65f);
@@ -141,7 +151,17 @@ public static class CatalogFrames
 			30, housing: 2, structureHp: 58, shoulders: 1, backs: 1,
 			scale: new Vector3(0.93f, 1.1f, 0.93f), heatCap: 8, idleHeat: 0.95f);
 		parts["torso_lum_oracle"] = CatalogBuilders.Torso("torso_lum_oracle", "Oracle Hull", "lumina", m,
-			40, housing: 3, structureHp: 68, shoulders: 1, backs: 1, heatCap: 12, idleHeat: 1.05f);
+			40, housing: 3, structureHp: 68, shoulders: 1, backs: 1, heatCap: 12, idleHeat: 1.05f,
+			visualKind: "torso_lum_oracle");
+
+		parts["torso_ash_ashrib"] = CatalogBuilders.Torso("torso_ash_ashrib", "Ashrib Cage", "ashwhisk", m,
+			36, housing: 2, structureHp: 58, shoulders: 2, backs: 1,
+			scale: new Vector3(0.9f, 1.08f, 0.92f), heatCap: 14, idleHeat: 0.75f,
+			visualKind: "torso_ash_ashrib");
+		parts["torso_vel_ruff"] = CatalogBuilders.Torso("torso_vel_ruff", "Ruff Plate", "velhound", m,
+			72, housing: 3, structureHp: 88, shoulders: 2, backs: 1,
+			scale: new Vector3(1.18f, 1.08f, 1.12f), heatCap: 28, idleHeat: 1.5f,
+			visualKind: "torso_vel_ruff");
 	}
 
 	private static void RegisterHeads(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)
@@ -188,5 +208,14 @@ public static class CatalogFrames
 		parts["head_lum_ghost"] = CatalogBuilders.Head("head_lum_ghost", "Ghost Iris", "lumina", m,
 			8, turn: 9f, visionRange: 46f, visionAngle: 115f, close: 0.72f,
 			scanRange: 95f, scanRes: 0.52f, idleHeat: 0.6f, fireRateBonus: 0.06f);
+
+		parts["head_ash_whisker"] = CatalogBuilders.Head("head_ash_whisker", "Whisker Array", "ashwhisk", m,
+			7, turn: 13f, visionRange: 56f, visionAngle: 85f, close: 0.88f,
+			scanRange: 92f, scanRes: 0.58f, idleHeat: 0.48f, fireRateBonus: 0.07f,
+			scale: new Vector3(0.95f, 1.05f, 0.95f), visualKind: "head_ash_whisker");
+		parts["head_vel_muzzle"] = CatalogBuilders.Head("head_vel_muzzle", "Muzzle Lidar", "velhound", m,
+			22, turn: -2f, visionRange: 38f, visionAngle: 100f, close: 0.5f,
+			scanRange: 65f, scanRes: 0.32f, idleHeat: 0.55f,
+			scale: new Vector3(1.12f, 1.05f, 1.15f));
 	}
 }

@@ -1,0 +1,333 @@
+[gd_scene format=3 uid="uid://d2kt8wx1yamx1"]
+
+[ext_resource type="Script" uid="uid://dr03rlsjhucsu" path="res://scripts/mech/FleetTorsoVisual.cs" id="1_fleet"]
+
+[sub_resource type="BoxMesh" id="MeshHullRear"]
+size = Vector3(1.55, 1.2, 0.28)
+
+[sub_resource type="StandardMaterial3D" id="MatHull"]
+albedo_color = Color(0.35, 0.72, 0.48, 1)
+metallic = 0.38
+roughness = 0.52
+
+[sub_resource type="BoxMesh" id="MeshSideRear"]
+size = Vector3(0.18, 1.2, 0.42)
+
+[sub_resource type="BoxMesh" id="MeshSideLowerFwd"]
+size = Vector3(0.16, 0.32, 0.42)
+
+[sub_resource type="BoxMesh" id="MeshSideGlassWedge"]
+size = Vector3(0.14, 0.62, 0.48)
+
+[sub_resource type="StandardMaterial3D" id="MatGlass"]
+transparency = 1
+cull_mode = 2
+albedo_color = Color(0.55, 0.82, 1, 0.07)
+metallic = 0.02
+roughness = 0.08
+emission_enabled = true
+emission = Color(0.35, 0.7, 1, 1)
+emission_energy_multiplier = 0.12
+
+[sub_resource type="BoxMesh" id="MeshSideBrace"]
+size = Vector3(0.08, 0.07, 0.62)
+
+[sub_resource type="StandardMaterial3D" id="MatDark"]
+albedo_color = Color(0.12, 0.18, 0.14, 1)
+metallic = 0.45
+roughness = 0.48
+
+[sub_resource type="BoxMesh" id="MeshFloorCeil"]
+size = Vector3(1.3, 0.16, 0.95)
+
+[sub_resource type="BoxMesh" id="MeshCollar"]
+size = Vector3(1.35, 0.22, 0.95)
+
+[sub_resource type="BoxMesh" id="MeshNeck"]
+size = Vector3(0.78, 0.28, 0.72)
+
+[sub_resource type="BoxMesh" id="MeshPauldron"]
+size = Vector3(0.48, 0.42, 0.62)
+
+[sub_resource type="StandardMaterial3D" id="MatLight"]
+albedo_color = Color(0.48, 0.82, 0.58, 1)
+metallic = 0.3
+roughness = 0.45
+
+[sub_resource type="BoxMesh" id="MeshAccent"]
+size = Vector3(0.18, 0.22, 0.06)
+
+[sub_resource type="StandardMaterial3D" id="MatGlow"]
+albedo_color = Color(0.55, 0.9, 0.65, 1)
+emission_enabled = true
+emission = Color(0.45, 0.78, 0.55, 1)
+emission_energy_multiplier = 1.1
+
+[sub_resource type="BoxMesh" id="MeshAnvilChest"]
+size = Vector3(1.28, 0.26, 0.2)
+
+[sub_resource type="BoxMesh" id="MeshPillar"]
+size = Vector3(0.14, 1, 0.14)
+
+[sub_resource type="BoxMesh" id="MeshLintel"]
+size = Vector3(1.48, 0.12, 0.12)
+
+[sub_resource type="BoxMesh" id="MeshRollBar"]
+size = Vector3(1.15, 0.07, 0.09)
+
+[sub_resource type="BoxMesh" id="MeshMidCrossbar"]
+size = Vector3(1.1, 0.05, 0.07)
+
+[sub_resource type="CylinderMesh" id="MeshRollMount"]
+top_radius = 0.055
+bottom_radius = 0.055
+height = 0.055
+
+[sub_resource type="BoxMesh" id="MeshGlass"]
+size = Vector3(1.2, 0.62, 0.04)
+
+[sub_resource type="BoxMesh" id="MeshDeck"]
+size = Vector3(1.26, 0.07, 0.09)
+
+[sub_resource type="QuadMesh" id="MeshScreen"]
+size = Vector2(0.24, 0.18)
+
+[sub_resource type="StandardMaterial3D" id="MatScreenRed"]
+cull_mode = 2
+albedo_color = Color(0.55, 0.12, 0.1, 1)
+emission_enabled = true
+emission = Color(0.95, 0.25, 0.18, 1)
+emission_energy_multiplier = 0.85
+
+[sub_resource type="StandardMaterial3D" id="MatScreenGreen"]
+cull_mode = 2
+albedo_color = Color(0.12, 0.48, 0.22, 1)
+emission_enabled = true
+emission = Color(0.2, 0.75, 0.35, 1)
+emission_energy_multiplier = 0.85
+
+[sub_resource type="QuadMesh" id="MeshScreenWide"]
+size = Vector2(0.2, 0.16)
+
+[sub_resource type="BoxMesh" id="MeshSideRailTrim"]
+size = Vector3(0.05, 0.82, 0.06)
+
+[node name="TorsoBrinAnvil" type="Node3D" unique_id=120646443]
+script = ExtResource("1_fleet")
+
+[node name="Exterior" type="Node3D" parent="." unique_id=573943915]
+
+[node name="HullRear" type="MeshInstance3D" parent="Exterior" unique_id=1020781706]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.58, 0.52)
+mesh = SubResource("MeshHullRear")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="SideWallL" type="Node3D" parent="Exterior" unique_id=1805538390]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.72, 0.58, 0.02)
+
+[node name="FrameRear" type="MeshInstance3D" parent="Exterior/SideWallL" unique_id=1805538391]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.24)
+mesh = SubResource("MeshSideRear")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="FrameLowerFwd" type="MeshInstance3D" parent="Exterior/SideWallL" unique_id=1805538392]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, -0.12)
+mesh = SubResource("MeshSideLowerFwd")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="GlassWedge" type="MeshInstance3D" parent="Exterior/SideWallL" unique_id=1805538393]
+transform = Transform3D(1, 0, 0, 0, 1.1843736, 0, 0, 0, 0.9680325, 0.024999976, -0.09471363, -0.20213595)
+cast_shadow = 0
+mesh = SubResource("MeshSideGlassWedge")
+surface_material_override/0 = SubResource("MatGlass")
+
+[node name="Brace" type="MeshInstance3D" parent="Exterior/SideWallL" unique_id=1805538394]
+transform = Transform3D(0.939693, -0.34202, 0, 0.34202, 0.939693, 0, 0, 0, 1, 0, -0.02, -0.02)
+mesh = SubResource("MeshSideBrace")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="SideWallR" type="Node3D" parent="Exterior" unique_id=467237824]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.72, 0.58, 0.02)
+
+[node name="FrameRear" type="MeshInstance3D" parent="Exterior/SideWallR" unique_id=467237825]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.24)
+mesh = SubResource("MeshSideRear")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="FrameLowerFwd" type="MeshInstance3D" parent="Exterior/SideWallR" unique_id=467237826]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.28, -0.14)
+mesh = SubResource("MeshSideLowerFwd")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="GlassWedge" type="MeshInstance3D" parent="Exterior/SideWallR" unique_id=467237827]
+transform = Transform3D(1, 0, 0, 0, 1.1750284, 0, 0, 0, 1.0787107, -0.024999976, -0.10746622, -0.16873062)
+cast_shadow = 0
+mesh = SubResource("MeshSideGlassWedge")
+surface_material_override/0 = SubResource("MatGlass")
+
+[node name="Brace" type="MeshInstance3D" parent="Exterior/SideWallR" unique_id=467237828]
+transform = Transform3D(0.939693, -0.34202, 0, 0.34202, 0.939693, 0, 0, 0, 1, 0, -0.02, -0.02)
+mesh = SubResource("MeshSideBrace")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="HullFloor" type="MeshInstance3D" parent="Exterior" unique_id=1352560633]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.035, 0.015)
+mesh = SubResource("MeshFloorCeil")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="HullCeiling" type="MeshInstance3D" parent="Exterior" unique_id=941211890]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.8535724e-06, 1.0649788, 0.015042408)
+mesh = SubResource("MeshFloorCeil")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="Collar" type="MeshInstance3D" parent="Exterior" unique_id=224423888]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0.05)
+mesh = SubResource("MeshCollar")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="NeckPedestal" type="MeshInstance3D" parent="Exterior" unique_id=921479797]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+mesh = SubResource("MeshNeck")
+surface_material_override/0 = SubResource("MatHull")
+
+[node name="PauldronL" type="MeshInstance3D" parent="Exterior" unique_id=1395124143]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.88, 0.9, 0.05)
+mesh = SubResource("MeshPauldron")
+surface_material_override/0 = SubResource("MatLight")
+
+[node name="PauldronR" type="MeshInstance3D" parent="Exterior" unique_id=1511103748]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.88, 0.9, 0.05)
+mesh = SubResource("MeshPauldron")
+surface_material_override/0 = SubResource("MatLight")
+
+[node name="AccentL" type="MeshInstance3D" parent="Exterior" unique_id=1256311372]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.95, 0.92, -0.15)
+mesh = SubResource("MeshAccent")
+surface_material_override/0 = SubResource("MatGlow")
+
+[node name="AccentR" type="MeshInstance3D" parent="Exterior" unique_id=600121131]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.95, 0.92, -0.15)
+mesh = SubResource("MeshAccent")
+surface_material_override/0 = SubResource("MatGlow")
+
+[node name="AnvilChest" type="MeshInstance3D" parent="Exterior" unique_id=658700465]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.08, -0.68)
+visible = false
+mesh = SubResource("MeshAnvilChest")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="ViewFrame" type="Node3D" parent="." unique_id=1638757070]
+
+[node name="PillarL" type="MeshInstance3D" parent="ViewFrame" unique_id=1748446766]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7, 0.55, -0.5)
+mesh = SubResource("MeshPillar")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="PillarR" type="MeshInstance3D" parent="ViewFrame" unique_id=587477443]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7, 0.55, -0.5)
+mesh = SubResource("MeshPillar")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="LintelTop" type="MeshInstance3D" parent="ViewFrame" unique_id=1785656725]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.98, -0.5)
+mesh = SubResource("MeshLintel")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="RollBar" type="MeshInstance3D" parent="ViewFrame" unique_id=91818160]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -0.5)
+mesh = SubResource("MeshRollBar")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="MidCrossbar" type="MeshInstance3D" parent="ViewFrame" unique_id=429906742]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, -0.5)
+visible = false
+mesh = SubResource("MeshMidCrossbar")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="RollMountL" type="MeshInstance3D" parent="ViewFrame" unique_id=1643130900]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, -0.4, 0.9, -0.51)
+mesh = SubResource("MeshRollMount")
+surface_material_override/0 = SubResource("MatGlow")
+
+[node name="RollMountR" type="MeshInstance3D" parent="ViewFrame" unique_id=1625518011]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0.4, 0.9, -0.51)
+mesh = SubResource("MeshRollMount")
+surface_material_override/0 = SubResource("MatGlow")
+
+[node name="ViewPanel" type="MeshInstance3D" parent="." unique_id=1211530811]
+transform = Transform3D(1.0345149, 0, 0, 0, 1.3039895, 0, 0, 0, 1, 0, 0.5407995, -0.5)
+cast_shadow = 0
+mesh = SubResource("MeshGlass")
+surface_material_override/0 = SubResource("MatGlass")
+
+[node name="CockpitInterior" type="Node3D" parent="." unique_id=1971689983]
+
+[node name="Dashboard" type="Node3D" parent="CockpitInterior" unique_id=1169680319]
+transform = Transform3D(1, 0, 0, 0, 0.852167, 0.522687, 0, -0.522687, 0.852167, 0, 0.36, -0.18)
+
+[node name="DeckShelf" type="MeshInstance3D" parent="CockpitInterior/Dashboard" unique_id=117609200]
+transform = Transform3D(1.0615937, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.08184177, -0.3693077)
+mesh = SubResource("MeshDeck")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="Screen_Threat" type="MeshInstance3D" parent="CockpitInterior/Dashboard" unique_id=1930802136]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, -0.22262847, -0.043633193, -0.26041967)
+cast_shadow = 0
+mesh = SubResource("MeshScreen")
+surface_material_override/0 = SubResource("MatScreenRed")
+
+[node name="Screen_Self" type="MeshInstance3D" parent="CockpitInterior/Dashboard" unique_id=1174292197]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0.22422886, -0.041038215, -0.25997514)
+cast_shadow = 0
+mesh = SubResource("MeshScreen")
+surface_material_override/0 = SubResource("MatScreenGreen")
+
+[node name="Screen_WingL" type="Node3D" parent="CockpitInterior/Dashboard" unique_id=2093904460]
+transform = Transform3D(0.939, 0, 0.344, 0, 1, 0, -0.344, 0, 0.939, -0.4, 0.14, 0.04)
+
+[node name="Quad" type="MeshInstance3D" parent="CockpitInterior/Dashboard/Screen_WingL" unique_id=597626331]
+transform = Transform3D(0.9976038, 0.034157634, -0.06018515, -0.03491757, 0.99932337, -0.011615783, 0.05974756, 0.013689458, 0.99811995, 0.040331066, -0.19233268, -0.27317122)
+cast_shadow = 0
+mesh = SubResource("MeshScreenWide")
+surface_material_override/0 = SubResource("MatScreenGreen")
+
+[node name="Screen_WingR" type="Node3D" parent="CockpitInterior/Dashboard" unique_id=1582873234]
+transform = Transform3D(0.939, 0, -0.344, 0, 1, 0, 0.344, 0, 0.939, 0.4, 0.14, 0.04)
+
+[node name="Quad" type="MeshInstance3D" parent="CockpitInterior/Dashboard/Screen_WingR" unique_id=1801351739]
+transform = Transform3D(1.0000006, 2.9802322e-08, -1.4901161e-08, 5.9604645e-08, 1.0000002, 0, 1.6391277e-07, -2.9802322e-08, 1, -0.03233397, -0.19053853, -0.2684432)
+cast_shadow = 0
+mesh = SubResource("MeshScreenWide")
+surface_material_override/0 = SubResource("MatScreenGreen")
+
+[node name="CenterStick" type="Node3D" parent="CockpitInterior/Dashboard" unique_id=864266931]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 0.07)
+
+[node name="Base" type="MeshInstance3D" parent="CockpitInterior/Dashboard/CenterStick" unique_id=1915670649]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.1554882, -0.37676668)
+mesh = SubResource("MeshDeck")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="Handle" type="MeshInstance3D" parent="CockpitInterior/Dashboard/CenterStick" unique_id=1445585434]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.11442277, -0.31737065)
+mesh = SubResource("MeshAccent")
+surface_material_override/0 = SubResource("MatLight")
+
+[node name="Grip" type="MeshInstance3D" parent="CockpitInterior/Dashboard/CenterStick" unique_id=239508207]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.11154738, -0.3566311)
+visible = false
+mesh = SubResource("MeshAccent")
+surface_material_override/0 = SubResource("MatGlow")
+
+[node name="SideRailL" type="MeshInstance3D" parent="CockpitInterior" unique_id=1699941501]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7469411, 0.5386306, -0.30750674)
+mesh = SubResource("MeshSideRailTrim")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="SideRailR" type="MeshInstance3D" parent="CockpitInterior" unique_id=289989078]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7204895, 0.5169302, -0.33709326)
+mesh = SubResource("MeshSideRailTrim")
+surface_material_override/0 = SubResource("MatDark")
+
+[node name="CockpitAnchor" type="Marker3D" parent="." unique_id=1227912484]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.57, 0.06)

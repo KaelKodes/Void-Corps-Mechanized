@@ -15,7 +15,7 @@ public static class VoidCorpsIdentity
 	public const string ProductTitle = "Void Corps: Mechanize";
 	public const string ShortTitle = "MECHANIZE";
 	/// <summary>Player-facing build label (semver).</summary>
-	public const string GameVersion = "0.2.2";
+	public const string GameVersion = "0.2.2.2";
 
 	/// <summary>Manned combat chassis — Mechanized Armor Pilot.</summary>
 	public const string MapAcronym = "MAP";
@@ -35,23 +35,23 @@ public static class VoidCorpsIdentity
 	public const string TitanMap = "Titan-class MAP";
 
 	/// <summary>
-	/// Placeholder upstart the player joins in campaign.
-	/// Corps succeed → members succeed. Manufacturers license kit; they are not the player's org.
+	/// Default pilot handle placeholder. The player is a person under contract —
+	/// not a corp. Rival NPC corps remain organizations.
 	/// </summary>
-	public const string PlayerCorpCodename = "Upstart Detachment";
+	public const string PlayerCorpCodename = "Rook Pilot";
 	public const string PlayerCorpBlurb =
-		"A young surface corp. Rise through its ranks; if the corp takes ground, its pilots take the spoils.";
+		"You are a licensed MAP pilot under contract. Rank, pay, and access rise with the work you finish.";
 	public const string CampaignPremise =
-		"Your upstart corp has been tasked with claiming ground across a contested system. Manufacturers license kit and research; they are not your fighting faction.";
+		"Frontier companies are hiring pilots, survey crews, and contractors to claim contested ground. Manufacturers license kit and research; they are not your employer.";
 	public const string CadetPremise =
 		"The MAP Cadet Program issues a military-grade training chassis for tutorial certification only.";
 	public const string ConventionPremise =
-		"After graduation, the Big Four court new pilots with mock missions, sparse part pools, and trial scoring.";
+		"After graduation, independent companies court new pilots with evaluations, sparse starter packages, and contracts for frontier work.";
 
 	public const string Tagline =
-		"Surface warfare for unclaimed territory. Pilot a licensed MAP for your corp, deny rival assets, hold the claim.";
+		"When the claim isn't settled in orbit, pilots settle it on the surface.";
 	public const string OpsBrief =
-		"Surface warfare for unclaimed territory. Pilot a licensed MAP for your corp, deny rival assets, hold the claim.";
+		"Surface warfare for unclaimed territory. Pilot a licensed MAP, deny rival assets, hold the claim.";
 
 	/// <summary>
 	/// Design north star (not yet systems): campaign is linear path choice;

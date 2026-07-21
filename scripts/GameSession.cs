@@ -16,7 +16,14 @@ public partial class GameSession : Node
 	public LoadoutData? CadetLoaner { get; private set; }
 	/// <summary>Convention trial demo chassis — mutually exclusive with cadet loaner.</summary>
 	public LoadoutData? ConventionDemoLoaner { get; private set; }
-	public LoadoutData CurrentLoadout => ConventionDemoLoaner ?? CadetLoaner ?? Profile.Loadout;
+	/// <summary>Skirmish-only premade chassis — does not overwrite campaign garage loadout.</summary>
+	public LoadoutData? SkirmishLoaner { get; private set; }
+	public int SkirmishPremadeVariant { get; private set; } = -1;
+	public LoadoutData CurrentLoadout =>
+		ConventionDemoLoaner ?? CadetLoaner ?? SkirmishLoaner ?? Profile.Loadout;
+	/// <summary>Cadet / convention / skirmish loaners — never inherit garage part wear.</summary>
+	public bool UsingTemporaryLoaner =>
+		CadetLoaner != null || ConventionDemoLoaner != null || SkirmishLoaner != null;
 	public VoidCorpsIdentity.ClaimSite CurrentClaim { get; private set; }
 	public PilotDifficulty PendingDifficulty { get; set; } = PilotDifficulty.Easy;
 	public MissionType PendingMission { get; set; } = MissionType.DestroyAllEnemies;
@@ -50,6 +57,12 @@ public partial class GameSession : Node
 	public bool OpenAcademyGraduation { get; set; }
 	/// <summary>True when match is a co-op detachment (listen server).</summary>
 	public bool CoopMatch { get; set; }
+	/// <summary>Active multiplayer mode for the current/pending match.</summary>
+	public MultiplayerGameMode MultiplayerGameMode { get; set; } = MultiplayerGameMode.CoopRogueLike;
+	/// <summary>Lobby roster snapshot applied from launch payload (humans + bots).</summary>
+	public System.Collections.Generic.List<LobbySlot> LobbyRoster { get; private set; } = new();
+	/// <summary>True when Team/FFA skirmish — no PvE waves, PvP win rules.</summary>
+	public bool IsPvpMatch => LobbyModeRules.IsPvp(MultiplayerGameMode);
 	public bool UsingRoguelikeProfile { get; private set; }
 
 	public bool InCampaign => Campaign is { Alive: true };
@@ -69,32 +82,199 @@ public partial class GameSession : Node
 		return null;
 	}
 
+	public int ActiveSlotIndex => SaveService.ActiveSlot;
+
 	public override void _Ready()
 	{
 		GameCatalog.EnsureBuilt();
 		SupportCatalog.EnsureBuilt();
 		ConventionCatalog.EnsureBuilt();
 		InputBindings.EnsureDefaultsCaptured();
-		Profile = SaveService.LoadOrNew();
-		CurrentClaim = VoidCorpsIdentity.PickClaimSite();
-		SyncLoadoutFromProfile();
-		Campaign = CampaignRun.Load();
-		SolarCampaign = SolarCampaignRun.LoadOrNew();
-		if (Campaign is { Alive: false })
-			Campaign = null;
+		SaveService.EnsureReady();
+		EnsureActiveSlotLoaded();
 
 		var net = GetNodeOrNull<NetSession>("/root/NetSession");
 		if (net != null)
 			net.MatchLaunchReceived += OnNetMatchLaunch;
 	}
 
+	/// <summary>Load profile + campaign state for the manifest active/last-used slot.</summary>
+	private void EnsureActiveSlotLoaded()
+	{
+		if (!SaveService.SlotOccupied(SaveService.ActiveSlot))
+		{
+			// Fresh install: auto-create slot 0 with a default handle.
+			CreateSlot(0, VoidCorpsIdentity.PlayerCorpCodename, makeActive: true);
+			return;
+		}
+
+		SaveService.SetActiveSlot(SaveService.ActiveSlot);
+		LoadSlotIntoSession(SaveService.ActiveSlot);
+	}
+
+	private void LoadSlotIntoSession(int slot)
+	{
+		SaveService.SetActiveSlot(slot);
+		UsingRoguelikeProfile = false;
+		Profile = SaveService.LoadActiveProfile();
+		Profile.EnsureManufacturerState();
+		CurrentClaim = VoidCorpsIdentity.PickClaimSite();
+		SyncLoadoutFromProfile();
+		Campaign = CampaignRun.Load();
+		SolarCampaign = SolarCampaignRun.LoadOrNew();
+		if (Campaign is { Alive: false })
+			Campaign = null;
+		ClearTemporaryLoaners();
+		SaveService.UpdateSlotSummary(slot, Profile);
+	}
+
+	public bool SwitchToSlot(int slot)
+	{
+		slot = Mathf.Clamp(slot, 0, SaveService.MaxSlots - 1);
+		if (!SaveService.SlotOccupied(slot))
+			return false;
+
+		DisconnectNetIfOnline();
+		if (UsingRoguelikeProfile)
+			ActivateMainProfile();
+		else
+			SaveProfile();
+
+		LoadSlotIntoSession(slot);
+		return true;
+	}
+
+	public bool CreateSlot(int slot, string handle, bool makeActive = true)
+	{
+		slot = Mathf.Clamp(slot, 0, SaveService.MaxSlots - 1);
+		if (SaveService.SlotOccupied(slot))
+			return false;
+		if (!SaveService.IsValidHandle(handle))
+			return false;
+
+		DisconnectNetIfOnline();
+		if (SaveService.SlotOccupied(SaveService.ActiveSlot) && !UsingRoguelikeProfile)
+			SaveProfile();
+		else if (UsingRoguelikeProfile)
+			ActivateMainProfile();
+
+		SaveService.EnsureSlotDir(slot);
+		SaveService.SetActiveSlot(slot);
+		UsingRoguelikeProfile = false;
+		Profile = PlayerProfile.CreateNew(handle);
+		Profile.SetAccountHandle(handle);
+		Campaign = null;
+		CampaignRun.ClearSave();
+		CampaignRun.ClearSolarOnboardingSave();
+		SaveService.DeleteFileIfExists(SaveService.SolarCampaignPath(slot));
+		SaveService.DeleteFileIfExists(SaveService.RoguelikePath(slot));
+		SolarCampaign = SolarCampaignRun.LoadOrNew();
+		ClearTemporaryLoaners();
+		SaveService.SaveActiveProfile(Profile);
+		SolarCampaign.Save();
+
+		if (!makeActive)
+		{
+			// Created while browsing another slot — stay on previous if still valid.
+		}
+
+		return true;
+	}
+
+	public bool RenameSlot(int slot, string handle)
+	{
+		slot = Mathf.Clamp(slot, 0, SaveService.MaxSlots - 1);
+		if (!SaveService.IsValidHandle(handle))
+			return false;
+		if (!SaveService.SlotOccupied(slot))
+			return false;
+
+		handle = SaveService.SanitizeHandle(handle);
+		if (slot == SaveService.ActiveSlot)
+		{
+			if (UsingRoguelikeProfile)
+				ActivateMainProfile();
+			Profile.SetAccountHandle(handle);
+			SaveProfile();
+			return true;
+		}
+
+		var previous = SaveService.ActiveSlot;
+		var profile = SaveService.LoadOrNew(SaveService.ProfilePath(slot));
+		profile.SetAccountHandle(handle);
+		SaveService.Save(profile, SaveService.ProfilePath(slot));
+		SaveService.UpdateSlotSummary(slot, profile);
+		SaveService.SetActiveSlot(previous);
+		return true;
+	}
+
+	public bool CopySlot(int from, int to)
+	{
+		from = Mathf.Clamp(from, 0, SaveService.MaxSlots - 1);
+		to = Mathf.Clamp(to, 0, SaveService.MaxSlots - 1);
+		if (from == to || !SaveService.SlotOccupied(from))
+			return false;
+		if (SaveService.SlotOccupied(to))
+			return false;
+
+		if (from == SaveService.ActiveSlot)
+		{
+			if (UsingRoguelikeProfile)
+				ActivateMainProfile();
+			else
+				SaveProfile();
+		}
+
+		SaveService.DeleteSlotFiles(to);
+		SaveService.CopySlotFiles(from, to);
+		var copied = SaveService.LoadOrNew(SaveService.ProfilePath(to));
+		SaveService.UpdateSlotSummary(to, copied);
+		return true;
+	}
+
+	public bool DeleteSlot(int slot)
+	{
+		slot = Mathf.Clamp(slot, 0, SaveService.MaxSlots - 1);
+		if (!SaveService.SlotOccupied(slot))
+			return false;
+
+		DisconnectNetIfOnline();
+		var deletingActive = slot == SaveService.ActiveSlot;
+		if (deletingActive && UsingRoguelikeProfile)
+			UsingRoguelikeProfile = false;
+
+		SaveService.DeleteSlotFiles(slot);
+
+		if (!deletingActive)
+			return true;
+
+		for (var i = 0; i < SaveService.MaxSlots; i++)
+		{
+			if (!SaveService.SlotOccupied(i))
+				continue;
+			LoadSlotIntoSession(i);
+			return true;
+		}
+
+		CreateSlot(0, VoidCorpsIdentity.PlayerCorpCodename, makeActive: true);
+		return true;
+	}
+
+	private void DisconnectNetIfOnline()
+	{
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true })
+			net.DisconnectSession();
+	}
+
 	public void ActivateRoguelikeProfile()
 	{
 		if (UsingRoguelikeProfile)
 			return;
-		if (!Godot.FileAccess.FileExists(SaveService.RoguelikeSavePath))
-			SaveService.Save(Profile, SaveService.RoguelikeSavePath);
-		Profile = SaveService.LoadOrNew(SaveService.RoguelikeSavePath);
+		var path = SaveService.RoguelikePath(SaveService.ActiveSlot);
+		if (!Godot.FileAccess.FileExists(path))
+			SaveService.Save(Profile, path);
+		Profile = SaveService.LoadOrNew(path);
 		UsingRoguelikeProfile = true;
 		SyncLoadoutFromProfile();
 	}
@@ -103,8 +283,8 @@ public partial class GameSession : Node
 	{
 		if (!UsingRoguelikeProfile)
 			return;
-		SaveService.Save(Profile, SaveService.RoguelikeSavePath);
-		Profile = SaveService.LoadOrNew();
+		SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
+		Profile = SaveService.LoadActiveProfile();
 		UsingRoguelikeProfile = false;
 		SyncLoadoutFromProfile();
 	}
@@ -115,6 +295,11 @@ public partial class GameSession : Node
 		var payload = net?.PendingLaunch;
 		if (payload == null || net == null)
 			return;
+
+		if (payload.ContainsKey("mp_mode"))
+			MultiplayerGameMode = (MultiplayerGameMode)payload["mp_mode"].AsInt32();
+		if (payload.ContainsKey("roster") && payload["roster"].VariantType == Variant.Type.Array)
+			ApplyLobbyRoster(payload["roster"].AsGodotArray());
 
 		var scene = payload.ContainsKey("scene") ? payload["scene"].AsString() : "arena";
 		if (scene == "campaign")
@@ -136,8 +321,37 @@ public partial class GameSession : Node
 		GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
 	}
 
+	public void ApplyLobbyRoster(Godot.Collections.Array arr)
+	{
+		LobbyRoster.Clear();
+		foreach (var item in arr)
+		{
+			if (item.VariantType == Variant.Type.Dictionary)
+				LobbyRoster.Add(LobbySlot.FromDict(item.AsGodotDictionary()));
+		}
+	}
+
 	public void ApplyLaunchPayload(Godot.Collections.Dictionary payload)
 	{
+		var fromCampaign = payload.ContainsKey("from_campaign") && payload["from_campaign"].AsBool();
+		var scene = payload.ContainsKey("scene") ? payload["scene"].AsString() : "arena";
+		var skirmishLaunch = !fromCampaign && scene != "campaign";
+
+		if (payload.ContainsKey("mp_mode"))
+			MultiplayerGameMode = (MultiplayerGameMode)payload["mp_mode"].AsInt32();
+		if (payload.ContainsKey("roster") && payload["roster"].VariantType == Variant.Type.Array)
+			ApplyLobbyRoster(payload["roster"].AsGodotArray());
+
+		if (skirmishLaunch)
+		{
+			ClearCadetLoaner();
+			ClearConventionDemoLoaner();
+			if (SkirmishLoaner == null)
+				SetSkirmishPremade(0);
+		}
+		else
+			ClearSkirmishLoaner();
+
 		if (!EnsureDeployableLoadout("net launch"))
 			return;
 
@@ -163,7 +377,13 @@ public partial class GameSession : Node
 		PendingRivalPilotId = payload.ContainsKey("rival_pilot") ? payload["rival_pilot"].AsString() : "";
 		PendingRivalCorpId = payload.ContainsKey("rival_corp") ? payload["rival_corp"].AsString() : "";
 		LastMissionManufacturerId = payload.ContainsKey("mfg") ? payload["mfg"].AsString() : "";
-		MatchFromCampaign = payload.ContainsKey("from_campaign") && payload["from_campaign"].AsBool();
+		MatchFromCampaign = fromCampaign;
+		if (skirmishLaunch)
+		{
+			MatchFromAcademy = false;
+			MatchFromConvention = false;
+		}
+
 		CoopMatch = true;
 		ReturnToCampaignMap = MatchFromCampaign;
 		PendingOfferIndex = -1;
@@ -173,7 +393,7 @@ public partial class GameSession : Node
 
 	public Godot.Collections.Dictionary BuildLaunchPayload(bool fromCampaign, string scene = "arena")
 	{
-		return new Godot.Collections.Dictionary
+		var payload = new Godot.Collections.Dictionary
 		{
 			["scene"] = scene,
 			["claim"] = CurrentClaim.Code,
@@ -183,17 +403,44 @@ public partial class GameSession : Node
 			["rival_pilot"] = PendingRivalPilotId,
 			["rival_corp"] = PendingRivalCorpId,
 			["mfg"] = LastMissionManufacturerId,
-			["from_campaign"] = fromCampaign
+			["from_campaign"] = fromCampaign,
+			["mp_mode"] = (int)MultiplayerGameMode,
+			["pvp"] = IsPvpMatch
 		};
+
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true } && net.OccupiedSlotCount() > 0)
+			payload["roster"] = net.BuildRosterPayload();
+		else if (LobbyRoster.Count > 0)
+		{
+			var arr = new Godot.Collections.Array();
+			foreach (var slot in LobbyRoster)
+				arr.Add(slot.ToDict());
+			payload["roster"] = arr;
+		}
+
+		return payload;
 	}
 
 	public void BeginSkirmish()
 	{
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
+		if (SkirmishLoaner == null)
+		{
+			GD.PushError("GameSession: refused skirmish — no premade selected.");
+			return;
+		}
+
 		if (!EnsureDeployableLoadout("skirmish"))
 			return;
 
 		ReturnToCampaignMap = false;
+		ReturnToSolarMap = false;
 		MatchFromCampaign = false;
+		MatchFromSolarCampaign = false;
+		MatchFromAcademy = false;
+		MatchFromConvention = false;
 		CoopMatch = false;
 		PendingBossEncounter = BossEncounterId.None;
 		PendingRivalPilotId = "";
@@ -206,11 +453,23 @@ public partial class GameSession : Node
 
 	public void BeginCoopSkirmish()
 	{
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
+		if (SkirmishLoaner == null)
+		{
+			GD.PushError("GameSession: refused coop skirmish — no premade selected.");
+			return;
+		}
+
 		if (!EnsureDeployableLoadout("coop skirmish"))
 			return;
 
 		ReturnToCampaignMap = false;
+		ReturnToSolarMap = false;
 		MatchFromCampaign = false;
+		MatchFromSolarCampaign = false;
+		MatchFromAcademy = false;
+		MatchFromConvention = false;
 		CoopMatch = true;
 		PendingBossEncounter = BossEncounterId.None;
 		PendingRivalPilotId = "";
@@ -237,6 +496,8 @@ public partial class GameSession : Node
 			ConventionDemoLoaner = GameCatalog.SanitizeLoadout(ConventionDemoLoaner.Clone());
 		else if (CadetLoaner != null)
 			CadetLoaner = GameCatalog.SanitizeLoadout(CadetLoaner.Clone());
+		else if (SkirmishLoaner != null)
+			SkirmishLoaner = GameCatalog.SanitizeLoadout(SkirmishLoaner.Clone());
 		else
 			Profile.Loadout = GameCatalog.SanitizeLoadout(Profile.Loadout.Clone());
 
@@ -264,8 +525,23 @@ public partial class GameSession : Node
 			return;
 		}
 
+		if (SkirmishLoaner != null)
+		{
+			SkirmishLoaner = GameCatalog.SanitizeLoadout(loadout.Clone());
+			return;
+		}
+
 		Profile.Loadout = GameCatalog.SanitizeLoadout(loadout.Clone());
 		Profile.GrantLoadoutOwnership(Profile.Loadout);
+	}
+
+	public void SetSkirmishPremade(int variant)
+	{
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
+		var premade = GameCatalog.CreateSkirmishPremade(variant);
+		SkirmishPremadeVariant = premade.Variant;
+		SkirmishLoaner = premade.Loadout.Clone();
 	}
 
 	public void SetClaim(VoidCorpsIdentity.ClaimSite claim)
@@ -278,11 +554,7 @@ public partial class GameSession : Node
 		ActivateMainProfile();
 		if (reset)
 		{
-			if (Godot.FileAccess.FileExists(SolarCampaignRun.SavePath))
-			{
-				using var dir = DirAccess.Open("user://");
-				dir?.Remove("mechanize_solar_campaign.json");
-			}
+			SaveService.DeleteFileIfExists(SolarCampaignRun.SavePath);
 			CampaignRun.ClearSolarOnboardingSave();
 		}
 
@@ -300,8 +572,7 @@ public partial class GameSession : Node
 		ReturnToCampaignMap = false;
 		MatchFromSolarCampaign = false;
 		MatchFromCampaign = false;
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		SaveProfile();
 	}
 
@@ -317,6 +588,31 @@ public partial class GameSession : Node
 		ResumeCadetIfNeeded();
 		if (!MatchFromAcademy)
 			BeginAcademyRange();
+	}
+
+	/// <summary>
+	/// Fresh solar campaign that skips cadet tutorials and opens the employer convention.
+	/// </summary>
+	public void BeginSolarCampaignSkipToConvention()
+	{
+		BeginSolarCampaign(reset: true);
+		if (Campaign == null)
+			Campaign = CampaignRun.StartCadet(solarOnboarding: true);
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
+		Campaign.SolarOnboarding = true;
+		Campaign.EnterConventionGate();
+		MatchFromAcademy = false;
+		MatchFromCampaign = false;
+		MatchFromConvention = false;
+		MatchFromSolarCampaign = false;
+		ReturnToCampaignMap = false;
+		ReturnToSolarMap = false;
+		ReturnToConventionHall = true;
+		LaunchAcademyContinue = false;
+		OpenAcademyGraduation = false;
+		SaveProfile();
+		Campaign.Save();
 	}
 
 	public bool LaunchSolarLocation(string locationId, int missionIndex = 0)
@@ -390,8 +686,7 @@ public partial class GameSession : Node
 		ActivateMainProfile();
 		Profile = PlayerProfile.CreateNew();
 		UsingRoguelikeProfile = true;
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		Campaign = CampaignRun.StartNew(sectorIndex);
 		ReturnToCampaignMap = true;
 		ReturnToConventionHall = false;
@@ -439,8 +734,7 @@ public partial class GameSession : Node
 		Profile = PlayerProfile.CreateNew();
 		UsingRoguelikeProfile = true;
 		CampaignRun.ClearSave();
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		Campaign = CampaignRun.StartCadet();
 		Campaign.EnterConventionGate();
 		MatchFromAcademy = false;
@@ -479,6 +773,7 @@ public partial class GameSession : Node
 			default:
 				Campaign.EnterConventionGate();
 				ClearCadetLoaner();
+				ClearSkirmishLoaner();
 				ReturnToCampaignMap = true;
 				break;
 		}
@@ -573,8 +868,7 @@ public partial class GameSession : Node
 
 	public void CompleteAcademyGraduation()
 	{
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		Campaign ??= CampaignRun.StartCadet();
 		Campaign.EnterConventionGate();
 		MatchFromAcademy = false;
@@ -589,6 +883,18 @@ public partial class GameSession : Node
 
 	public void ClearCadetLoaner() => CadetLoaner = null;
 	public void ClearConventionDemoLoaner() => ConventionDemoLoaner = null;
+	public void ClearSkirmishLoaner()
+	{
+		SkirmishLoaner = null;
+		SkirmishPremadeVariant = -1;
+	}
+
+	public void ClearTemporaryLoaners()
+	{
+		ClearCadetLoaner();
+		ClearConventionDemoLoaner();
+		ClearSkirmishLoaner();
+	}
 
 	/// <summary>Open convention hall from the sector gate (advance onto convention node).</summary>
 	public bool EnterConventionHallFromMap(string nodeId)
@@ -629,6 +935,7 @@ public partial class GameSession : Node
 		Campaign.Save();
 
 		ClearCadetLoaner();
+		ClearSkirmishLoaner();
 		ConventionDemoLoaner = def.DemoLoaner.Clone();
 		PendingMission = def.TrialMission;
 		PendingDifficulty = PilotDifficulty.Easy;
@@ -705,6 +1012,7 @@ public partial class GameSession : Node
 		var def = company?.TrialTemplate ?? ConventionCatalog.Get(manufacturerId);
 		ClearConventionDemoLoaner();
 		ClearCadetLoaner();
+		ClearSkirmishLoaner();
 		// Signing package replaces the barren pre-contract kit.
 		if (!Campaign.SolarOnboarding)
 		{
@@ -757,6 +1065,7 @@ public partial class GameSession : Node
 
 		ClearConventionDemoLoaner();
 		ClearCadetLoaner();
+		ClearSkirmishLoaner();
 		Campaign.Convention.PityContractUsed = true;
 		if (Campaign.SolarOnboarding)
 		{
@@ -871,8 +1180,7 @@ public partial class GameSession : Node
 		Campaign?.EndRun();
 		Campaign = null;
 		CampaignRun.ClearSave();
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		ReturnToCampaignMap = false;
 		ReturnToConventionHall = false;
 		MatchFromCampaign = false;
@@ -924,9 +1232,10 @@ public partial class GameSession : Node
 
 	public void SaveProfile()
 	{
-		SaveService.Save(
-			Profile,
-			UsingRoguelikeProfile ? SaveService.RoguelikeSavePath : SaveService.SavePath);
+		if (UsingRoguelikeProfile)
+			SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
+		else
+			SaveService.SaveActiveProfile(Profile);
 		Campaign?.Save();
 		SolarCampaign?.Save();
 	}
@@ -972,21 +1281,19 @@ public partial class GameSession : Node
 		MatchRewardsCommitted = true;
 	}
 
+	/// <summary>Wipe the active slot inventory/progress (slot stays occupied with same handle).</summary>
 	public void NewProfile()
 	{
 		ActivateMainProfile();
-		Profile = PlayerProfile.CreateNew();
+		var handle = Profile.ResolveAccountHandle();
+		Profile = PlayerProfile.CreateNew(handle);
 		CampaignRun.ClearSave();
 		CampaignRun.ClearSolarOnboardingSave();
-		using (var dir = DirAccess.Open("user://"))
-		{
-			dir?.Remove("mechanize_roguelike_profile.json");
-			dir?.Remove("mechanize_solar_campaign.json");
-		}
+		SaveService.DeleteFileIfExists(SaveService.RoguelikePath(SaveService.ActiveSlot));
+		SaveService.DeleteFileIfExists(SaveService.SolarCampaignPath(SaveService.ActiveSlot));
 		SolarCampaign = SolarCampaignRun.LoadOrNew();
 		Campaign = null;
-		ClearCadetLoaner();
-		ClearConventionDemoLoaner();
+		ClearTemporaryLoaners();
 		SaveProfile();
 	}
 

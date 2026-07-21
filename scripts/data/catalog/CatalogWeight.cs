@@ -60,7 +60,9 @@ public static class CatalogWeight
 		var lean = part.ManufacturerId switch
 		{
 			"brimforge" => 1.20f,
+			"velhound" => 1.10f,
 			"lumina" => 0.90f,
+			"ashwhisk" => 0.88f,
 			"ourotech" => 0.85f,
 			_ => 1.00f // Trinova
 		};
@@ -85,12 +87,14 @@ public static class CatalogWeight
 			"legs_lum_phasehex" => 105f,
 			"legs_lum_hex" => 105f,
 			"legs_tri_courier" => 105f,
+			"legs_ash_coilstriders" => 102f,
 			"legs_tri_jumpjack" => 108f,
 			"legs_tri_slide" => 110f,
 			"legs_ouro_rail" => 115f,
 			"legs_lum_magbelt" => 115f,
 			"legs_tri_packhex" => 120f,
 			"legs_brin_biped" => 120f,
+			"legs_vel_bracehounds" => 125f,
 			"legs_tri_tracks" => 130f,
 			"legs_brin_bulwark" => 135f,
 			"legs_brin_pilejack" => 138f,

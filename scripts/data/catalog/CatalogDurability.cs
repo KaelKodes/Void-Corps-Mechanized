@@ -59,7 +59,9 @@ public static class CatalogDurability
 		var manufacturerBonus = part.ManufacturerId switch
 		{
 			"brimforge" => 8f,
+			"velhound" => 6f,
 			"trinova" => 4f,
+			"ashwhisk" => 2f,
 			"lumina" => 1f,
 			_ => 0f // OuroTech
 		};

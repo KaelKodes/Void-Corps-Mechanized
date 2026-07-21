@@ -3,7 +3,18 @@ using Godot;
 
 namespace Mechanize;
 
-/// <summary>Client preferences (HUD layout, etc.) stored separately from campaign/profile saves.</summary>
+/// <summary>Where combat HUD bars (integrity, weapons, sensors) are drawn.</summary>
+public enum HudBarsMode
+{
+	/// <summary>Cockpit panels in first person; floating overlay in third person.</summary>
+	Auto = 0,
+	/// <summary>Prefer cockpit dashboard panels while in first person.</summary>
+	Panels = 1,
+	/// <summary>Always use the floating screen HUD overlay.</summary>
+	Overlay = 2
+}
+
+/// <summary>Client preferences (HUD layout, audio buses, etc.) stored separately from campaign/profile saves.</summary>
 public static class GameSettings
 {
 	public const string Path = "user://mechanize_settings.cfg";
@@ -15,6 +26,15 @@ public static class GameSettings
 	/// <summary>Default lift off the bottom edge (~10% of available travel).</summary>
 	public const float DefaultHudOffsetY = 0.1f;
 
+	/// <summary>Non-music channels cannot go fully silent.</summary>
+	public const float MinAudibleLinear = 0.05f;
+	public const float DefaultMasterVolume = 1f;
+	public const float DefaultMusicVolume = 1f;
+	public const float DefaultSfxVolume = 1f;
+	public const float DefaultUiVolume = 1f;
+	public const float DefaultVoiceVolume = 1f;
+	public const float DefaultMechVolume = 1f;
+
 	public static float HudScale { get; private set; } = DefaultHudScale;
 	/// <summary>0 = left edge, 0.5 = centered, 1 = as far right as the HUD still fits.</summary>
 	public static float HudOffsetX { get; private set; } = DefaultHudOffsetX;
@@ -22,11 +42,21 @@ public static class GameSettings
 	public static float HudOffsetY { get; private set; } = DefaultHudOffsetY;
 	/// <summary>Legacy: PWR/SPD flanking the MAP. Unused while meters live on Integrity.</summary>
 	public static bool MetersBesideMech { get; private set; }
-	/// <summary>
-	/// When true and seated in a cockpit in first person, combat readouts (integrity + PWR/SPD,
-	/// threat, weapons) bind to dashboard panels instead of the floating bottom HUD overlay.
-	/// </summary>
-	public static bool FirstPersonHudMode { get; private set; } = true;
+	/// <summary>Where integrity / weapon / sensor bars are drawn. Default Auto.</summary>
+	public static HudBarsMode HudBarsMode { get; private set; } = HudBarsMode.Auto;
+
+	/// <summary>0..1 linear gain for Master bus.</summary>
+	public static float MasterVolume { get; private set; } = DefaultMasterVolume;
+	/// <summary>0..1 linear gain for Music bus. May be fully muted.</summary>
+	public static float MusicVolume { get; private set; } = DefaultMusicVolume;
+	/// <summary>MinAudibleLinear..1 combat SFX bus.</summary>
+	public static float SfxVolume { get; private set; } = DefaultSfxVolume;
+	/// <summary>MinAudibleLinear..1 UI click/confirm bus.</summary>
+	public static float UiVolume { get; private set; } = DefaultUiVolume;
+	/// <summary>MinAudibleLinear..1 dialogue / robot VO bus.</summary>
+	public static float VoiceVolume { get; private set; } = DefaultVoiceVolume;
+	/// <summary>MinAudibleLinear..1 mech steps / chassis bus.</summary>
+	public static float MechVolume { get; private set; } = DefaultMechVolume;
 
 	public static event Action? Changed;
 
@@ -41,7 +71,8 @@ public static class GameSettings
 			HudOffsetX = DefaultHudOffsetX;
 			HudOffsetY = DefaultHudOffsetY;
 			MetersBesideMech = false;
-			FirstPersonHudMode = true;
+			HudBarsMode = HudBarsMode.Auto;
+			ResetAudioVolumes(persist: false);
 			return;
 		}
 
@@ -50,7 +81,14 @@ public static class GameSettings
 		HudOffsetX = Mathf.Clamp((float)cfg.GetValue("hud", "offset_x", DefaultHudOffsetX), 0f, 1f);
 		HudOffsetY = Mathf.Clamp((float)cfg.GetValue("hud", "offset_y", DefaultHudOffsetY), 0f, 1f);
 		MetersBesideMech = (bool)cfg.GetValue("hud", "meters_beside_mech", false);
-		FirstPersonHudMode = (bool)cfg.GetValue("hud", "first_person_hud", true);
+		HudBarsMode = LoadHudBarsMode(cfg);
+
+		MasterVolume = ClampMaster((float)cfg.GetValue("audio", "master", DefaultMasterVolume));
+		MusicVolume = ClampMusic((float)cfg.GetValue("audio", "music", DefaultMusicVolume));
+		SfxVolume = ClampAudible((float)cfg.GetValue("audio", "sfx", DefaultSfxVolume));
+		UiVolume = ClampAudible((float)cfg.GetValue("audio", "ui", DefaultUiVolume));
+		VoiceVolume = ClampAudible((float)cfg.GetValue("audio", "voice", DefaultVoiceVolume));
+		MechVolume = ClampAudible((float)cfg.GetValue("audio", "mech", DefaultMechVolume));
 
 		// v1 shipped with 0 lift; adopt the new 10% default once.
 		if (version < 2)
@@ -61,23 +99,28 @@ public static class GameSettings
 		// v3 shipped meters beside the MAP; adopt corner HUD once.
 		if (version < 4)
 			MetersBesideMech = false;
-		// v4 had no first-person HUD toggle; default on for cockpit panel binding.
-		if (version < 5)
-			FirstPersonHudMode = true;
 
-		if (version < 5)
+		if (version < 7)
 			Save();
+
+		ApplyAudioBuses();
 	}
 
 	public static void Save()
 	{
 		var cfg = new ConfigFile();
-		cfg.SetValue("meta", "version", 5);
+		cfg.SetValue("meta", "version", 7);
 		cfg.SetValue("hud", "scale", HudScale);
 		cfg.SetValue("hud", "offset_x", HudOffsetX);
 		cfg.SetValue("hud", "offset_y", HudOffsetY);
 		cfg.SetValue("hud", "meters_beside_mech", MetersBesideMech);
-		cfg.SetValue("hud", "first_person_hud", FirstPersonHudMode);
+		cfg.SetValue("hud", "bars_mode", (int)HudBarsMode);
+		cfg.SetValue("audio", "master", MasterVolume);
+		cfg.SetValue("audio", "music", MusicVolume);
+		cfg.SetValue("audio", "sfx", SfxVolume);
+		cfg.SetValue("audio", "ui", UiVolume);
+		cfg.SetValue("audio", "voice", VoiceVolume);
+		cfg.SetValue("audio", "mech", MechVolume);
 		cfg.Save(Path);
 	}
 
@@ -105,9 +148,78 @@ public static class GameSettings
 		PersistAndNotify();
 	}
 
-	public static void SetFirstPersonHudMode(bool value)
+	public static void SetHudBarsMode(HudBarsMode value)
 	{
-		FirstPersonHudMode = value;
+		HudBarsMode = value;
+		PersistAndNotify();
+	}
+
+	public static void CycleHudBarsMode()
+	{
+		HudBarsMode = HudBarsMode switch
+		{
+			HudBarsMode.Auto => HudBarsMode.Panels,
+			HudBarsMode.Panels => HudBarsMode.Overlay,
+			_ => HudBarsMode.Auto
+		};
+		PersistAndNotify();
+	}
+
+	/// <summary>
+	/// Whether combat readouts should bind to cockpit dashboard panels for this camera / chassis.
+	/// Auto and Panels both use panels in first person; Overlay never does.
+	/// </summary>
+	public static bool ShouldUseDiegeticHudBars(bool isFirstPerson, bool hasCockpitScreens) =>
+		HudBarsMode != HudBarsMode.Overlay
+		&& isFirstPerson
+		&& hasCockpitScreens;
+
+	public static string HudBarsModeLabel() => HudBarsMode switch
+	{
+		HudBarsMode.Auto => "HUD bars: Auto",
+		HudBarsMode.Panels => "HUD bars: First Person (panels)",
+		_ => "HUD bars: Overlay"
+	};
+
+	public static void SetMasterVolume(float value)
+	{
+		MasterVolume = ClampMaster(value);
+		ApplyAudioBuses();
+		PersistAndNotify();
+	}
+
+	public static void SetMusicVolume(float value)
+	{
+		MusicVolume = ClampMusic(value);
+		ApplyAudioBuses();
+		PersistAndNotify();
+	}
+
+	public static void SetSfxVolume(float value)
+	{
+		SfxVolume = ClampAudible(value);
+		ApplyAudioBuses();
+		PersistAndNotify();
+	}
+
+	public static void SetUiVolume(float value)
+	{
+		UiVolume = ClampAudible(value);
+		ApplyAudioBuses();
+		PersistAndNotify();
+	}
+
+	public static void SetVoiceVolume(float value)
+	{
+		VoiceVolume = ClampAudible(value);
+		ApplyAudioBuses();
+		PersistAndNotify();
+	}
+
+	public static void SetMechVolume(float value)
+	{
+		MechVolume = ClampAudible(value);
+		ApplyAudioBuses();
 		PersistAndNotify();
 	}
 
@@ -117,9 +229,80 @@ public static class GameSettings
 		HudOffsetX = DefaultHudOffsetX;
 		HudOffsetY = DefaultHudOffsetY;
 		MetersBesideMech = false;
-		FirstPersonHudMode = true;
+		HudBarsMode = HudBarsMode.Auto;
 		PersistAndNotify();
 	}
+
+	public static void ResetAudioVolumes(bool persist = true)
+	{
+		MasterVolume = DefaultMasterVolume;
+		MusicVolume = DefaultMusicVolume;
+		SfxVolume = DefaultSfxVolume;
+		UiVolume = DefaultUiVolume;
+		VoiceVolume = DefaultVoiceVolume;
+		MechVolume = DefaultMechVolume;
+		ApplyAudioBuses();
+		if (persist)
+			PersistAndNotify();
+	}
+
+	/// <summary>Push linear gains onto Godot buses. Safe to call before buses exist.</summary>
+	public static void ApplyAudioBuses()
+	{
+		SetBusLinear("Master", MasterVolume, allowMute: false);
+		SetBusLinear("Music", MusicVolume, allowMute: true);
+		SetBusLinear("Sfx", SfxVolume, allowMute: false);
+		SetBusLinear("Ui", UiVolume, allowMute: false);
+		SetBusLinear("Voice", VoiceVolume, allowMute: false);
+		SetBusLinear("Mech", MechVolume, allowMute: false);
+	}
+
+	private static HudBarsMode LoadHudBarsMode(ConfigFile cfg)
+	{
+		if (cfg.HasSectionKey("hud", "bars_mode"))
+		{
+			var raw = (int)cfg.GetValue("hud", "bars_mode", (int)HudBarsMode.Auto);
+			return raw switch
+			{
+				(int)HudBarsMode.Panels => HudBarsMode.Panels,
+				(int)HudBarsMode.Overlay => HudBarsMode.Overlay,
+				_ => HudBarsMode.Auto
+			};
+		}
+
+		// Pre-v7 boolean: true meant cockpit panels in FP (hybrid) → Auto; false → Overlay.
+		if (cfg.HasSectionKey("hud", "first_person_hud"))
+			return (bool)cfg.GetValue("hud", "first_person_hud", true)
+				? HudBarsMode.Auto
+				: HudBarsMode.Overlay;
+
+		return HudBarsMode.Auto;
+	}
+
+	private static void SetBusLinear(string busName, float linear, bool allowMute)
+	{
+		var idx = AudioServer.GetBusIndex(busName);
+		if (idx < 0)
+			return;
+
+		var gain = allowMute
+			? Mathf.Clamp(linear, 0f, 1f)
+			: Mathf.Clamp(linear, MinAudibleLinear, 1f);
+
+		if (gain <= 0.0001f)
+		{
+			AudioServer.SetBusMute(idx, true);
+			AudioServer.SetBusVolumeDb(idx, -80f);
+			return;
+		}
+
+		AudioServer.SetBusMute(idx, false);
+		AudioServer.SetBusVolumeDb(idx, Mathf.LinearToDb(gain));
+	}
+
+	private static float ClampMaster(float value) => Mathf.Clamp(value, MinAudibleLinear, 1f);
+	private static float ClampMusic(float value) => Mathf.Clamp(value, 0f, 1f);
+	private static float ClampAudible(float value) => Mathf.Clamp(value, MinAudibleLinear, 1f);
 
 	private static void PersistAndNotify()
 	{

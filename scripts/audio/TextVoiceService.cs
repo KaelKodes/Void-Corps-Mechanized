@@ -67,7 +67,7 @@ public partial class TextVoiceService : Node
 			var player = new AudioStreamPlayer
 			{
 				Name = $"TextVoice_{i}",
-				Bus = "Sfx"
+				Bus = "Voice"
 			};
 			AddChild(player);
 			_players.Add(player);

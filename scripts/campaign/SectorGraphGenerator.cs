@@ -171,7 +171,7 @@ public static class SectorGraphGenerator
 
 	private static List<LocationMissionOffer> BuildLocationOffers(int column, RandomNumberGenerator rng)
 	{
-		var manufacturers = GameCatalog.Manufacturers.Keys.ToList();
+		var manufacturers = GameCatalog.CampaignManufacturerIds.ToList();
 		Shuffle(manufacturers, rng);
 		var offerCount = Mathf.Min(3, manufacturers.Count);
 		var usedRivals = new HashSet<string>();

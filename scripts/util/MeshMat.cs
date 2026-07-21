@@ -4,14 +4,14 @@ namespace Mechanize;
 
 /// <summary>
 /// Mesh material helpers. Godot RD spam (material_casts_shadows null) happens when
-/// MeshInstance3Ds with MaterialOverride / surface overrides are freed; clear first.
+/// MeshInstance3Ds are freed while still in the draw list with null materials, or when
+/// PrimitiveMesh.Material (a shareable resource) is cleared while other instances still use it.
 /// </summary>
 public static class MeshMat
 {
 	public static void Bind(MeshInstance3D mi, Material mat)
 	{
-		if (mi.Mesh is PrimitiveMesh prim)
-			prim.Material = mat;
+		// Instance override only — never write PrimitiveMesh.Material (shared resource).
 		mi.MaterialOverride = mat;
 	}
 
@@ -35,7 +35,7 @@ public static class MeshMat
 		return mi;
 	}
 
-	/// <summary>Strip overrides so QueueFree does not trip RD null-material errors.</summary>
+	/// <summary>Pull geometry out of the renderer before QueueFree to avoid RD null-material spam.</summary>
 	public static void DetachBeforeFree(Node? root)
 	{
 		if (root == null || !GodotObject.IsInstanceValid(root))
@@ -43,29 +43,25 @@ public static class MeshMat
 
 		foreach (var child in root.FindChildren("*", "MeshInstance3D", recursive: true, owned: false))
 		{
-			if (child is not MeshInstance3D mi)
-				continue;
-			// Disable shadow queries before clearing materials — RD spam happens when
-			// CastShadow is still On against a null material during the free frame.
-			mi.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
-			mi.MaterialOverride = null;
-			var count = mi.GetSurfaceOverrideMaterialCount();
-			for (var i = 0; i < count; i++)
-				mi.SetSurfaceOverrideMaterial(i, null);
-			if (mi.Mesh is PrimitiveMesh prim)
-				prim.Material = null;
+			if (child is MeshInstance3D mi)
+				StripMeshInstance(mi);
 		}
 
 		if (root is MeshInstance3D self)
-		{
-			self.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
-			self.MaterialOverride = null;
-			var count = self.GetSurfaceOverrideMaterialCount();
-			for (var i = 0; i < count; i++)
-				self.SetSurfaceOverrideMaterial(i, null);
-			if (self.Mesh is PrimitiveMesh prim)
-				prim.Material = null;
-		}
+			StripMeshInstance(self);
+	}
+
+	private static void StripMeshInstance(MeshInstance3D mi)
+	{
+		if (!GodotObject.IsInstanceValid(mi) || mi.IsQueuedForDeletion())
+			return;
+
+		mi.Visible = false;
+		mi.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+		// Leave MaterialOverride alone — nulling a live C# StandardMaterial3D can race Godot's
+		// weak→strong GCHandle swap (SwapGCHandleForType / Handle is not initialized).
+		// Drop Mesh so RD isn't left drawing geometry we're about to QueueFree.
+		mi.Mesh = null;
 	}
 
 	public static void QueueFreeSafe(Node? node)

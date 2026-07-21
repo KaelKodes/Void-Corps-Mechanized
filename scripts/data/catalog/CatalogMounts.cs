@@ -155,5 +155,14 @@ public static class CatalogMounts
 		parts["backpack_brin_mend"] = CatalogBuilders.AbilityPart("backpack_brin_mend", "Forge Patch Beacon", "brimforge", m,
 			PartSlot.Backpack, "backpack", armor: 18, AbilityId.MendPulse, cd: 28f, power: 12f,
 			heatBurst: 22f, powerLoad: 28f, radius: 4.5f, duration: 6f, family: WeaponFamily.Support);
+
+		// Ashwhisk body-house stabilizer (fills the back slot — not a Big Four gun).
+		parts["backpack_ash_stabilizer"] = new PartData
+		{
+			Id = "backpack_ash_stabilizer", DisplayName = "Balance Fin Stabilizer", ManufacturerId = "ashwhisk",
+			Slot = PartSlot.Backpack, Armor = 14, MaxSpeed = 0.4f, TurnRateDegrees = 4f,
+			Tint = m["ashwhisk"].AccentColor, VisualKind = "ash_stabilizer", StructureHp = 48f,
+			IdleHeatPerSec = 0.35f
+		};
 	}
 }

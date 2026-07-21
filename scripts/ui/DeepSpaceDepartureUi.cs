@@ -511,15 +511,15 @@ public partial class DeepSpaceDepartureUi : Control
 		{
 			Text = _company == null
 				? "The Big Four cannot move openly.\nSo they fund those who can."
-				: $"{_company.DisplayName} is not a manufacturer.\nIts frontier claim will stand or fall on your corp's work.",
+				: $"{_company.DisplayName} is not a manufacturer.\nIts frontier claim will stand or fall on the people it hired.",
 			FontSize = 26,
 			HoldBonus = 1.2f
 		});
 		cards.Add(new Card
 		{
 			Text = _company == null
-				? "Your corp is independent.\nYour equipment is licensed.\nYour orders are deniable."
-				: $"Your corp is contracted.\nYour equipment comes from open licenses.\nYour first obligation is {_company.SettlementVision.ToLowerInvariant()}.",
+				? "You are independent.\nYour equipment is licensed.\nYour orders are deniable."
+				: $"You are under contract.\nYour equipment comes from open licenses.\nYour first obligation is {_company.SettlementVision.ToLowerInvariant()}.",
 			Color = Gold,
 			FontSize = 25,
 			HoldBonus = 1.4f
@@ -827,6 +827,12 @@ public partial class ManufacturerMarkDrawer : Control
 			case "lumina":
 				DrawLumina(c, r, a);
 				break;
+			case "ashwhisk":
+				DrawAshwhisk(c, r, a);
+				break;
+			case "velhound":
+				DrawVelhound(c, r, a);
+				break;
 			default:
 				DrawFallback(c, r, a);
 				break;
@@ -885,6 +891,39 @@ public partial class ManufacturerMarkDrawer : Control
 		DrawPolyline(inner, Accent.Lightened(0.25f) with { A = a * 0.55f }, 1.8f, true);
 		DrawCircle(c, r * 0.18f * Pulse, Accent.Lightened(0.3f) with { A = a * 0.5f * Pulse });
 		DrawArc(c, r * 0.35f, 0f, Mathf.Tau, 40, Accent with { A = a * 0.4f }, 1.5f, true);
+	}
+
+	private void DrawAshwhisk(Vector2 c, float r, float a)
+	{
+		// AWSK compass-X monogram: geometric cross + stubs at A/W/S/K points.
+		var col = Accent with { A = a * 0.9f };
+		var arm = r * 0.72f;
+		DrawLine(c + new Vector2(-arm, -arm), c + new Vector2(arm, arm), col, 3.2f, true);
+		DrawLine(c + new Vector2(arm, -arm), c + new Vector2(-arm, arm), col, 3.2f, true);
+		DrawCircle(c + new Vector2(0f, -r * 0.78f), r * 0.1f, Accent.Lightened(0.2f) with { A = a * 0.85f }); // A
+		DrawCircle(c + new Vector2(-r * 0.78f, 0f), r * 0.1f, Accent.Lightened(0.2f) with { A = a * 0.85f }); // W
+		DrawCircle(c + new Vector2(r * 0.78f, 0f), r * 0.1f, Accent.Lightened(0.2f) with { A = a * 0.85f }); // S
+		DrawCircle(c + new Vector2(0f, r * 0.78f), r * 0.1f, Accent.Lightened(0.2f) with { A = a * 0.85f }); // K
+		DrawArc(c, r * 0.95f, 0f, Mathf.Tau, 48, Accent with { A = a * 0.3f }, 2f, true);
+	}
+
+	private void DrawVelhound(Vector2 c, float r, float a)
+	{
+		// Industrial hound silhouette: snout wedge + ear notch + thick neck bar.
+		var body = new Rect2(c.X - r * 0.55f, c.Y - r * 0.12f, r * 0.95f, r * 0.42f);
+		DrawRect(body, Accent with { A = a * 0.85f });
+		var snout = new[]
+		{
+			c + new Vector2(r * 0.35f, -r * 0.05f),
+			c + new Vector2(r * 0.95f, r * 0.08f),
+			c + new Vector2(r * 0.35f, r * 0.28f)
+		};
+		DrawColoredPolygon(snout, Accent.Lightened(0.1f) with { A = a * 0.8f });
+		DrawRect(new Rect2(c.X - r * 0.35f, c.Y - r * 0.55f, r * 0.28f, r * 0.35f),
+			Accent.Darkened(0.15f) with { A = a * 0.8f }); // ear
+		DrawCircle(c + new Vector2(r * 0.05f, -r * 0.02f), r * 0.08f,
+			new Color(1f, 0.85f, 0.55f, a * 0.45f * Pulse)); // optic
+		DrawArc(c, r * 0.95f, 0f, Mathf.Tau, 48, Accent with { A = a * 0.32f }, 2.5f, true);
 	}
 
 	private void DrawFallback(Vector2 c, float r, float a)

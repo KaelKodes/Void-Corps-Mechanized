@@ -43,8 +43,14 @@ public static class TitanPartVisualFactory
 				BuildTracks(root, mat, dark, light, plate, glow, threat);
 				break;
 			case "torso_fleet":
-				PartVisualFactory.AttachFleetTorsoScene(root, part);
+			case "torso_brin_anvil":
+			case "torso_ouro_thin":
+			case "torso_lum_oracle":
+			case "torso_ash_ashrib":
+			case "torso_vel_ruff":
+				CockpitHullRegistry.Attach(root, part);
 				break;
+
 			case "torso":
 				BuildTorso(root, part, mat, dark, light, plate, glow, threat);
 				break;

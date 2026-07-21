@@ -11,7 +11,7 @@ namespace Mechanize;
 /// </summary>
 public sealed class PlayerProfile : IPartInventory
 {
-	public const int SchemaVersion = 4;
+	public const int SchemaVersion = 5;
 	public const int StartingManufacturerRep = -10;
 	public const int StartingAlignedRep = 20;
 	public const int StartingLives = 2;
@@ -26,6 +26,8 @@ public sealed class PlayerProfile : IPartInventory
 	public LoadoutData Loadout { get; set; } = null!;
 	public int SkirmishesPlayed { get; set; }
 	public int SkirmishesWon { get; set; }
+	/// <summary>Local/LAN account handle — also the profile slot display name.</summary>
+	public string AccountHandle { get; set; } = "";
 	public string MercCorpName { get; set; } = VoidCorpsIdentity.PlayerCorpCodename;
 	public string AffiliatedManufacturerId { get; set; } = "";
 	public string EmployerCompanyId { get; set; } = "";
@@ -44,9 +46,12 @@ public sealed class PlayerProfile : IPartInventory
 	public int OwnedTypeCount => OwnedCounts.Count;
 	public int OwnedCopyCount => OwnedInstances.Count(i => !IsUnlimited(i.PartId));
 
-	public static PlayerProfile CreateNew()
+	public static PlayerProfile CreateNew(string? accountHandle = null)
 	{
 		GameCatalog.EnsureBuilt();
+		var handle = SaveService.SanitizeHandle(accountHandle);
+		if (string.IsNullOrEmpty(handle))
+			handle = VoidCorpsIdentity.PlayerCorpCodename;
 		var profile = new PlayerProfile
 		{
 			Schema = SchemaVersion,
@@ -56,7 +61,8 @@ public sealed class PlayerProfile : IPartInventory
 			Loadout = GameCatalog.CreateStarterLoadout(),
 			OwnedInstances = new List<OwnedPartInstance>(),
 			EquippedInstanceIds = new Dictionary<PartSlot, string>(),
-			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename,
+			AccountHandle = handle,
+			MercCorpName = handle,
 			AffiliatedManufacturerId = "",
 			EmployerCompanyId = "",
 			EmployerCompanyName = "",
@@ -72,6 +78,24 @@ public sealed class PlayerProfile : IPartInventory
 		profile.BindEquippedInstancesFromLoadout();
 		profile.UnlockOwnedBlueprints();
 		return profile;
+	}
+
+	public string ResolveAccountHandle()
+	{
+		if (!string.IsNullOrWhiteSpace(AccountHandle))
+			return SaveService.SanitizeHandle(AccountHandle);
+		if (!string.IsNullOrWhiteSpace(MercCorpName))
+			return SaveService.SanitizeHandle(MercCorpName);
+		return VoidCorpsIdentity.PlayerCorpCodename;
+	}
+
+	public void SetAccountHandle(string handle)
+	{
+		handle = SaveService.SanitizeHandle(handle);
+		if (string.IsNullOrEmpty(handle))
+			handle = VoidCorpsIdentity.PlayerCorpCodename;
+		AccountHandle = handle;
+		MercCorpName = handle;
 	}
 
 	public void WipeRunInventory()
@@ -122,14 +146,18 @@ public sealed class PlayerProfile : IPartInventory
 
 	public void EnsureManufacturerState()
 	{
-		foreach (var id in GameCatalog.Manufacturers.Keys)
+		foreach (var id in GameCatalog.CampaignManufacturerIds)
 		{
 			if (!ManufacturerReputation.ContainsKey(id))
 				ManufacturerReputation[id] = StartingManufacturerRep;
 		}
 
+		if (string.IsNullOrEmpty(AccountHandle))
+			AccountHandle = !string.IsNullOrEmpty(MercCorpName)
+				? MercCorpName
+				: VoidCorpsIdentity.PlayerCorpCodename;
 		if (string.IsNullOrEmpty(MercCorpName))
-			MercCorpName = VoidCorpsIdentity.PlayerCorpCodename;
+			MercCorpName = AccountHandle;
 
 		if (!string.IsNullOrEmpty(AffiliatedManufacturerId)
 		    && ManufacturerReputation.ContainsKey(AffiliatedManufacturerId))
@@ -443,6 +471,7 @@ public sealed class PlayerProfile : IPartInventory
 			["lives"] = LivesBank,
 			["skirmishes_played"] = SkirmishesPlayed,
 			["skirmishes_won"] = SkirmishesWon,
+			["account_handle"] = AccountHandle,
 			["merc_corp_name"] = MercCorpName,
 			["affiliated_manufacturer"] = AffiliatedManufacturerId,
 			["employer_company"] = EmployerCompanyId,
@@ -475,8 +504,14 @@ public sealed class PlayerProfile : IPartInventory
 			profile.SkirmishesPlayed = dict["skirmishes_played"].AsInt32();
 		if (dict.ContainsKey("skirmishes_won"))
 			profile.SkirmishesWon = dict["skirmishes_won"].AsInt32();
+		if (dict.ContainsKey("account_handle"))
+			profile.AccountHandle = dict["account_handle"].AsString();
 		if (dict.ContainsKey("merc_corp_name"))
 			profile.MercCorpName = dict["merc_corp_name"].AsString();
+		if (string.IsNullOrEmpty(profile.AccountHandle))
+			profile.AccountHandle = profile.MercCorpName;
+		if (string.IsNullOrEmpty(profile.MercCorpName))
+			profile.MercCorpName = profile.AccountHandle;
 		if (dict.ContainsKey("affiliated_manufacturer"))
 			profile.AffiliatedManufacturerId = dict["affiliated_manufacturer"].AsString();
 		if (dict.ContainsKey("employer_company"))

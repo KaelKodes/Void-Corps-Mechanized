@@ -27,6 +27,10 @@ public partial class TopDownCamera : Camera3D
 	[Export] public float FirstPersonPitchMin { get; set; } = -1.15f;
 	[Export] public float FirstPersonPitchMax { get; set; } = 0.85f;
 	[Export] public bool StartFirstPerson { get; set; } = true;
+	/// <summary>Max Alt+scroll inspect magnification (2 = twice as close).</summary>
+	[Export] public float InspectZoomMax { get; set; } = 2f;
+	[Export] public float InspectZoomScrollStep { get; set; } = 0.18f;
+	[Export] public float InspectZoomLerp { get; set; } = 14f;
 
 	// Cockpit gait feel (walk = stompy, sprint/dash = fluid)
 	[Export] public float WalkBobVertical { get; set; } = 0.09f;
@@ -47,6 +51,11 @@ public partial class TopDownCamera : Camera3D
 	private Vector3 _cockpitBobPos;
 	private float _cockpitBobRoll;
 	private float _cockpitBobPitchExtra;
+	private float _inspectZoom;
+	private float _inspectZoomTarget;
+	private CanvasLayer? _inspectFxLayer;
+	private ColorRect? _inspectFx;
+	private ShaderMaterial? _inspectFxMat;
 
 	public bool IsFirstPerson => _firstPerson;
 	public float HeadLookYaw => _headLookYaw;
@@ -54,6 +63,8 @@ public partial class TopDownCamera : Camera3D
 	/// <summary>World-space body look yaw used for FP torso/aim/move basis.</summary>
 	public float BodyLookYaw => _bodyLookYaw;
 	public float BodyLookPitch => _bodyLookPitch;
+	/// <summary>0 = none, 1 = full InspectZoomMax magnification.</summary>
+	public float InspectZoomAmount => _inspectZoom;
 
 	public override void _Ready()
 	{
@@ -84,6 +95,19 @@ public partial class TopDownCamera : Camera3D
 		if (!_firstPerson || _uiBlocksCapture)
 			return;
 
+		if (@event is InputEventMouseButton { Pressed: true } mouse
+		    && mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown
+		    && Input.IsKeyPressed(Key.Alt)
+		    && !Input.IsKeyPressed(Key.Ctrl))
+		{
+			var delta = mouse.ButtonIndex == MouseButton.WheelUp
+				? InspectZoomScrollStep
+				: -InspectZoomScrollStep;
+			_inspectZoomTarget = Mathf.Clamp(_inspectZoomTarget + delta, 0f, 1f);
+			GetViewport().SetInputAsHandled();
+			return;
+		}
+
 		if (@event is InputEventMouseMotion motion)
 		{
 			// Alt = head peek only (MechController); do not turn the body window.
@@ -105,17 +129,37 @@ public partial class TopDownCamera : Camera3D
 			return;
 
 		if (_firstPerson)
+		{
+			TickInspectZoom((float)delta);
 			UpdateFirstPerson();
+		}
 		else
 			UpdateTopDown(delta);
 	}
 
 	public void SetTarget(Node3D target)
 	{
+		if (_firstPerson)
+			ApplyLocalFpLowerBodyHide(false);
+
 		_target = target;
 		TargetPath = GetPathTo(target);
 		_bodyLookYaw = target.GlobalRotation.Y;
 		_bodyLookPitch = FirstPersonDefaultPitch;
+
+		if (_firstPerson)
+			ApplyLocalFpLowerBodyHide(true);
+	}
+
+	/// <summary>
+	/// Temporary: hide hips/legs on the local pilot while in FP so pelvis geometry
+	/// does not poke through the view before real cockpit shells exist.
+	/// </summary>
+	private void ApplyLocalFpLowerBodyHide(bool hide)
+	{
+		if (_target is not MechController mech || !mech.IsLocalPilot)
+			return;
+		mech.SetFirstPersonHideLowerBody(hide);
 	}
 
 	public void ToggleFirstPerson()
@@ -136,14 +180,19 @@ public partial class TopDownCamera : Camera3D
 		Fov = FirstPersonFov;
 		_headLookYaw = 0f;
 		_headLookPitch = 0f;
+		_inspectZoom = 0f;
+		_inspectZoomTarget = 0f;
 		if (_target != null)
 		{
 			_bodyLookYaw = _target.GlobalRotation.Y;
 			_bodyLookPitch = FirstPersonDefaultPitch;
 		}
 
+		EnsureInspectFx();
 		RefreshMouseMode();
 		Current = true;
+		ApplyLocalFpLowerBodyHide(true);
+		ApplyInspectFov();
 	}
 
 	public void ExitFirstPerson()
@@ -154,8 +203,12 @@ public partial class TopDownCamera : Camera3D
 		_firstPerson = false;
 		_headLookYaw = 0f;
 		_headLookPitch = 0f;
+		_inspectZoom = 0f;
+		_inspectZoomTarget = 0f;
 		Fov = _topDownFov;
 		Input.MouseMode = Input.MouseModeEnum.Visible;
+		ApplyLocalFpLowerBodyHide(false);
+		UpdateInspectFx(0f);
 		if (_target != null)
 		{
 			GlobalPosition = _target.GlobalPosition + Offset;
@@ -192,8 +245,75 @@ public partial class TopDownCamera : Camera3D
 		LookAt(_target.GlobalPosition + Vector3.Up * LookHeight, Vector3.Up);
 	}
 
+	private void TickInspectZoom(float dt)
+	{
+		// Zoom is an Alt-held inspect; releasing Alt eases back to normal vision.
+		if (!Input.IsKeyPressed(Key.Alt) || _uiBlocksCapture)
+			_inspectZoomTarget = 0f;
+
+		_inspectZoom = Mathf.MoveToward(
+			_inspectZoom,
+			_inspectZoomTarget,
+			dt * InspectZoomLerp * Mathf.Max(0.35f, Mathf.Abs(_inspectZoomTarget - _inspectZoom) + 0.15f));
+		ApplyInspectFov();
+		UpdateInspectFx(_inspectZoom);
+	}
+
+	private void ApplyInspectFov()
+	{
+		if (!_firstPerson)
+			return;
+		var mag = Mathf.Lerp(1f, Mathf.Max(1.01f, InspectZoomMax), _inspectZoom);
+		Fov = FirstPersonFov / mag;
+	}
+
+	private void EnsureInspectFx()
+	{
+		if (_inspectFx != null)
+			return;
+
+		var shader = GD.Load<Shader>("res://shaders/fp_inspect_zoom.gdshader");
+		if (shader == null)
+			return;
+
+		_inspectFxMat = new ShaderMaterial { Shader = shader };
+		_inspectFxMat.SetShaderParameter("strength", 0f);
+
+		_inspectFxLayer = new CanvasLayer
+		{
+			Name = "InspectZoomFx",
+			Layer = 64,
+			Visible = false
+		};
+		AddChild(_inspectFxLayer);
+
+		_inspectFx = new ColorRect
+		{
+			Name = "InspectZoomBlit",
+			Color = Colors.White,
+			MouseFilter = Control.MouseFilterEnum.Ignore,
+			Material = _inspectFxMat
+		};
+		_inspectFx.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+		_inspectFxLayer.AddChild(_inspectFx);
+	}
+
+	private void UpdateInspectFx(float amount)
+	{
+		EnsureInspectFx();
+		if (_inspectFxLayer == null || _inspectFxMat == null)
+			return;
+
+		var active = _firstPerson && amount > 0.01f;
+		_inspectFxLayer.Visible = active;
+		_inspectFxMat.SetShaderParameter("strength", active ? amount : 0f);
+	}
+
 	private void UpdateFirstPerson()
 	{
+		// Keep hips hidden if a rebuild re-showed them mid-fight.
+		ApplyLocalFpLowerBodyHide(true);
+
 		var scale = _target is MechController mech
 			? MechChassisClassUtil.VisualScale(mech.ChassisClass)
 			: 1f;

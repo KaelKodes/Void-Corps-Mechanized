@@ -71,8 +71,9 @@ public static class CatalogPower
 		var mfg = part.ManufacturerId switch
 		{
 			"brimforge" => 2f,
+			"velhound" => 1.5f,
 			"lumina" => 1f,
-			_ => 0f // Trinova / OuroTech
+			_ => 0f // Trinova / OuroTech / Ashwhisk
 		};
 
 		var tier = Mathf.Max(0, part.Tier - 1) * 1.5f;

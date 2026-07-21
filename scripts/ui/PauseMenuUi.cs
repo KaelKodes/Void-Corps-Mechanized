@@ -18,7 +18,14 @@ public partial class PauseMenuUi : Control
 		ConfirmQuit
 	}
 
+	private enum OptionsTab
+	{
+		Hud,
+		Audio
+	}
+
 	private Page _page = Page.Root;
+	private OptionsTab _optionsTab = OptionsTab.Hud;
 	private VBoxContainer? _content;
 	private Label? _overlapLabel;
 	private string? _listeningAction;
@@ -43,6 +50,7 @@ public partial class PauseMenuUi : Control
 	{
 		_open = true;
 		_page = Page.Root;
+		_optionsTab = OptionsTab.Hud;
 		_listeningAction = null;
 		_rebindArmed = false;
 		Visible = true;
@@ -156,9 +164,8 @@ public partial class PauseMenuUi : Control
 
 	private void CloseAndResume()
 	{
+		// Close emits Closed — ArenaController restores mouse capture for FP.
 		Close();
-		if (GetTree() != null)
-			GetTree().Paused = false;
 	}
 
 	private void Rebuild()
@@ -183,7 +190,9 @@ public partial class PauseMenuUi : Control
 
 		var panel = new PanelContainer
 		{
-			CustomMinimumSize = _page == Page.Options ? new Vector2(520, 520) : new Vector2(520, 420)
+			CustomMinimumSize = _page == Page.Options
+				? (_optionsTab == OptionsTab.Audio ? new Vector2(520, 620) : new Vector2(520, 520))
+				: new Vector2(520, 420)
 		};
 		panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
 		{
@@ -279,6 +288,51 @@ public partial class PauseMenuUi : Control
 	{
 		AddHeader("OPTIONS");
 
+		var tabs = new HBoxContainer();
+		tabs.AddThemeConstantOverride("separation", 8);
+		tabs.AddChild(MakeTabButton("HUD", OptionsTab.Hud));
+		tabs.AddChild(MakeTabButton("AUDIO", OptionsTab.Audio));
+		_content!.AddChild(tabs);
+
+		switch (_optionsTab)
+		{
+			case OptionsTab.Audio:
+				BuildAudioOptions();
+				break;
+			default:
+				BuildHudOptions();
+				break;
+		}
+
+		_content.AddChild(MakeButton("Back", () =>
+		{
+			_page = Page.Root;
+			Rebuild();
+		}));
+	}
+
+	private Button MakeTabButton(string label, OptionsTab tab)
+	{
+		var active = _optionsTab == tab;
+		var button = new Button
+		{
+			Text = label,
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			Modulate = active
+				? new Color(0.95f, 0.82f, 0.45f)
+				: new Color(0.7f, 0.75f, 0.8f)
+		};
+		button.Pressed += () =>
+		{
+			SfxService.Click();
+			_optionsTab = tab;
+			Rebuild();
+		};
+		return button;
+	}
+
+	private void BuildHudOptions()
+	{
 		_content!.AddChild(MakeSectionLabel("Mech HUD"));
 		_content.AddChild(MakeSliderRow(
 			"Scale",
@@ -311,13 +365,11 @@ public partial class PauseMenuUi : Control
 				: $"{Mathf.RoundToInt(GameSettings.HudOffsetY * 100f)}% lift"));
 
 		_content.AddChild(MakeButton(
-			GameSettings.FirstPersonHudMode
-				? "HUD bars: First Person (panels)"
-				: "HUD bars: Overlay",
+			GameSettings.HudBarsModeLabel(),
 			() =>
 			{
 				SfxService.Click();
-				GameSettings.SetFirstPersonHudMode(!GameSettings.FirstPersonHudMode);
+				GameSettings.CycleHudBarsMode();
 				Rebuild();
 			}));
 
@@ -327,23 +379,75 @@ public partial class PauseMenuUi : Control
 			GameSettings.ResetHudLayout();
 			Rebuild();
 		}));
+	}
 
-		var stub = new Label
+	private void BuildAudioOptions()
+	{
+		_content!.AddChild(MakeSectionLabel("Mix"));
+		_content.AddChild(MakeSliderRow(
+			"Master",
+			GameSettings.MasterVolume,
+			GameSettings.MinAudibleLinear,
+			1f,
+			GameSettings.SetMasterVolume,
+			() => FormatVolumePercent(GameSettings.MasterVolume)));
+		_content.AddChild(MakeSliderRow(
+			"Music",
+			GameSettings.MusicVolume,
+			0f,
+			1f,
+			GameSettings.SetMusicVolume,
+			() => GameSettings.MusicVolume <= 0.001f
+				? "Muted"
+				: FormatVolumePercent(GameSettings.MusicVolume)));
+		_content.AddChild(MakeSliderRow(
+			"Combat SFX",
+			GameSettings.SfxVolume,
+			GameSettings.MinAudibleLinear,
+			1f,
+			GameSettings.SetSfxVolume,
+			() => FormatVolumePercent(GameSettings.SfxVolume)));
+		_content.AddChild(MakeSliderRow(
+			"UI",
+			GameSettings.UiVolume,
+			GameSettings.MinAudibleLinear,
+			1f,
+			GameSettings.SetUiVolume,
+			() => FormatVolumePercent(GameSettings.UiVolume)));
+		_content.AddChild(MakeSliderRow(
+			"Voice",
+			GameSettings.VoiceVolume,
+			GameSettings.MinAudibleLinear,
+			1f,
+			GameSettings.SetVoiceVolume,
+			() => FormatVolumePercent(GameSettings.VoiceVolume)));
+		_content.AddChild(MakeSliderRow(
+			"Mech",
+			GameSettings.MechVolume,
+			GameSettings.MinAudibleLinear,
+			1f,
+			GameSettings.SetMechVolume,
+			() => FormatVolumePercent(GameSettings.MechVolume)));
+
+		var note = new Label
 		{
-			Text = "Audio and graphics options coming soon.",
-			HorizontalAlignment = HorizontalAlignment.Center,
+			Text = "Music can mute. Other channels stay barely audible at minimum.",
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = new Color(0.55f, 0.6f, 0.65f)
 		};
-		stub.AddThemeFontSizeOverride("font_size", 13);
-		_content.AddChild(stub);
+		note.AddThemeFontSizeOverride("font_size", 12);
+		_content.AddChild(note);
 
-		_content.AddChild(MakeButton("Back", () =>
+		_content.AddChild(MakeButton("Reset audio", () =>
 		{
-			_page = Page.Root;
+			SfxService.Click();
+			GameSettings.ResetAudioVolumes();
 			Rebuild();
 		}));
 	}
+
+	private static string FormatVolumePercent(float linear) =>
+		$"{Mathf.RoundToInt(linear * 100f)}%";
 
 	private static Label MakeSectionLabel(string text)
 	{

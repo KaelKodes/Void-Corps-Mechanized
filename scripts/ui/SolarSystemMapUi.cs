@@ -372,7 +372,7 @@ public partial class SolarSystemMapUi : Control
 		toolbar.AddChild(ActionButton("COLLAPSE ALL", CollapseAllResearch));
 		_actions?.AddChild(toolbar);
 
-		foreach (var manufacturerId in GameCatalog.Manufacturers.Keys)
+		foreach (var manufacturerId in GameCatalog.CampaignManufacturerIds)
 		{
 			var manufacturer = GameCatalog.GetManufacturer(manufacturerId);
 			var nodes = TechTreeService.TreeFor(manufacturerId);
@@ -461,7 +461,7 @@ public partial class SolarSystemMapUi : Control
 		_researchExpandDefaultsSeeded = true;
 		_researchExpandedManufacturers.Clear();
 		_researchExpandedCategories.Clear();
-		foreach (var manufacturerId in GameCatalog.Manufacturers.Keys)
+		foreach (var manufacturerId in GameCatalog.CampaignManufacturerIds)
 		{
 			var nodes = TechTreeService.TreeFor(manufacturerId);
 			if (nodes.Count == 0)
@@ -486,7 +486,7 @@ public partial class SolarSystemMapUi : Control
 			return;
 		_researchExpandDefaultsSeeded = true;
 
-		var firstManufacturer = GameCatalog.Manufacturers.Keys.FirstOrDefault();
+		var firstManufacturer = GameCatalog.CampaignManufacturerIds.FirstOrDefault();
 		if (string.IsNullOrEmpty(firstManufacturer))
 			return;
 
