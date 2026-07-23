@@ -5,8 +5,8 @@ namespace Mechanize;
 
 /// <summary>
 /// Combat integrity schematic — MAP silhouette plates with health fill and aim lock.
-/// PWR (left) and SPD (right) meters live inside this panel.
-/// Chassis HEAT is the crosshair warning bar; per-arm heat is on the cockpit glass.
+/// SPD meter on the right; dash PWR is hidden (power lives on cockpit glass).
+/// Chassis HEAT warning is the crosshair bar (60%+); full heat+power meters are on the glass.
 /// </summary>
 public partial class IntegritySchematic : Control
 {
@@ -51,6 +51,7 @@ public partial class IntegritySchematic : Control
 
 	private readonly Dictionary<PartSlot, Zone> _zones = new();
 	private Label? _header;
+	private Control? _powerColumn;
 	private ProgressBar? _powerBar;
 	private ProgressBar? _speedBar;
 	private Label? _powerLabel;
@@ -61,7 +62,8 @@ public partial class IntegritySchematic : Control
 	private float _pulse;
 	private readonly List<PartSlot> _visibleUtilities = new();
 
-	private static float PanelWidth => MeterWidth + 8f + SilhouetteWidth + 8f + MeterWidth + 14f;
+	// Dash PWR column is hidden; glass owns power. Width is silhouette + SPD only.
+	private static float PanelWidth => SilhouetteWidth + 8f + MeterWidth + 22f;
 	private static Vector2 PanelSize => new(PanelWidth + 20f, ContentHeight + 18f);
 
 	public override void _Ready()
@@ -159,8 +161,9 @@ public partial class IntegritySchematic : Control
 		body.AddThemeConstantOverride("separation", 8);
 		root.AddChild(body);
 
-		body.AddChild(BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel, out _));
 		body.AddChild(BuildSilhouette());
+		_powerColumn = BuildMeterColumn("PWR", PowerFill, out _powerBar, out _powerLabel, out _);
+		_powerColumn.Visible = false; // power lives on cockpit glass for now
 		_speedColumn = BuildSpeedMeterColumn();
 		body.AddChild(_speedColumn);
 	}
@@ -357,22 +360,9 @@ public partial class IntegritySchematic : Control
 
 	private void RefreshMeters(MechController mech)
 	{
-		var power = mech.PowerHeat;
-		if (_powerBar != null)
-		{
-			_powerBar.Value = power?.PowerRatio ?? 0f;
-			if (_powerLabel != null)
-			{
-				_powerLabel.Text = power == null
-					? "PWR"
-					: $"PWR\n{power.CurrentPower:0}/{power.EffectiveOperationalMax:0}";
-				_powerLabel.Modulate = power?.IsOverheated == true
-					? new Color(1f, 0.45f, 0.35f)
-					: power is { CurrentPower: <= 0.5f }
-						? new Color(1f, 0.7f, 0.35f)
-						: new Color(0.75f, 0.85f, 1f);
-			}
-		}
+		// Dash PWR stays built but hidden; cockpit glass is the live power meter.
+		if (_powerColumn != null)
+			_powerColumn.Visible = false;
 
 		// Always show SPD on the integrity panel (screen HUD and cockpit Screen_Self).
 		if (_speedColumn != null)

@@ -1,0 +1,22 @@
+# Mech footfall bank — edit kind, restart game (or reload SfxService).
+# kind: single = one plant (bipeds + booster/thruster legs)
+#       multi  = multi-stomp cadence (hexapods only)
+#
+# Lines: <file name>  <single|multi>  [# comment]
+
+mechanized-2step.mp3  multi  # two-hit pack — hex cadence, not a biped plant
+mechanized-3step.mp3  multi  # three-hit pack — hex cadence
+
+# Audiopapkin one-shots — default single; flip to multi if a file has several hits.
+audiopapkin-big-robot-footstep-005-370113.mp3  single
+audiopapkin-big-robot-footstep-008-425967.mp3  single
+audiopapkin-big-robot-footstep-010-426482.mp3  single
+audiopapkin-big-robot-footstep-013-445101.mp3  single
+audiopapkin-big-robot-footstep-014-445104.mp3  single
+audiopapkin-big-robot-footstep-015-445103.mp3  single
+audiopapkin-big-robot-footstep-016-445102.mp3  single
+audiopapkin-big-robot-footstep-017-499567.mp3  single
+audiopapkin-big-robot-footstep-020-500843.mp3  single
+audiopapkin-big-robot-footstep-330678.mp3  single
+
+freesound_community-mech_step_001-87175.mp3  single

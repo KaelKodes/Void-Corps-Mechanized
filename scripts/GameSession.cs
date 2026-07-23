@@ -26,6 +26,8 @@ public partial class GameSession : Node
 		CadetLoaner != null || ConventionDemoLoaner != null || SkirmishLoaner != null;
 	public VoidCorpsIdentity.ClaimSite CurrentClaim { get; private set; }
 	public PilotDifficulty PendingDifficulty { get; set; } = PilotDifficulty.Easy;
+	/// <summary>Skirmish day/night lighting — driven by setup toggle; defaults Night.</summary>
+	public ArenaPeriod PendingArenaPeriod { get; set; } = ArenaPeriod.Night;
 	public MissionType PendingMission { get; set; } = MissionType.DestroyAllEnemies;
 	public BossEncounterId PendingBossEncounter { get; set; } = BossEncounterId.None;
 	public string PendingRivalPilotId { get; set; } = "";
@@ -63,7 +65,22 @@ public partial class GameSession : Node
 	public System.Collections.Generic.List<LobbySlot> LobbyRoster { get; private set; } = new();
 	/// <summary>True when Team/FFA skirmish — no PvE waves, PvP win rules.</summary>
 	public bool IsPvpMatch => LobbyModeRules.IsPvp(MultiplayerGameMode);
-	public bool UsingRoguelikeProfile { get; private set; }
+	/// <summary>Which economy bag <see cref="Profile"/> currently points at.</summary>
+	public ProfileBagKind ActiveBag { get; private set; } = ProfileBagKind.Campaign;
+	public bool UsingRoguelikeProfile
+	{
+		get => ActiveBag == ProfileBagKind.Roguelike;
+		private set => ActiveBag = value ? ProfileBagKind.Roguelike : ProfileBagKind.Campaign;
+	}
+	public bool UsingSkirmishProfile => ActiveBag == ProfileBagKind.Skirmish;
+	/// <summary>True when the current/last match was a skirmish (sandbox / PvP ladder bag).</summary>
+	public bool MatchFromSkirmish { get; set; }
+	/// <summary>Menu action waiting on first-time Cat/Dog lock.</summary>
+	public PendingFactionContinue PendingFactionContinue { get; set; }
+	/// <summary>True when at least one local profile slot exists.</summary>
+	public bool HasAnyProfile => SaveService.AnyOccupiedSlot();
+	/// <summary>Pending empty slot index for the create wizard (-1 = none).</summary>
+	public int PendingCreateSlot { get; set; } = -1;
 
 	public bool InCampaign => Campaign is { Alive: true };
 	public bool InSolarCampaign => SolarCampaign != null;
@@ -80,6 +97,78 @@ public partial class GameSession : Node
 				return company;
 		}
 		return null;
+	}
+
+	public bool NeedsFactionPick
+	{
+		get
+		{
+			ActivateCampaignProfile();
+			return !Profile.HasFaction;
+		}
+	}
+
+	/// <summary>
+	/// Campaign / roguelike entry: if faction unset, open pick UI; otherwise run <paramref name="whenReady"/>.
+	/// </summary>
+	public bool TryBeginWithFactionGate(PendingFactionContinue pending, System.Action whenReady)
+	{
+		ActivateCampaignProfile();
+		if (Profile.HasFaction)
+		{
+			PendingFactionContinue = PendingFactionContinue.None;
+			whenReady();
+			return false;
+		}
+
+		PendingFactionContinue = pending;
+		return true;
+	}
+
+	public void ContinueAfterFactionPick()
+	{
+		var pending = PendingFactionContinue;
+		PendingFactionContinue = PendingFactionContinue.None;
+		var tree = GetTree();
+		if (tree == null)
+			return;
+
+		switch (pending)
+		{
+			case PendingFactionContinue.SolarTutorial:
+				BeginSolarCampaign(reset: true);
+				LaunchSolarOnboarding();
+				tree.ChangeSceneToFile("res://scenes/arena.tscn");
+				break;
+			case PendingFactionContinue.SolarSkipConvention:
+				BeginSolarCampaignSkipToConvention();
+				tree.ChangeSceneToFile("res://scenes/convention_hall.tscn");
+				break;
+			case PendingFactionContinue.RoguelikeCadet:
+				BeginCadetProgram();
+				tree.ChangeSceneToFile("res://scenes/arena.tscn");
+				break;
+			case PendingFactionContinue.RoguelikeConvention:
+				BeginConventionProgram();
+				tree.ChangeSceneToFile("res://scenes/convention_hall.tscn");
+				break;
+			case PendingFactionContinue.NewProfile:
+			default:
+				tree.ChangeSceneToFile("res://scenes/main_menu.tscn");
+				break;
+		}
+	}
+
+	private void SeedRoguelikeIdentityFromMain(string? handle = null)
+	{
+		ActivateCampaignProfile();
+		var faction = Profile.Faction;
+		var portrait = Profile.PilotPortraitIndex;
+		var resolved = handle ?? Profile.ResolveAccountHandle();
+		Profile = PlayerProfile.CreateNew(resolved);
+		Profile.SetAccountHandle(resolved);
+		if (faction is FactionId.Cat or FactionId.Dog)
+			Profile.SetFaction(faction, portrait, force: true);
 	}
 
 	public int ActiveSlotIndex => SaveService.ActiveSlot;
@@ -101,10 +190,24 @@ public partial class GameSession : Node
 	/// <summary>Load profile + campaign state for the manifest active/last-used slot.</summary>
 	private void EnsureActiveSlotLoaded()
 	{
+		if (!SaveService.AnyOccupiedSlot())
+		{
+			// Fresh install: no auto-create — menu forces the create wizard.
+			LoadEmptySession();
+			return;
+		}
+
 		if (!SaveService.SlotOccupied(SaveService.ActiveSlot))
 		{
-			// Fresh install: auto-create slot 0 with a default handle.
-			CreateSlot(0, VoidCorpsIdentity.PlayerCorpCodename, makeActive: true);
+			for (var i = 0; i < SaveService.MaxSlots; i++)
+			{
+				if (!SaveService.SlotOccupied(i))
+					continue;
+				LoadSlotIntoSession(i);
+				return;
+			}
+
+			LoadEmptySession();
 			return;
 		}
 
@@ -112,12 +215,25 @@ public partial class GameSession : Node
 		LoadSlotIntoSession(SaveService.ActiveSlot);
 	}
 
+	private void LoadEmptySession()
+	{
+		ActiveBag = ProfileBagKind.Campaign;
+		Profile = PlayerProfile.CreateNew();
+		Campaign = null;
+		SolarCampaign = new SolarCampaignRun();
+		SolarCampaign.RefreshUnlocks();
+		ClearTemporaryLoaners();
+		CurrentClaim = VoidCorpsIdentity.PickClaimSite();
+	}
+
 	private void LoadSlotIntoSession(int slot)
 	{
 		SaveService.SetActiveSlot(slot);
-		UsingRoguelikeProfile = false;
-		Profile = SaveService.LoadActiveProfile();
+		ActiveBag = ProfileBagKind.Campaign;
+		Profile = SaveService.LoadCampaignProfile(slot);
 		Profile.EnsureManufacturerState();
+		SaveService.EnsureSkirmishBag(slot, Profile);
+		PendingArenaPeriod = Profile.PreferredSkirmishArenaPeriod;
 		CurrentClaim = VoidCorpsIdentity.PickClaimSite();
 		SyncLoadoutFromProfile();
 		Campaign = CampaignRun.Load();
@@ -135,16 +251,25 @@ public partial class GameSession : Node
 			return false;
 
 		DisconnectNetIfOnline();
-		if (UsingRoguelikeProfile)
-			ActivateMainProfile();
-		else
+		if (ActiveBag != ProfileBagKind.Campaign && SaveService.SlotOccupied(SaveService.ActiveSlot))
+			SaveProfile();
+		else if (SaveService.SlotOccupied(SaveService.ActiveSlot))
 			SaveProfile();
 
 		LoadSlotIntoSession(slot);
 		return true;
 	}
 
+	/// <summary>Create a slot with handle only (faction still required via create wizard).</summary>
 	public bool CreateSlot(int slot, string handle, bool makeActive = true)
+		=> CreateSlot(slot, handle, FactionId.None, 0, makeActive);
+
+	public bool CreateSlot(
+		int slot,
+		string handle,
+		FactionId faction,
+		int portraitIndex,
+		bool makeActive = true)
 	{
 		slot = Mathf.Clamp(slot, 0, SaveService.MaxSlots - 1);
 		if (SaveService.SlotOccupied(slot))
@@ -153,31 +278,29 @@ public partial class GameSession : Node
 			return false;
 
 		DisconnectNetIfOnline();
-		if (SaveService.SlotOccupied(SaveService.ActiveSlot) && !UsingRoguelikeProfile)
+		if (SaveService.AnyOccupiedSlot() && SaveService.SlotOccupied(SaveService.ActiveSlot))
 			SaveProfile();
-		else if (UsingRoguelikeProfile)
-			ActivateMainProfile();
 
 		SaveService.EnsureSlotDir(slot);
 		SaveService.SetActiveSlot(slot);
-		UsingRoguelikeProfile = false;
+		ActiveBag = ProfileBagKind.Campaign;
 		Profile = PlayerProfile.CreateNew(handle);
 		Profile.SetAccountHandle(handle);
+		if (faction is FactionId.Cat or FactionId.Dog)
+			Profile.SetFaction(faction, portraitIndex, force: true);
 		Campaign = null;
 		CampaignRun.ClearSave();
 		CampaignRun.ClearSolarOnboardingSave();
 		SaveService.DeleteFileIfExists(SaveService.SolarCampaignPath(slot));
 		SaveService.DeleteFileIfExists(SaveService.RoguelikePath(slot));
+		SaveService.DeleteFileIfExists(SaveService.SkirmishPath(slot));
 		SolarCampaign = SolarCampaignRun.LoadOrNew();
 		ClearTemporaryLoaners();
 		SaveService.SaveActiveProfile(Profile);
+		SaveService.EnsureSkirmishBag(slot, Profile);
+		SkirmishBagSync.MirrorUnlocks(slot);
 		SolarCampaign.Save();
-
-		if (!makeActive)
-		{
-			// Created while browsing another slot — stay on previous if still valid.
-		}
-
+		PendingCreateSlot = -1;
 		return true;
 	}
 
@@ -192,18 +315,19 @@ public partial class GameSession : Node
 		handle = SaveService.SanitizeHandle(handle);
 		if (slot == SaveService.ActiveSlot)
 		{
-			if (UsingRoguelikeProfile)
-				ActivateMainProfile();
+			ActivateCampaignProfile();
 			Profile.SetAccountHandle(handle);
 			SaveProfile();
+			SyncIdentityToSiblingBags(slot);
 			return true;
 		}
 
 		var previous = SaveService.ActiveSlot;
-		var profile = SaveService.LoadOrNew(SaveService.ProfilePath(slot));
+		var profile = SaveService.LoadCampaignProfile(slot);
 		profile.SetAccountHandle(handle);
-		SaveService.Save(profile, SaveService.ProfilePath(slot));
+		SaveService.Save(profile, SaveService.CampaignProfilePath(slot));
 		SaveService.UpdateSlotSummary(slot, profile);
+		SyncIdentityToSiblingBags(slot, profile);
 		SaveService.SetActiveSlot(previous);
 		return true;
 	}
@@ -218,16 +342,11 @@ public partial class GameSession : Node
 			return false;
 
 		if (from == SaveService.ActiveSlot)
-		{
-			if (UsingRoguelikeProfile)
-				ActivateMainProfile();
-			else
-				SaveProfile();
-		}
+			SaveProfile();
 
 		SaveService.DeleteSlotFiles(to);
 		SaveService.CopySlotFiles(from, to);
-		var copied = SaveService.LoadOrNew(SaveService.ProfilePath(to));
+		var copied = SaveService.LoadCampaignProfile(to);
 		SaveService.UpdateSlotSummary(to, copied);
 		return true;
 	}
@@ -240,8 +359,8 @@ public partial class GameSession : Node
 
 		DisconnectNetIfOnline();
 		var deletingActive = slot == SaveService.ActiveSlot;
-		if (deletingActive && UsingRoguelikeProfile)
-			UsingRoguelikeProfile = false;
+		if (deletingActive)
+			ActiveBag = ProfileBagKind.Campaign;
 
 		SaveService.DeleteSlotFiles(slot);
 
@@ -256,8 +375,32 @@ public partial class GameSession : Node
 			return true;
 		}
 
-		CreateSlot(0, VoidCorpsIdentity.PlayerCorpCodename, makeActive: true);
+		LoadEmptySession();
 		return true;
+	}
+
+	public void SyncIdentityAfterCreate()
+		=> SyncIdentityToSiblingBags(SaveService.ActiveSlot, Profile);
+
+	private void SyncIdentityToSiblingBags(int slot, PlayerProfile? identity = null)
+	{
+		identity ??= SaveService.LoadCampaignProfile(slot);
+		var handle = identity.ResolveAccountHandle();
+
+		void Patch(string path)
+		{
+			if (!Godot.FileAccess.FileExists(path))
+				return;
+			var bag = SaveService.LoadOrNew(path);
+			bag.SetAccountHandle(handle);
+			if (identity.HasFaction)
+				bag.CopyFactionIdentityFrom(identity);
+			SaveService.Save(bag, path);
+		}
+
+		Patch(SaveService.RoguelikePath(slot));
+		SaveService.EnsureSkirmishBag(slot, identity);
+		Patch(SaveService.SkirmishPath(slot));
 	}
 
 	private void DisconnectNetIfOnline()
@@ -269,24 +412,65 @@ public partial class GameSession : Node
 
 	public void ActivateRoguelikeProfile()
 	{
-		if (UsingRoguelikeProfile)
+		if (ActiveBag == ProfileBagKind.Roguelike)
 			return;
+		PersistActiveBagToDisk();
 		var path = SaveService.RoguelikePath(SaveService.ActiveSlot);
 		if (!Godot.FileAccess.FileExists(path))
+		{
+			ActivateCampaignProfile();
 			SaveService.Save(Profile, path);
+		}
+
 		Profile = SaveService.LoadOrNew(path);
-		UsingRoguelikeProfile = true;
+		ActiveBag = ProfileBagKind.Roguelike;
 		SyncLoadoutFromProfile();
 	}
 
+	public void ActivateSkirmishProfile()
+	{
+		if (ActiveBag == ProfileBagKind.Skirmish)
+			return;
+		PersistActiveBagToDisk();
+		var slot = SaveService.ActiveSlot;
+		var campaign = SaveService.LoadCampaignProfile(slot);
+		SaveService.EnsureSkirmishBag(slot, campaign);
+		SkirmishBagSync.MirrorUnlocks(slot);
+		Profile = SaveService.LoadOrNew(SaveService.SkirmishPath(slot));
+		ActiveBag = ProfileBagKind.Skirmish;
+		SyncLoadoutFromProfile();
+	}
+
+	public void ActivateCampaignProfile() => ActivateMainProfile();
+
 	public void ActivateMainProfile()
 	{
-		if (!UsingRoguelikeProfile)
+		if (ActiveBag == ProfileBagKind.Campaign)
 			return;
-		SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
-		Profile = SaveService.LoadActiveProfile();
-		UsingRoguelikeProfile = false;
+		PersistActiveBagToDisk();
+		Profile = SaveService.LoadCampaignProfile(SaveService.ActiveSlot);
+		ActiveBag = ProfileBagKind.Campaign;
 		SyncLoadoutFromProfile();
+	}
+
+	private void PersistActiveBagToDisk()
+	{
+		if (!SaveService.SlotOccupied(SaveService.ActiveSlot) && ActiveBag == ProfileBagKind.Campaign)
+			return;
+
+		switch (ActiveBag)
+		{
+			case ProfileBagKind.Roguelike:
+				SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
+				break;
+			case ProfileBagKind.Skirmish:
+				SaveService.Save(Profile, SaveService.SkirmishPath(SaveService.ActiveSlot));
+				break;
+			default:
+				if (SaveService.SlotOccupied(SaveService.ActiveSlot) || Profile.HasFaction)
+					SaveService.SaveActiveProfile(Profile);
+				break;
+		}
 	}
 
 	private void OnNetMatchLaunch()
@@ -348,9 +532,17 @@ public partial class GameSession : Node
 			ClearConventionDemoLoaner();
 			if (SkirmishLoaner == null)
 				SetSkirmishPremade(0);
+			ActivateSkirmishProfile();
+			MatchFromSkirmish = true;
+			MatchFromAcademy = false;
+			MatchFromConvention = false;
+			MatchFromSolarCampaign = false;
 		}
 		else
+		{
 			ClearSkirmishLoaner();
+			MatchFromSkirmish = false;
+		}
 
 		if (!EnsureDeployableLoadout("net launch"))
 			return;
@@ -378,11 +570,6 @@ public partial class GameSession : Node
 		PendingRivalCorpId = payload.ContainsKey("rival_corp") ? payload["rival_corp"].AsString() : "";
 		LastMissionManufacturerId = payload.ContainsKey("mfg") ? payload["mfg"].AsString() : "";
 		MatchFromCampaign = fromCampaign;
-		if (skirmishLaunch)
-		{
-			MatchFromAcademy = false;
-			MatchFromConvention = false;
-		}
 
 		CoopMatch = true;
 		ReturnToCampaignMap = MatchFromCampaign;
@@ -432,6 +619,7 @@ public partial class GameSession : Node
 			return;
 		}
 
+		ActivateSkirmishProfile();
 		if (!EnsureDeployableLoadout("skirmish"))
 			return;
 
@@ -441,6 +629,7 @@ public partial class GameSession : Node
 		MatchFromSolarCampaign = false;
 		MatchFromAcademy = false;
 		MatchFromConvention = false;
+		MatchFromSkirmish = true;
 		CoopMatch = false;
 		PendingBossEncounter = BossEncounterId.None;
 		PendingRivalPilotId = "";
@@ -461,6 +650,7 @@ public partial class GameSession : Node
 			return;
 		}
 
+		ActivateSkirmishProfile();
 		if (!EnsureDeployableLoadout("coop skirmish"))
 			return;
 
@@ -470,6 +660,7 @@ public partial class GameSession : Node
 		MatchFromSolarCampaign = false;
 		MatchFromAcademy = false;
 		MatchFromConvention = false;
+		MatchFromSkirmish = true;
 		CoopMatch = true;
 		PendingBossEncounter = BossEncounterId.None;
 		PendingRivalPilotId = "";
@@ -551,7 +742,7 @@ public partial class GameSession : Node
 
 	public void BeginSolarCampaign(bool reset = false)
 	{
-		ActivateMainProfile();
+		ActivateCampaignProfile();
 		if (reset)
 		{
 			SaveService.DeleteFileIfExists(SolarCampaignRun.SavePath);
@@ -572,6 +763,7 @@ public partial class GameSession : Node
 		ReturnToCampaignMap = false;
 		MatchFromSolarCampaign = false;
 		MatchFromCampaign = false;
+		MatchFromSkirmish = false;
 		ClearTemporaryLoaners();
 		SaveProfile();
 	}
@@ -644,10 +836,12 @@ public partial class GameSession : Node
 		LastMissionManufacturerId = "";
 		ReturnToSolarMap = true;
 		ReturnToCampaignMap = false;
+		ActivateCampaignProfile();
 		MatchFromSolarCampaign = true;
 		MatchFromCampaign = false;
 		MatchFromAcademy = false;
 		MatchFromConvention = false;
+		MatchFromSkirmish = false;
 		CoopMatch = GetNodeOrNull<NetSession>("/root/NetSession") is { IsOnline: true };
 
 		foreach (var claim in VoidCorpsIdentity.ClaimSites)
@@ -683,8 +877,7 @@ public partial class GameSession : Node
 
 	public void BeginCampaignRun(int sectorIndex = 0)
 	{
-		ActivateMainProfile();
-		Profile = PlayerProfile.CreateNew();
+		SeedRoguelikeIdentityFromMain();
 		UsingRoguelikeProfile = true;
 		ClearTemporaryLoaners();
 		Campaign = CampaignRun.StartNew(sectorIndex);
@@ -705,8 +898,7 @@ public partial class GameSession : Node
 	/// <summary>Start MAP Cadet Program at the certification range.</summary>
 	public void BeginCadetProgram()
 	{
-		ActivateMainProfile();
-		Profile = PlayerProfile.CreateNew();
+		SeedRoguelikeIdentityFromMain();
 		UsingRoguelikeProfile = true;
 		CampaignRun.ClearSave();
 		Campaign = CampaignRun.StartCadet();
@@ -730,8 +922,7 @@ public partial class GameSession : Node
 	/// <summary>Start a fresh campaign at the Big Four convention, skipping academy tutorial beats.</summary>
 	public void BeginConventionProgram()
 	{
-		ActivateMainProfile();
-		Profile = PlayerProfile.CreateNew();
+		SeedRoguelikeIdentityFromMain();
 		UsingRoguelikeProfile = true;
 		CampaignRun.ClearSave();
 		ClearTemporaryLoaners();
@@ -1232,10 +1423,19 @@ public partial class GameSession : Node
 
 	public void SaveProfile()
 	{
-		if (UsingRoguelikeProfile)
-			SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
-		else
-			SaveService.SaveActiveProfile(Profile);
+		switch (ActiveBag)
+		{
+			case ProfileBagKind.Roguelike:
+				SaveService.Save(Profile, SaveService.RoguelikePath(SaveService.ActiveSlot));
+				break;
+			case ProfileBagKind.Skirmish:
+				SaveService.Save(Profile, SaveService.SkirmishPath(SaveService.ActiveSlot));
+				break;
+			default:
+				SaveService.SaveActiveProfile(Profile);
+				break;
+		}
+
 		Campaign?.Save();
 		SolarCampaign?.Save();
 	}
@@ -1253,18 +1453,29 @@ public partial class GameSession : Node
 		if (MatchRewardsCommitted)
 			return;
 
+		var scrapEarned = Match.RunScrap;
+		var skirmishMatch = MatchFromSkirmish || ActiveBag == ProfileBagKind.Skirmish;
+
+		if (skirmishMatch)
+		{
+			if (ActiveBag != ProfileBagKind.Skirmish)
+				ActivateSkirmishProfile();
+			Match.ApplyToProfile(Profile, trackSkirmishRecord: true);
+			SetLoadout(Profile.Loadout);
+			SaveProfile();
+			MatchRewardsCommitted = true;
+			return;
+		}
+
 		if (MatchFromAcademy || MatchFromConvention)
 		{
-			Profile.Scrap += Match.RunScrap;
+			Profile.Scrap += scrapEarned;
 			if (Match.MissionType != MissionType.CadetRange)
 				Profile.LivesBank = Mathf.Max(0, Match.LivesRemaining);
-			Profile.SkirmishesPlayed++;
-			if (Match.Outcome == MatchOutcome.Victory)
-				Profile.SkirmishesWon++;
 		}
 		else
 		{
-			Match.ApplyToProfile(Profile);
+			Match.ApplyToProfile(Profile, trackSkirmishRecord: false);
 			SetLoadout(Profile.Loadout);
 		}
 
@@ -1273,28 +1484,41 @@ public partial class GameSession : Node
 		    && Match.Outcome != MatchOutcome.Victory)
 		{
 			WipeCampaignDeath();
+			if (scrapEarned > 0)
+				SkirmishBagSync.AfterPersistentEarn(SaveService.ActiveSlot, scrapEarned);
+			else
+				SkirmishBagSync.MirrorUnlocks(SaveService.ActiveSlot);
 			MatchRewardsCommitted = true;
 			return;
 		}
 
 		SaveProfile();
+		SkirmishBagSync.AfterPersistentEarn(SaveService.ActiveSlot, scrapEarned);
 		MatchRewardsCommitted = true;
 	}
 
-	/// <summary>Wipe the active slot inventory/progress (slot stays occupied with same handle).</summary>
+	/// <summary>Wipe the active slot inventory/progress (slot stays occupied with same handle + faction).</summary>
 	public void NewProfile()
 	{
-		ActivateMainProfile();
+		ActivateCampaignProfile();
 		var handle = Profile.ResolveAccountHandle();
+		var faction = Profile.Faction;
+		var portrait = Profile.PilotPortraitIndex;
 		Profile = PlayerProfile.CreateNew(handle);
+		Profile.SetAccountHandle(handle);
+		if (faction is FactionId.Cat or FactionId.Dog)
+			Profile.SetFaction(faction, portrait, force: true);
 		CampaignRun.ClearSave();
 		CampaignRun.ClearSolarOnboardingSave();
 		SaveService.DeleteFileIfExists(SaveService.RoguelikePath(SaveService.ActiveSlot));
+		SaveService.DeleteFileIfExists(SaveService.SkirmishPath(SaveService.ActiveSlot));
 		SaveService.DeleteFileIfExists(SaveService.SolarCampaignPath(SaveService.ActiveSlot));
 		SolarCampaign = SolarCampaignRun.LoadOrNew();
 		Campaign = null;
 		ClearTemporaryLoaners();
 		SaveProfile();
+		SaveService.EnsureSkirmishBag(SaveService.ActiveSlot, Profile);
+		SkirmishBagSync.MirrorUnlocks(SaveService.ActiveSlot);
 	}
 
 	/// <summary>Max part tier allowed in shop/loot for the active context.</summary>

@@ -4,8 +4,8 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Bottom combat HUD: integrity schematic (with on-panel PWR/SPD), weapons + MAP modules.
-/// Chassis HEAT warning lives under the aim crosshair (60%+); per-arm heat is on the cockpit glass.
+/// Bottom combat HUD: integrity schematic (with on-panel SPD), weapons + MAP modules.
+/// Chassis HEAT warning lives under the aim crosshair (60%+); heat + power meters are on the cockpit glass.
 /// </summary>
 public partial class MechHud : Control
 {
@@ -408,6 +408,13 @@ public partial class MechHud : Control
 		else
 		{
 			status = hp.IsDestroyed ? "DOWN" : "READY";
+			if (!hp.IsDestroyed && hp.UsesMagazine)
+			{
+				if (hp.IsReloading)
+					status = $"RELOAD {hp.ReloadRemaining:0.0}s";
+				else
+					status = $"{hp.AmmoInMag}/{hp.MagazineCapacity}";
+			}
 			var elev = !IsFirstPersonHud(mech)
 			           && part.AllowsFireElevation
 			           && Mathf.Abs(mech.FireElevationNormalized) > 0.02f
@@ -463,6 +470,7 @@ public partial class MechHud : Control
 		AbilityId.MendPulse => "Paint beacon · Ctrl self",
 		AbilityId.PulseRepair => "Hold channel repair",
 		AbilityId.Shroud => "Cloak pulse",
+		AbilityId.ContactReveal => "Radar blips · last known",
 		_ => "Module"
 	};
 

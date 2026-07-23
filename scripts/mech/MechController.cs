@@ -22,6 +22,7 @@ public partial class MechController : CharacterBody3D
 	private MechIntegrity? _integrity;
 	private MechPowerHeat? _powerHeat;
 	private MechPilotAI? _pilot;
+	private CockpitSeatAdjust? _seatAdjust;
 	private Node3D? _upperBody;
 	private Vector3 _aimPoint;
 	private PartSlot? _aimedComponentSlot;
@@ -40,6 +41,15 @@ public partial class MechController : CharacterBody3D
 	private float _dryFireReadyL;
 	private float _dryFireReadyR;
 	private bool _overheatFxActive;
+	private float _idleSeconds;
+	private bool _idleVentPlayed;
+	private const float IdleVentDelay = 2.2f;
+	private float _sprintRunSeconds;
+	private const float SprintVentMinSeconds = 1.6f;
+	private float _moveRunSeconds;
+	private const float MoveVentMinSeconds = 3.5f;
+	private bool _powerWasDrained;
+	private bool _powerVentArmed;
 	private bool _shieldRaisedL;
 	private bool _shieldRaisedR;
 	private bool _shieldBrokenL;
@@ -65,6 +75,15 @@ public partial class MechController : CharacterBody3D
 	private float _dashRemaining;
 	private float _dashCooldown;
 	private Vector3 _dashDirection = Vector3.Forward;
+	/// <summary>Remaining booster fuel (seconds). Refills on landing.</summary>
+	private float _boostFuel;
+	private bool _boostThrusting;
+	private bool _boostFuelInited;
+	private bool _wasOnFloor = true;
+	private float _peakFallSpeed;
+	private const float LandingImpactMinSpeed = 5.5f;
+	private const float LandingImpactHardSpeed = 22f;
+	private const float LandingHearRange = 18f;
 	private const float SprintTapThreshold = 0.18f;
 	private Node3D? _carrierMount;
 	private EscortAsset? _carrierAsset;
@@ -76,7 +95,7 @@ public partial class MechController : CharacterBody3D
 	private float _fpHeadLookPitch;
 	/// <summary>1 = full walk/sprint speed. Ctrl+scroll governor; Ctrl+middle-click resets.</summary>
 	private float _speedGovernor = 1f;
-	private MechController? _sensorLock;
+	private Node3D? _sensorLock;
 	private PartSlot? _sensorFocus;
 	private bool _sensorLockInVision;
 
@@ -123,6 +142,11 @@ public partial class MechController : CharacterBody3D
 			return OwningPeerId != 0 && OwningPeerId == net.LocalPeerId;
 		}
 	}
+
+	/// <summary>True while seat-adjusting (Alt+F then hold F; blocks fire + extract).</summary>
+	public bool IsAdjustingSeat => _seatAdjust?.IsAdjusting == true;
+	/// <summary>True when F should not trigger world interact / extract.</summary>
+	public bool BlocksInteractForSeat => _seatAdjust?.BlocksWorldInteract == true;
 
 	public void ConfigureNetworkPilot(int peerId, bool human, TeamId team = TeamId.Player)
 	{
@@ -189,6 +213,7 @@ public partial class MechController : CharacterBody3D
 		{
 			UpdateAimFromMouse();
 			TickFirstPersonHeadLook();
+			_seatAdjust?.Tick((float)delta);
 			UpdateAimedComponent();
 			TickSensorLock();
 			ApplySensorAimAssist();
@@ -286,13 +311,21 @@ public partial class MechController : CharacterBody3D
 	/// <summary>1 = full speed. Below 1 while the Ctrl+scroll governor is engaged.</summary>
 	public float SpeedGovernor => _speedGovernor;
 	public bool IsSpeedGovernorActive => _speedGovernor < 0.995f;
-	public MechController? SensorLockTarget =>
+	/// <summary>Current TAB lock — hostile MAP or fodder <see cref="SupportUnit"/>.</summary>
+	public Node3D? SensorLockTarget =>
 		_sensorLock != null && GodotObject.IsInstanceValid(_sensorLock) ? _sensorLock : null;
+	/// <summary>TAB lock when it is a MAP chassis (null for fodder locks).</summary>
+	public MechController? SensorLockMech => SensorLockTarget as MechController;
 	public PartSlot? SensorFocusSlot => _sensorFocus;
 	public bool SensorLockInVision => _sensorLockInVision;
 	public bool ControlsEnabled => _controlsEnabled;
 	public bool IsSprinting => _sprinting;
 	public bool IsDashing => _dashRemaining > 0.01f;
+	/// <summary>True while booster pack is thrusting (hold Space).</summary>
+	public bool IsJumping => _boostThrusting;
+	public bool IsBoostFlying => _boostThrusting || (!IsOnFloor() && _boostFuel > 0.01f && (_assembler?.Stats.HasBooster ?? false));
+	/// <summary>True when the pilot is holding locomotion input (WASD / throttle), even if airborne with little planar speed.</summary>
+	public bool HasMoveIntent { get; private set; }
 	/// <summary>True while local FP hides hips/legs to avoid cockpit mesh poke-through.</summary>
 	public bool FirstPersonHideLowerBody { get; private set; }
 
@@ -313,7 +346,7 @@ public partial class MechController : CharacterBody3D
 			hips.Visible = !FirstPersonHideLowerBody;
 	}
 	/// <summary>Locomotion spread tier — wide reticle + projectile cone while moving or dashing.</summary>
-	public bool IsWideFire => _wasMoving || IsDashing || IsSprinting;
+	public bool IsWideFire => _wasMoving || IsDashing || IsSprinting || IsJumping;
 	/// <summary>Planted aim — tight reticle and no ballistic spread.</summary>
 	public bool IsStationaryAim => !IsWideFire;
 	/// <summary>Sprint blocks weapon discharge.</summary>
@@ -368,12 +401,22 @@ public partial class MechController : CharacterBody3D
 			AddChild(_integrity);
 		}
 
+		_seatAdjust = GetNodeOrNull<CockpitSeatAdjust>(CockpitSeatAdjust.NodeName);
+		if (_seatAdjust == null)
+		{
+			_seatAdjust = new CockpitSeatAdjust { Name = CockpitSeatAdjust.NodeName };
+			AddChild(_seatAdjust);
+		}
+		_seatAdjust.Bind(this);
+
 		_powerHeat = GetNodeOrNull<MechPowerHeat>("MechPowerHeat");
 		if (_powerHeat == null)
 		{
 			_powerHeat = new MechPowerHeat { Name = "MechPowerHeat" };
 			AddChild(_powerHeat);
 		}
+
+		MechLights.EnsureOn(this);
 
 		_pilot = GetNodeOrNull<MechPilotAI>("MechPilotAI");
 		if (!HangarDisplayOnly && !IsPlayerControlled && _pilot == null)
@@ -410,7 +453,9 @@ public partial class MechController : CharacterBody3D
 		}
 
 		if (!HangarDisplayOnly)
-			OcclusionSilhouette.EnsureOn(this);
+			SensorContactScan.EnsureOn(this);
+		if (!HangarDisplayOnly)
+			CombatChevronMarkers.EnsureOn(this);
 		if (!HangarDisplayOnly)
 			MechLegAnimator.EnsureOn(this);
 	}
@@ -433,8 +478,11 @@ public partial class MechController : CharacterBody3D
 		_integrity?.Bind(this, _assembler!, _health, effective);
 		_abilities?.Bind(this, _assembler!, _health);
 		_powerHeat?.Bind(_assembler!);
+		GetNodeOrNull<MechLights>(MechLights.NodeName)?.Rebuild();
 		ApplyChassisClass(ChassisClass);
 		StopSprint();
+		StopBoosterThrust();
+		_boostFuelInited = false;
 		ClearHeldShieldBattleState();
 		SetControlsEnabled(true);
 		ApplyFirstPersonLowerBodyVisibility();
@@ -472,6 +520,8 @@ public partial class MechController : CharacterBody3D
 			}
 		}
 		GetNodeOrNull<MechLegAnimator>(MechLegAnimator.NodeName)?.CallDeferred("BindRig");
+		if (slot is PartSlot.Torso or PartSlot.Head)
+			GetNodeOrNull<MechLights>(MechLights.NodeName)?.Rebuild();
 		return true;
 	}
 
@@ -524,6 +574,7 @@ public partial class MechController : CharacterBody3D
 			Velocity = Vector3.Zero;
 			StopCarrierOverdrive();
 			StopSprint();
+			StopBoosterThrust();
 			LowerHeldShields();
 			_fireElevation = 0f;
 			ClearSensorLock();
@@ -537,6 +588,7 @@ public partial class MechController : CharacterBody3D
 		_carrierAsset = mountPoint.GetParentOrNull<EscortAsset>();
 		StopCarrierOverdrive();
 		StopSprint();
+		StopBoosterThrust();
 		LowerHeldShields();
 		Velocity = Vector3.Zero;
 	}
@@ -567,6 +619,8 @@ public partial class MechController : CharacterBody3D
 		var online = net is { IsOnline: true };
 
 		TickOverheatAudio();
+		TickIdleVentAudio(dt);
+		TickExertionVentAudio(dt);
 
 		// Clients do not simulate host-auth mechs — replication drives their transforms.
 		if (online && !Multiplayer.IsServer())
@@ -580,9 +634,11 @@ public partial class MechController : CharacterBody3D
 		{
 			ClearMissileLock();
 			_abilities?.EndPulseRepair(applyCooldown: false);
+			HasMoveIntent = false;
 			Velocity = Vector3.Zero;
 			StopCarrierOverdrive();
 			StopSprint();
+			StopBoosterThrust();
 			ApplyGravity(dt);
 			MoveAndSlide();
 			return;
@@ -590,6 +646,7 @@ public partial class MechController : CharacterBody3D
 
 		if (IsCarrierMounted)
 		{
+			HasMoveIntent = false;
 			TickMountedRide(dt);
 			return;
 		}
@@ -607,14 +664,15 @@ public partial class MechController : CharacterBody3D
 			{
 				UpdateAimFromMouse();
 				TickFirstPersonHeadLook();
+				_seatAdjust?.Tick(dt);
 				UpdateAimedComponent();
 				TickSensorLock();
 				ApplySensorAimAssist();
 				ReadPlayerMove(out turn, out throttle, out move, out strafe);
-				firePrimary = Input.IsActionPressed("fire_primary");
-				fireSecondary = Input.IsActionPressed("fire_secondary");
+				firePrimary = !IsAdjustingSeat && Input.IsActionPressed("fire_primary");
+				fireSecondary = !IsAdjustingSeat && Input.IsActionPressed("fire_secondary");
 				wantSprint = UpdateSprintGesture(dt);
-				TryJumpInput();
+				UpdateBoosterFlight(dt);
 				abilityIndex = ReadPlayerAbilityInput();
 			}
 			else if (_hasNetInput)
@@ -641,14 +699,15 @@ public partial class MechController : CharacterBody3D
 		{
 			UpdateAimFromMouse();
 			TickFirstPersonHeadLook();
+			_seatAdjust?.Tick(dt);
 			UpdateAimedComponent();
 			TickSensorLock();
 			ApplySensorAimAssist();
 			ReadPlayerMove(out turn, out throttle, out move, out strafe);
-			firePrimary = Input.IsActionPressed("fire_primary");
-			fireSecondary = Input.IsActionPressed("fire_secondary");
+			firePrimary = !IsAdjustingSeat && Input.IsActionPressed("fire_primary");
+			fireSecondary = !IsAdjustingSeat && Input.IsActionPressed("fire_secondary");
 			wantSprint = UpdateSprintGesture(dt);
-			TryJumpInput();
+			UpdateBoosterFlight(dt);
 			abilityIndex = ReadPlayerAbilityInput();
 		}
 		else if (_pilot != null)
@@ -676,6 +735,9 @@ public partial class MechController : CharacterBody3D
 		}
 
 		UpdateSprint(wantSprint, move, throttle);
+		HasMoveIntent = move.LengthSquared() > 0.05f
+			|| Mathf.Abs(throttle) > 0.05f
+			|| Mathf.Abs(strafe) > 0.05f;
 		var remotePilot = online && OwningPeerId != 0 && OwningPeerId != Multiplayer.GetUniqueId();
 		UpdateFireElevationState(firePrimary || fireSecondary, fromRemotePeer: remotePilot);
 
@@ -702,20 +764,20 @@ public partial class MechController : CharacterBody3D
 		_wasMoving = moving;
 
 		Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
+		ApplyBoosterThrust(dt);
 		ApplyGravity(dt);
 		MoveAndSlide();
+		TickLandingImpact();
+		RefillBoosterFuelIfGrounded();
 
 		UpdateUpperBodyAim(dt);
 		AdvanceMeleeSwings(dt);
-		UpdateHeldShields(firePrimary, fireSecondary);
+		var reloadMod = IsLocalReloadModifierHeld();
+		UpdateHeldShields(reloadMod ? false : firePrimary, reloadMod ? false : fireSecondary);
 		AimHardpoints();
 		UpdateHeldShieldPoses(dt);
 		UpdateMeleeContacts();
-
-		if (firePrimary)
-			FireWeapon(PartSlot.WeaponL);
-		if (fireSecondary)
-			FireWeapon(PartSlot.WeaponR);
+		HandleWeaponTriggers(firePrimary, fireSecondary, reloadMod);
 		if (abilityIndex >= 0)
 		{
 			var aim = _aimPoint;
@@ -744,13 +806,13 @@ public partial class MechController : CharacterBody3D
 		{
 			UpdateAimFromMouse();
 			TickFirstPersonHeadLook();
+			_seatAdjust?.Tick(dt);
 			UpdateAimedComponent();
 			TickSensorLock();
 			ApplySensorAimAssist();
-			firePrimary = Input.IsActionPressed("fire_primary");
-			fireSecondary = Input.IsActionPressed("fire_secondary");
+			firePrimary = !IsAdjustingSeat && Input.IsActionPressed("fire_primary");
+			fireSecondary = !IsAdjustingSeat && Input.IsActionPressed("fire_secondary");
 			wantOverdrive = UpdateSprintGesture(dt);
-			TryJumpInput();
 			abilityIndex = ReadPlayerAbilityInput();
 			UpdateFireElevationState(firePrimary || fireSecondary);
 		}
@@ -771,15 +833,12 @@ public partial class MechController : CharacterBody3D
 		UpdateCarrierOverdrive(wantOverdrive, dt);
 		UpdateUpperBodyAim(dt);
 		AdvanceMeleeSwings(dt);
-		UpdateHeldShields(firePrimary, fireSecondary);
+		var reloadMod = IsLocalReloadModifierHeld();
+		UpdateHeldShields(reloadMod ? false : firePrimary, reloadMod ? false : fireSecondary);
 		AimHardpoints();
 		UpdateHeldShieldPoses(dt);
 		UpdateMeleeContacts();
-
-		if (firePrimary)
-			FireWeapon(PartSlot.WeaponL);
-		if (fireSecondary)
-			FireWeapon(PartSlot.WeaponR);
+		HandleWeaponTriggers(firePrimary, fireSecondary, reloadMod);
 		if (abilityIndex >= 0)
 			_abilities?.TryActivate(abilityIndex, _aimPoint);
 
@@ -944,6 +1003,9 @@ public partial class MechController : CharacterBody3D
 					return;
 				}
 				_sprinting = true;
+				_sprintRunSeconds = 0f;
+				if (IsLocalPilot && !HangarDisplayOnly)
+					SfxService.BeginSprintThruster();
 			}
 		}
 		else
@@ -955,8 +1017,16 @@ public partial class MechController : CharacterBody3D
 	private void StopSprint()
 	{
 		if (_sprinting)
+		{
 			_powerHeat?.Release("sprint");
+			if (IsLocalPilot)
+				SfxService.EndSprintThruster();
+			if (IsLocalPilot && !HangarDisplayOnly && _sprintRunSeconds >= SprintVentMinSeconds)
+				SfxService.PlayExertionVents(heavy: true);
+		}
+
 		_sprinting = false;
+		_sprintRunSeconds = 0f;
 	}
 
 	/// <summary>
@@ -1007,6 +1077,8 @@ public partial class MechController : CharacterBody3D
 			return;
 		if (_dashCooldown > 0.01f || _dashRemaining > 0.01f)
 			return;
+		if (_boostThrusting)
+			return;
 		if (_powerHeat != null && stats.DashPowerCost > 0.01f && !_powerHeat.CanSpend(stats.DashPowerCost))
 			return;
 
@@ -1022,6 +1094,9 @@ public partial class MechController : CharacterBody3D
 		_dashRemaining = Mathf.Max(0.08f, stats.DashDuration);
 		_dashCooldown = Mathf.Max(0.2f, stats.DashCooldown);
 		StopSprint();
+		StopBoosterThrust();
+		if (IsLocalPilot && !HangarDisplayOnly)
+			SfxService.PlayThrusterDash();
 	}
 
 	private Vector3 ResolveDashDirection()
@@ -1031,7 +1106,7 @@ public partial class MechController : CharacterBody3D
 		if (Input.IsActionPressed("move_back")) move.Y -= 1f;
 		if (Input.IsActionPressed("turn_left")) move.X -= 1f;
 		if (Input.IsActionPressed("turn_right")) move.X += 1f;
-		if (IsLocalFirstPerson())
+		if (IsLocalFirstPerson() && !IsAdjustingSeat)
 		{
 			if (Input.IsPhysicalKeyPressed(Key.Q)) move.X -= 1f;
 			if (Input.IsPhysicalKeyPressed(Key.E)) move.X += 1f;
@@ -1072,33 +1147,254 @@ public partial class MechController : CharacterBody3D
 		return dashVel;
 	}
 
-	private void TryJumpInput()
+	/// <summary>
+	/// Hold Space = booster pack thrust. Fuel from JumpDuration; climb from JumpImpulse.
+	/// Mid-air re-thrust allowed until fuel is empty; landing refills the tank.
+	/// Utilities can later buff Jump* stats on assembled MechStats.
+	/// </summary>
+	private void UpdateBoosterFlight(float dt)
 	{
-		if (!Input.IsActionJustPressed("jump"))
+		EnsureBoosterFuel();
+		if (IsCarrierMounted)
+		{
+			StopBoosterThrust();
+			return;
+		}
+
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		var mobility = _integrity?.LegMobilityFactor ?? 1f;
+		var wantThrust = Input.IsActionPressed("jump")
+			&& stats.HasBooster
+			&& stats.JumpImpulse > 0.1f
+			&& mobility > 0.001f
+			&& _boostFuel > 0.01f
+			&& _dashRemaining <= 0.01f
+			&& _controlsEnabled;
+
+		if (!wantThrust)
+		{
+			StopBoosterThrust();
+			return;
+		}
+
+		if (!_boostThrusting)
+		{
+			var draw = Mathf.Max(0f, stats.JumpPowerCost);
+			if (_powerHeat != null && draw > 0.01f && !_powerHeat.TryDraw("booster", draw))
+			{
+				StopBoosterThrust();
+				return;
+			}
+
+			_boostThrusting = true;
+			StopSprint();
+			if (IsOnFloor() && Velocity.Y < 2f)
+				Velocity = new Vector3(Velocity.X, Mathf.Max(Velocity.Y, 3.5f), Velocity.Z);
+			StartBoosterHoldAudio(stats);
+		}
+
+		_boostFuel = Mathf.Max(0f, _boostFuel - dt);
+		if (stats.JumpHeat > 0.01f)
+			_powerHeat?.AddHeat(stats.JumpHeat * dt);
+
+		if (_boostFuel <= 0.01f)
+			StopBoosterThrust();
+	}
+
+	private void ApplyBoosterThrust(float dt)
+	{
+		if (!_boostThrusting)
 			return;
 
 		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
 		var mobility = _integrity?.LegMobilityFactor ?? 1f;
-		if (!stats.HasBooster || stats.JumpImpulse <= 0.1f || mobility <= 0.001f)
-			return;
-		if (!IsOnFloor())
-			return;
-		if (_powerHeat != null && stats.JumpPowerCost > 0.01f && !_powerHeat.CanSpend(stats.JumpPowerCost))
+		var climb = stats.JumpImpulse * mobility;
+		var accel = Mathf.Max(14f, climb * 2.4f);
+		var nextY = Mathf.MoveToward(Velocity.Y, climb, accel * dt);
+		Velocity = new Vector3(Velocity.X, nextY, Velocity.Z);
+	}
+
+	private void StopBoosterThrust()
+	{
+		if (_boostThrusting)
+		{
+			_powerHeat?.Release("booster");
+			StopBoosterHoldAudio();
+		}
+
+		_boostThrusting = false;
+	}
+
+	private void StartBoosterHoldAudio(MechStats stats)
+	{
+		if (!IsLocalPilot || HangarDisplayOnly)
 			return;
 
-		if (_powerHeat != null && stats.JumpPowerCost > 0.01f)
-			_powerHeat.TrySpend(stats.JumpPowerCost);
-		_powerHeat?.AddHeat(stats.JumpHeat);
-		Velocity = new Vector3(Velocity.X, stats.JumpImpulse, Velocity.Z);
+		PartData? legs = null;
+		if (_assembler?.Hardpoints.TryGetValue(PartSlot.Legs, out var hp) == true)
+			legs = hp.EquippedPart;
+
+		var voice = SfxService.ResolveBoosterHoldVoice(legs, stats);
+		SfxService.BeginBoosterHold(voice);
+	}
+
+	private void StopBoosterHoldAudio()
+	{
+		if (!IsLocalPilot)
+			return;
+		SfxService.EndBoosterHold();
+	}
+
+	private void EnsureBoosterFuel()
+	{
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		if (!stats.HasBooster)
+		{
+			_boostFuel = 0f;
+			_boostFuelInited = false;
+			return;
+		}
+
+		var maxFuel = Mathf.Max(0.08f, stats.JumpDuration);
+		if (!_boostFuelInited)
+		{
+			_boostFuel = maxFuel;
+			_boostFuelInited = true;
+		}
+	}
+
+	private void RefillBoosterFuelIfGrounded()
+	{
+		if (!IsOnFloor() || _boostThrusting)
+			return;
+		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
+		if (!stats.HasBooster)
+			return;
+		_boostFuel = Mathf.Max(0.08f, stats.JumpDuration);
+		_boostFuelInited = true;
+	}
+
+	/// <summary>Drop-beacon thud on hard landings — louder/heavier with fall speed.</summary>
+	private void TickLandingImpact()
+	{
+		var onFloor = IsOnFloor();
+		if (!onFloor)
+		{
+			if (Velocity.Y < -0.5f)
+				_peakFallSpeed = Mathf.Max(_peakFallSpeed, -Velocity.Y);
+			_wasOnFloor = false;
+			return;
+		}
+
+		if (!_wasOnFloor
+		    && _peakFallSpeed >= LandingImpactMinSpeed
+		    && !HangarDisplayOnly
+		    && !IsCarrierMounted)
+		{
+			PlayLandingImpact(_peakFallSpeed);
+		}
+
+		_peakFallSpeed = 0f;
+		_wasOnFloor = true;
+	}
+
+	private void PlayLandingImpact(float fallSpeed)
+	{
+		var t = Mathf.Clamp(
+			(fallSpeed - LandingImpactMinSpeed) / (LandingImpactHardSpeed - LandingImpactMinSpeed),
+			0f,
+			1f);
+		// Soft hops stay quiet; big drops punch up toward / past the beacon thud.
+		var volumeDb = Mathf.Lerp(-11f, 2f, t * t);
+		var pitch = Mathf.Lerp(1.06f, 0.84f, t);
+
+		if (IsLocalPilot)
+		{
+			SfxService.Play("drop_impact", pitch, volumeDb);
+		}
+		else
+		{
+			var listener = FindLocalMechForAudio();
+			if (listener != null)
+			{
+				var dist = GlobalPosition.DistanceTo(listener.GlobalPosition);
+				if (dist < LandingHearRange)
+				{
+					var fade = dist / LandingHearRange;
+					volumeDb += Mathf.Lerp(0f, -40f, fade * fade);
+					SfxService.Play("drop_impact", pitch, volumeDb);
+				}
+			}
+		}
+
+		// Dust is visual for every MAP — never gated by audio hear range.
+		EmitGroundDust(GroundDustKind.Landing, GlobalPosition, t, 0f);
+	}
+
+	public enum GroundDustKind : int
+	{
+		Landing = 0,
+		Footstep = 1
+	}
+
+	/// <summary>
+	/// Spawn dust locally (authority / offline) and mirror to clients in online matches.
+	/// </summary>
+	public void EmitGroundDust(GroundDustKind kind, Vector3 origin, float intensity, float aux)
+	{
+		SpawnGroundDustLocal(kind, origin, intensity, aux);
+
+		var net = GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is not { IsOnline: true })
+			return;
+		if (!Multiplayer.IsServer())
+			return;
+
+		Rpc(MethodName.RpcPlayGroundDust, (int)kind, origin, intensity, aux);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
+	private void RpcPlayGroundDust(int kind, Vector3 origin, float intensity, float aux)
+	{
+		SpawnGroundDustLocal((GroundDustKind)kind, origin, intensity, aux);
+	}
+
+	private void SpawnGroundDustLocal(GroundDustKind kind, Vector3 origin, float intensity, float aux)
+	{
+		switch (kind)
+		{
+			case GroundDustKind.Landing:
+				GroundDustBurst.SpawnLanding(this, intensity, origin);
+				break;
+			case GroundDustKind.Footstep:
+				GroundDustBurst.SpawnFootstep(this, origin, intensity, aux);
+				break;
+		}
+	}
+
+	private MechController? FindLocalMechForAudio()
+	{
+		var tree = GetTree();
+		if (tree == null)
+			return null;
+		foreach (var node in tree.GetNodesInGroup("mechs"))
+		{
+			if (node is MechController { IsLocalPilot: true } local
+			    && GodotObject.IsInstanceValid(local))
+				return local;
+		}
+
+		return null;
 	}
 
 	private Vector3 ApplyMoveAcceleration(Vector3 desired, float dt)
 	{
 		var legType = _assembler?.LegType ?? LegType.Bipedal;
-		// Lower = massier. Walk should feel like hauling chassis; sprint/dash snap.
 		float accel;
 		if (_dashRemaining > 0f)
 			accel = 40f;
+		else if (_boostThrusting)
+			accel = 18f;
 		else if (_sprinting)
 			accel = 22f;
 		else if (legType == LegType.Tracks)
@@ -1106,7 +1402,7 @@ public partial class MechController : CharacterBody3D
 		else if (legType == LegType.Hexapod)
 			accel = 3.2f;
 		else
-			accel = 3.8f; // biped walk — deliberately sluggish
+			accel = 3.8f;
 
 		var t = 1f - Mathf.Exp(-accel * dt);
 		_moveVelocity = _moveVelocity.Lerp(desired, t);
@@ -1344,7 +1640,8 @@ public partial class MechController : CharacterBody3D
 			var absorbed = Mathf.Min(damage, absorbable);
 			if (absorbed > 0.01f && _powerHeat != null)
 			{
-				_powerHeat.AddArmHeat(slot, absorbed * heatPer);
+				_powerHeat.AddHeat(absorbed * heatPer);
+				SfxService.PlayImpactShield(hitPosition, -2f);
 				if (_powerHeat.IsOverheated)
 					BreakHeldShield(slot);
 			}
@@ -1385,7 +1682,7 @@ public partial class MechController : CharacterBody3D
 				break;
 		}
 
-		SfxService.Play("alarm", 0.9f, -4f);
+		SfxService.PlayUiError(UiErrorTone.BuzzBuzz, -4f);
 		GD.Print($"{Name} held shield broke ({slot}).");
 	}
 
@@ -1413,12 +1710,13 @@ public partial class MechController : CharacterBody3D
 	{
 		UpdateAimFromMouse();
 		TickFirstPersonHeadLook();
+		_seatAdjust?.Tick((float)GetPhysicsProcessDeltaTime());
 		ReadPlayerMove(out var turn, out var throttle, out var move, out var strafe);
 		// Pack FP Q/E strafe into move.X for locked-leg hosts (A/D already mirror turn).
 		if (Mathf.Abs(strafe) > 0.01f && _assembler?.LegMode != LegMode.Gimbaled)
 			move.X = strafe;
-		var firePrimary = Input.IsActionPressed("fire_primary");
-		var fireSecondary = Input.IsActionPressed("fire_secondary");
+		var firePrimary = !IsAdjustingSeat && Input.IsActionPressed("fire_primary");
+		var fireSecondary = !IsAdjustingSeat && Input.IsActionPressed("fire_secondary");
 		UpdateFireElevationState(firePrimary || fireSecondary);
 		var wantSprint = Input.IsActionPressed("sprint");
 		var abilityIndex = ReadPlayerAbilityInput();
@@ -1464,8 +1762,8 @@ public partial class MechController : CharacterBody3D
 			move.Y -= 1f;
 		}
 
-		// First-person only: Q/E strafe relative to chassis facing.
-		if (IsLocalFirstPerson())
+		// First-person only: Q/E strafe relative to chassis facing (Q reserved while seat-adjusting).
+		if (IsLocalFirstPerson() && !IsAdjustingSeat)
 		{
 			if (Input.IsPhysicalKeyPressed(Key.Q))
 			{
@@ -1606,6 +1904,8 @@ public partial class MechController : CharacterBody3D
 
 	private void ApplyGravity(float dt)
 	{
+		if (_boostThrusting)
+			return;
 		if (!IsOnFloor())
 			Velocity = new Vector3(Velocity.X, Velocity.Y - 30f * dt, Velocity.Z);
 		else if (Velocity.Y < 0f)
@@ -1748,6 +2048,13 @@ public partial class MechController : CharacterBody3D
 			return;
 		}
 
+		if (IsAdjustingSeat && mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+		{
+			_seatAdjust?.NotifyScroll(mouse.ButtonIndex == MouseButton.WheelUp ? 1f : -1f);
+			GetViewport().SetInputAsHandled();
+			return;
+		}
+
 		// First person: Alt+scroll is camera inspect zoom; bare scroll does nothing.
 		if (IsLocalFirstPerson())
 			return;
@@ -1808,7 +2115,7 @@ public partial class MechController : CharacterBody3D
 
 	public void SetSensorFocus(PartSlot slot)
 	{
-		if (SensorLockTarget == null)
+		if (SensorLockMech == null)
 			return;
 		_sensorFocus = slot;
 	}
@@ -1837,17 +2144,17 @@ public partial class MechController : CharacterBody3D
 			return;
 		}
 
-		if (target.Health?.IsDead == true
-		    || target.Integrity?.IsCollapsed == true
-		    || !IsHostileContact(target)
-		    || !IsInSensorAcquireRange(target))
+		if (!IsValidSensorContact(target) || !IsInSensorAcquireRange(target))
 		{
 			ClearSensorLock();
 			return;
 		}
 
-		_sensorLockInVision = CanCombatId(target.GlobalPosition);
-		_sensorFocus ??= PartSlot.Torso;
+		_sensorLockInVision = CanCombatId(CombatChevronMarkers.ResolveAimPoint(target));
+		if (target is MechController)
+			_sensorFocus ??= PartSlot.Torso;
+		else
+			_sensorFocus = null;
 	}
 
 	private void CycleSensorTarget()
@@ -1856,7 +2163,7 @@ public partial class MechController : CharacterBody3D
 		if (contacts.Count == 0)
 		{
 			ClearSensorLock();
-			SfxService.Play("alarm", 1.15f, -8f);
+			SfxService.PlayUiError(UiErrorTone.Quick, -6f);
 			return;
 		}
 
@@ -1864,14 +2171,14 @@ public partial class MechController : CharacterBody3D
 		var index = current == null ? -1 : contacts.IndexOf(current);
 		var next = contacts[(index + 1) % contacts.Count];
 		_sensorLock = next;
-		_sensorFocus ??= PartSlot.Torso;
-		_sensorLockInVision = CanCombatId(next.GlobalPosition);
+		_sensorFocus = next is MechController ? PartSlot.Torso : null;
+		_sensorLockInVision = CanCombatId(CombatChevronMarkers.ResolveAimPoint(next));
 		SfxService.Confirm();
 	}
 
 	private void CycleSensorFocus()
 	{
-		if (SensorLockTarget == null)
+		if (SensorLockMech == null)
 		{
 			CycleSensorTarget();
 			return;
@@ -1885,9 +2192,9 @@ public partial class MechController : CharacterBody3D
 		SfxService.Click();
 	}
 
-	private List<MechController> GatherSensorContacts()
+	private List<Node3D> GatherSensorContacts()
 	{
-		var result = new List<MechController>();
+		var result = new List<Node3D>();
 		var tree = GetTree();
 		if (tree == null)
 			return result;
@@ -1896,15 +2203,22 @@ public partial class MechController : CharacterBody3D
 		{
 			if (node is not MechController other || other == this)
 				continue;
-			if (!IsHostileContact(other) || !IsInSensorAcquireRange(other))
-				continue;
-			if (other.Health?.IsDead == true || other.Integrity?.IsCollapsed == true)
+			if (!IsValidSensorContact(other) || !IsInSensorAcquireRange(other))
 				continue;
 			result.Add(other);
 		}
 
+		foreach (var node in tree.GetNodesInGroup("support"))
+		{
+			if (node is not SupportUnit unit)
+				continue;
+			if (!IsValidSensorContact(unit) || !IsInSensorAcquireRange(unit))
+				continue;
+			result.Add(unit);
+		}
+
 		if (result.Count == 0)
-			CollectHostileMechs(tree.CurrentScene ?? tree.Root, result);
+			CollectHostileContacts(tree.CurrentScene ?? tree.Root, result);
 
 		result.Sort((a, b) =>
 			GlobalPosition.DistanceSquaredTo(a.GlobalPosition)
@@ -1912,25 +2226,37 @@ public partial class MechController : CharacterBody3D
 		return result;
 	}
 
-	private void CollectHostileMechs(Node node, List<MechController> into)
+	private void CollectHostileContacts(Node node, List<Node3D> into)
 	{
 		if (node is MechController other
 		    && other != this
-		    && IsHostileContact(other)
+		    && IsValidSensorContact(other)
 		    && IsInSensorAcquireRange(other)
-		    && other.Health?.IsDead != true
-		    && other.Integrity?.IsCollapsed != true
 		    && !into.Contains(other))
 			into.Add(other);
+		else if (node is SupportUnit unit
+		         && IsValidSensorContact(unit)
+		         && IsInSensorAcquireRange(unit)
+		         && !into.Contains(unit))
+			into.Add(unit);
 
 		foreach (var child in node.GetChildren())
-			CollectHostileMechs(child, into);
+			CollectHostileContacts(child, into);
 	}
 
-	private bool IsHostileContact(MechController other) =>
-		TeamUtil.IsHostile(Team, other.Team);
+	private bool IsValidSensorContact(Node3D node)
+	{
+		if (!TeamUtil.IsHostile(Team, TeamUtil.GetTeam(node)))
+			return false;
+		return node switch
+		{
+			MechController mech => mech.Health?.IsDead != true && mech.Integrity?.IsCollapsed != true,
+			SupportUnit unit => unit.IsAlive,
+			_ => false
+		};
+	}
 
-	private bool IsInSensorAcquireRange(MechController other)
+	private bool IsInSensorAcquireRange(Node3D other)
 	{
 		var stats = _assembler?.Stats ?? MechStats.BlindFallback;
 		var range = Mathf.Max(stats.VisionRange, stats.ScannerRange);
@@ -1940,9 +2266,20 @@ public partial class MechController : CharacterBody3D
 
 	private void ApplySensorAimAssist()
 	{
-		var target = SensorLockTarget;
+		var target = SensorLockMech;
 		if (target == null || !_sensorLockInVision || _sensorFocus == null)
+		{
+			if (SensorLockTarget is SupportUnit fodder && _sensorLockInVision)
+			{
+				_aimPoint = _aimPoint.Lerp(fodder.GetAimPoint(), 0.45f);
+				_aimedComponentLabel =
+					$"SENSOR  FODDER  ·  {fodder.Data?.DisplayName ?? fodder.UnitId} " +
+					$"({Mathf.CeilToInt(fodder.Health?.CurrentHealth ?? 0f)}/" +
+					$"{Mathf.CeilToInt(Mathf.Max(1f, fodder.Health?.MaxHealth ?? 1f))})";
+			}
+
 			return;
+		}
 
 		var focusHp = ResolveFocusHardpoint(target, _sensorFocus.Value);
 		if (focusHp == null)
@@ -1960,22 +2297,35 @@ public partial class MechController : CharacterBody3D
 	private bool TryGetSensorAssistPitch(out float pitchRadians)
 	{
 		pitchRadians = 0f;
-		var target = SensorLockTarget;
-		if (target == null || _sensorFocus == null)
+		var mechTarget = SensorLockMech;
+		if (mechTarget != null && _sensorFocus != null)
+		{
+			var focusHp = ResolveFocusHardpoint(mechTarget, _sensorFocus.Value);
+			if (focusHp == null)
+				return false;
+
+			var muzzle = ResolvePrimaryMuzzle();
+			var to = focusHp.GlobalPosition - muzzle;
+			var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
+			if (horiz < 0.05f)
+				return false;
+
+			pitchRadians = Mathf.Atan2(to.Y, horiz);
+			return true;
+		}
+
+		if (SensorLockTarget is not SupportUnit fodder || !_sensorLockInVision)
 			return false;
 
-		var focusHp = ResolveFocusHardpoint(target, _sensorFocus.Value);
-		if (focusHp == null)
-			return false;
-
-		var muzzle = ResolvePrimaryMuzzle();
-		var to = focusHp.GlobalPosition - muzzle;
-		var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
-		if (horiz < 0.05f)
-			return false;
-
-		pitchRadians = Mathf.Atan2(to.Y, horiz);
-		return true;
+		{
+			var muzzle = ResolvePrimaryMuzzle();
+			var to = fodder.GetAimPoint() - muzzle;
+			var horiz = Mathf.Sqrt(to.X * to.X + to.Z * to.Z);
+			if (horiz < 0.05f)
+				return false;
+			pitchRadians = Mathf.Atan2(to.Y, horiz);
+			return true;
+		}
 	}
 
 	private Vector3 ResolvePrimaryMuzzle()
@@ -2209,8 +2559,37 @@ public partial class MechController : CharacterBody3D
 				continue;
 
 			if (hardpoint.TryMeleeContact(this, aimed, out var contactHeat, out _))
-				_powerHeat?.AddArmHeat(slot, contactHeat);
+				_powerHeat?.AddHeat(contactHeat);
 		}
+	}
+
+	private bool IsLocalReloadModifierHeld() =>
+		IsLocalPilot && Input.IsActionPressed("reload");
+
+	private void HandleWeaponTriggers(bool firePrimary, bool fireSecondary, bool reloadMod)
+	{
+		if (reloadMod)
+		{
+			if (firePrimary)
+				TryReloadWeapon(PartSlot.WeaponL);
+			if (fireSecondary)
+				TryReloadWeapon(PartSlot.WeaponR);
+			return;
+		}
+
+		if (firePrimary)
+			FireWeapon(PartSlot.WeaponL);
+		if (fireSecondary)
+			FireWeapon(PartSlot.WeaponR);
+	}
+
+	private void TryReloadWeapon(PartSlot slot)
+	{
+		if (_assembler == null)
+			return;
+		if (!_assembler.Hardpoints.TryGetValue(slot, out var hardpoint))
+			return;
+		hardpoint.TryBeginReload(_assembler.Stats.ReloadSpeedBonus);
 	}
 
 	private void FireWeapon(PartSlot slot)
@@ -2227,6 +2606,17 @@ public partial class MechController : CharacterBody3D
 		var part = hardpoint.EquippedPart;
 		if (part.IsHeldShield)
 			return;
+
+		if (hardpoint.UsesMagazine)
+		{
+			if (hardpoint.IsReloading)
+				return;
+			if (hardpoint.AmmoInMag <= 0)
+			{
+				hardpoint.TryBeginReload(_assembler.Stats.ReloadSpeedBonus);
+				return;
+			}
+		}
 
 		var powerCost = part.PowerPerShot;
 		if (_powerHeat != null && powerCost > 0.01f && !_powerHeat.CanSpend(powerCost))
@@ -2274,8 +2664,11 @@ public partial class MechController : CharacterBody3D
 		_powerHeat?.TrySpend(powerCost);
 		if (IsHumanPilot)
 			TelemetryUtil.Match(this)?.Telemetry.RecordShot(missile: false);
-		_powerHeat?.AddArmHeat(slot, heat * heatOver * ghost);
+		_powerHeat?.AddHeat(heat * heatOver * ghost);
 		NoteFamilyFire(part.WeaponFamily, slot);
+
+		if (hardpoint.UsesMagazine && hardpoint.AmmoInMag <= 0)
+			hardpoint.TryBeginReload(_assembler.Stats.ReloadSpeedBonus);
 	}
 
 	/// <summary>Empty-chamber click when the pilot holds fire without enough power.</summary>
@@ -2331,6 +2724,97 @@ public partial class MechController : CharacterBody3D
 			SfxService.EndOverheatFx();
 			_overheatFxActive = false;
 		}
+	}
+
+	/// <summary>After standing still a beat, play a soft cooling-fan one-shot (once per idle settle).</summary>
+	private void TickIdleVentAudio(float dt)
+	{
+		if (!IsLocalPilot || HangarDisplayOnly || !_controlsEnabled
+		    || _health?.IsDead == true || _integrity?.IsCollapsed == true
+		    || IsCarrierMounted || _overheatFxActive)
+		{
+			_idleSeconds = 0f;
+			_idleVentPlayed = false;
+			return;
+		}
+
+		var moveHeld = HasMoveIntent
+			|| Input.IsActionPressed("move_forward")
+			|| Input.IsActionPressed("move_back")
+			|| Input.IsActionPressed("turn_left")
+			|| Input.IsActionPressed("turn_right");
+		var sliding = new Vector3(Velocity.X, 0f, Velocity.Z).LengthSquared() > 0.35f;
+		var busy = moveHeld || sliding || IsSprinting || IsDashing || IsJumping || !IsOnFloor();
+
+		if (busy)
+		{
+			_idleSeconds = 0f;
+			_idleVentPlayed = false;
+			return;
+		}
+
+		_idleSeconds += dt;
+		if (_idleVentPlayed || _idleSeconds < IdleVentDelay)
+			return;
+
+		_idleVentPlayed = true;
+		SfxService.PlayHeatVentFan(-9f);
+	}
+
+	/// <summary>
+	/// Soft vents after a sustained jog stops; heavier dump when the power pool hits empty.
+	/// Sprint-stop vents are handled in <see cref="StopSprint"/>.
+	/// </summary>
+	private void TickExertionVentAudio(float dt)
+	{
+		if (!IsLocalPilot || HangarDisplayOnly || !_controlsEnabled
+		    || _health?.IsDead == true || _integrity?.IsCollapsed == true)
+		{
+			_sprintRunSeconds = 0f;
+			_moveRunSeconds = 0f;
+			_powerWasDrained = false;
+			_powerVentArmed = false;
+			return;
+		}
+
+		if (_sprinting)
+			_sprintRunSeconds += dt;
+
+		var moveHeld = HasMoveIntent
+			|| Input.IsActionPressed("move_forward")
+			|| Input.IsActionPressed("move_back")
+			|| Input.IsActionPressed("turn_left")
+			|| Input.IsActionPressed("turn_right");
+		var planarSpeedSq = new Vector3(Velocity.X, 0f, Velocity.Z).LengthSquared();
+		var jogging = !_sprinting && IsOnFloor() && !IsDashing && !IsJumping
+			&& (moveHeld || planarSpeedSq > 0.8f);
+
+		if (jogging)
+		{
+			_moveRunSeconds += dt;
+		}
+		else if (_moveRunSeconds > 0f)
+		{
+			if (_moveRunSeconds >= MoveVentMinSeconds && planarSpeedSq < 0.35f && !moveHeld
+			    && !_overheatFxActive)
+			{
+				SfxService.PlayExertionVents(heavy: false);
+			}
+
+			_moveRunSeconds = 0f;
+		}
+
+		if (_powerHeat == null)
+			return;
+
+		var power = _powerHeat.CurrentPower;
+		if (power > 1f)
+			_powerVentArmed = true;
+
+		var empty = power <= 0.05f;
+		if (empty && _powerVentArmed && !_powerWasDrained && !_overheatFxActive)
+			SfxService.PlayExertionVents(heavy: true);
+		_powerWasDrained = empty;
 	}
 
 	/// <summary>

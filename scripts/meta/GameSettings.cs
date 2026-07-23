@@ -44,6 +44,17 @@ public static class GameSettings
 	public static bool MetersBesideMech { get; private set; }
 	/// <summary>Where integrity / weapon / sensor bars are drawn. Default Auto.</summary>
 	public static HudBarsMode HudBarsMode { get; private set; } = HudBarsMode.Auto;
+	/// <summary>FP cockpit seat — meters forward toward the glass from CockpitAnchor.</summary>
+	public static float SeatForward { get; private set; }
+	/// <summary>FP cockpit seat — meters up from CockpitAnchor.</summary>
+	public static float SeatUp { get; private set; }
+	/// <summary>When true, FP window objective panel is collapsed (toggle with O).</summary>
+	public static bool ObjectiveHudMinimized { get; private set; }
+
+	public const float SeatForwardMin = -0.12f;
+	public const float SeatForwardMax = 0.45f;
+	public const float SeatUpMin = -0.18f;
+	public const float SeatUpMax = 0.4f;
 
 	/// <summary>0..1 linear gain for Master bus.</summary>
 	public static float MasterVolume { get; private set; } = DefaultMasterVolume;
@@ -72,6 +83,9 @@ public static class GameSettings
 			HudOffsetY = DefaultHudOffsetY;
 			MetersBesideMech = false;
 			HudBarsMode = HudBarsMode.Auto;
+			SeatForward = 0f;
+			SeatUp = 0f;
+			ObjectiveHudMinimized = false;
 			ResetAudioVolumes(persist: false);
 			return;
 		}
@@ -82,6 +96,11 @@ public static class GameSettings
 		HudOffsetY = Mathf.Clamp((float)cfg.GetValue("hud", "offset_y", DefaultHudOffsetY), 0f, 1f);
 		MetersBesideMech = (bool)cfg.GetValue("hud", "meters_beside_mech", false);
 		HudBarsMode = LoadHudBarsMode(cfg);
+		SeatForward = Mathf.Clamp(
+			(float)cfg.GetValue("cockpit", "seat_forward", 0f), SeatForwardMin, SeatForwardMax);
+		SeatUp = Mathf.Clamp(
+			(float)cfg.GetValue("cockpit", "seat_up", 0f), SeatUpMin, SeatUpMax);
+		ObjectiveHudMinimized = (bool)cfg.GetValue("cockpit", "objective_minimized", false);
 
 		MasterVolume = ClampMaster((float)cfg.GetValue("audio", "master", DefaultMasterVolume));
 		MusicVolume = ClampMusic((float)cfg.GetValue("audio", "music", DefaultMusicVolume));
@@ -100,7 +119,7 @@ public static class GameSettings
 		if (version < 4)
 			MetersBesideMech = false;
 
-		if (version < 7)
+		if (version < 9)
 			Save();
 
 		ApplyAudioBuses();
@@ -109,12 +128,15 @@ public static class GameSettings
 	public static void Save()
 	{
 		var cfg = new ConfigFile();
-		cfg.SetValue("meta", "version", 7);
+		cfg.SetValue("meta", "version", 9);
 		cfg.SetValue("hud", "scale", HudScale);
 		cfg.SetValue("hud", "offset_x", HudOffsetX);
 		cfg.SetValue("hud", "offset_y", HudOffsetY);
 		cfg.SetValue("hud", "meters_beside_mech", MetersBesideMech);
 		cfg.SetValue("hud", "bars_mode", (int)HudBarsMode);
+		cfg.SetValue("cockpit", "seat_forward", SeatForward);
+		cfg.SetValue("cockpit", "seat_up", SeatUp);
+		cfg.SetValue("cockpit", "objective_minimized", ObjectiveHudMinimized);
 		cfg.SetValue("audio", "master", MasterVolume);
 		cfg.SetValue("audio", "music", MusicVolume);
 		cfg.SetValue("audio", "sfx", SfxVolume);
@@ -151,6 +173,26 @@ public static class GameSettings
 	public static void SetHudBarsMode(HudBarsMode value)
 	{
 		HudBarsMode = value;
+		PersistAndNotify();
+	}
+
+	public static void SetSeatOffset(float forward, float up)
+	{
+		SeatForward = Mathf.Clamp(forward, SeatForwardMin, SeatForwardMax);
+		SeatUp = Mathf.Clamp(up, SeatUpMin, SeatUpMax);
+		PersistAndNotify();
+	}
+
+	public static void ResetSeatOffset()
+	{
+		SeatForward = 0f;
+		SeatUp = 0f;
+		PersistAndNotify();
+	}
+
+	public static void SetObjectiveHudMinimized(bool minimized)
+	{
+		ObjectiveHudMinimized = minimized;
 		PersistAndNotify();
 	}
 
@@ -230,6 +272,8 @@ public static class GameSettings
 		HudOffsetY = DefaultHudOffsetY;
 		MetersBesideMech = false;
 		HudBarsMode = HudBarsMode.Auto;
+		SeatForward = 0f;
+		SeatUp = 0f;
 		PersistAndNotify();
 	}
 

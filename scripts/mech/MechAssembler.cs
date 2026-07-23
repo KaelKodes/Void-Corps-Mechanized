@@ -67,6 +67,7 @@ public partial class MechAssembler : Node
 			GameCatalog.GetPart(loadout.BackpackId));
 		RefreshCockpitDependentVisuals(GameCatalog.GetPart(loadout.TorsoId));
 		Stats = DeriveStats();
+		ApplyMagazineConfig();
 	}
 
 	/// <summary>
@@ -158,6 +159,10 @@ public partial class MechAssembler : Node
 		float close = 0.15f;
 		float scanRange = 20f;
 		float scanRes = 0.1f;
+		float scanRangeBonus = 0f;
+		float scanResBonus = 0f;
+		var scanPenetration = ScanPenetrationMode.Contact;
+		var scanBlipStyle = ScanBlipStyle.WorldPip;
 		bool canSprint = false;
 		float sprintMult = 1.45f;
 		float sprintHeat = 18f;
@@ -175,8 +180,11 @@ public partial class MechAssembler : Node
 		float dashHeat = 0f;
 		var hasBooster = false;
 		float jumpImpulse = 0f;
+		float jumpDuration = 1.1f;
 		float jumpPower = 0f;
 		float jumpHeat = 0f;
+		int magazineBonus = 0;
+		float reloadSpeedBonus = 0f;
 
 		foreach (var slot in EquipOrder)
 		{
@@ -205,6 +213,8 @@ public partial class MechAssembler : Node
 			dissipate += p.HeatDissipation;
 			idleHeat += p.IdleHeatPerSec;
 			moveHeat += p.MoveHeatPerSec;
+			magazineBonus += Mathf.Max(0, p.MagazineBonus);
+			reloadSpeedBonus += Mathf.Max(0f, p.ReloadSpeedBonus);
 
 			if (slot == PartSlot.Torso)
 			{
@@ -227,6 +237,10 @@ public partial class MechAssembler : Node
 				close = p.CloseTargeting;
 				scanRange = p.ScannerRange;
 				scanRes = p.ScannerResolution;
+				if (p.ScanPenetration != ScanPenetrationMode.Inherit)
+					scanPenetration = p.ScanPenetration;
+				if (p.ScanBlipStyle != ScanBlipStyle.Inherit)
+					scanBlipStyle = p.ScanBlipStyle;
 			}
 			else if (slot == PartSlot.Legs)
 			{
@@ -238,8 +252,21 @@ public partial class MechAssembler : Node
 				sprintLoad = p.SprintPowerLoad;
 				loadRating = Mathf.Max(0f, p.LoadRating);
 			}
+			else
+			{
+				// Systems / backpack / mounts may enhance the head's passive scan.
+				if (p.ScannerRange > 0.01f)
+					scanRangeBonus += p.ScannerRange;
+				if (p.ScannerResolution > 0.001f)
+					scanResBonus += p.ScannerResolution;
+				if (p.ScanPenetration != ScanPenetrationMode.Inherit)
+					scanPenetration = p.ScanPenetration;
+				if (p.ScanBlipStyle != ScanBlipStyle.Inherit)
+					scanBlipStyle = p.ScanBlipStyle;
+			}
 
-			if (p.MobilityModule == MobilityModuleKind.Thruster && p.DashSpeed > 0.1f)
+			if (p.DashSpeed > 0.1f
+			    && p.MobilityModule is MobilityModuleKind.Thruster or MobilityModuleKind.Both)
 			{
 				hasThruster = true;
 				if (p.DashSpeed >= dashSpeed)
@@ -251,12 +278,15 @@ public partial class MechAssembler : Node
 					dashHeat = Mathf.Max(0f, p.DashHeat);
 				}
 			}
-			else if (p.MobilityModule == MobilityModuleKind.Booster && p.JumpImpulse > 0.1f)
+
+			if (p.JumpImpulse > 0.1f
+			    && p.MobilityModule is MobilityModuleKind.Booster or MobilityModuleKind.Both)
 			{
 				hasBooster = true;
 				if (p.JumpImpulse >= jumpImpulse)
 				{
 					jumpImpulse = p.JumpImpulse;
+					jumpDuration = Mathf.Max(0.08f, p.JumpDuration);
 					jumpPower = Mathf.Max(0f, p.JumpPowerCost);
 					jumpHeat = Mathf.Max(0f, p.JumpHeat);
 				}
@@ -270,6 +300,15 @@ public partial class MechAssembler : Node
 			close = 0.15f;
 			scanRange = 20f;
 			scanRes = 0.1f;
+			scanRangeBonus = 0f;
+			scanResBonus = 0f;
+			scanPenetration = ScanPenetrationMode.LineOfSight;
+			scanBlipStyle = ScanBlipStyle.WorldPip;
+		}
+		else
+		{
+			scanRange += scanRangeBonus;
+			scanRes += scanResBonus;
 		}
 
 		// No living core → no capacity / generation (destroyed or unequipped).
@@ -304,6 +343,10 @@ public partial class MechAssembler : Node
 			CloseTargeting = close,
 			ScannerRange = scanRange,
 			ScannerResolution = scanRes,
+			ScanRequiresLos = scanPenetration == ScanPenetrationMode.LineOfSight,
+			ScanBlipStyle = scanBlipStyle,
+			MagazineBonus = magazineBonus,
+			ReloadSpeedBonus = reloadSpeedBonus,
 			WalkSpeed = Mathf.Max(2.2f, speed * 0.72f),
 			TurnRateDegrees = Mathf.Max(18f, turn * 0.9f),
 			FireRateMultiplier = Mathf.Max(0.25f, fireBonus),
@@ -321,6 +364,7 @@ public partial class MechAssembler : Node
 			DashHeat = dashHeat,
 			HasBooster = hasBooster,
 			JumpImpulse = jumpImpulse,
+			JumpDuration = jumpDuration,
 			JumpPowerCost = jumpPower,
 			JumpHeat = jumpHeat,
 			TotalWeight = totalWeight,
@@ -334,6 +378,17 @@ public partial class MechAssembler : Node
 	public void RefreshStatsAfterDamage()
 	{
 		Stats = DeriveStats();
+		ApplyMagazineConfig();
+	}
+
+	private void ApplyMagazineConfig()
+	{
+		var bonus = Stats.MagazineBonus;
+		foreach (var slot in new[] { PartSlot.WeaponL, PartSlot.WeaponR })
+		{
+			if (_hardpoints.TryGetValue(slot, out var hp))
+				hp.ConfigureMagazine(bonus);
+		}
 	}
 
 	public IEnumerable<PartData> GetActiveAbilityParts()

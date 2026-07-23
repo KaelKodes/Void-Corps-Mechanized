@@ -160,8 +160,15 @@ public partial class MultiplayerLobbyUi : Control
 
 		foreach (MultiplayerGameMode mode in Enum.GetValues(typeof(MultiplayerGameMode)))
 		{
+			// Hide alias until Phase 2 solar co-op exists (both were launching RL).
+			if (mode == MultiplayerGameMode.CoopCampaign)
+				continue;
+
 			var captured = mode;
 			var selected = _net != null && _net.GameMode == mode;
+			if (mode == MultiplayerGameMode.CoopRogueLike
+			    && _net?.GameMode == MultiplayerGameMode.CoopCampaign)
+				selected = true;
 			var btn = MakeLobbyButton(LobbyModeRules.ModeLabel(mode), () =>
 			{
 				_net?.HostSetGameMode(captured);
@@ -351,16 +358,16 @@ public partial class MultiplayerLobbyUi : Control
 		var mode = _net!.GameMode;
 		inner.AddChild(new Label
 		{
-			Text = mode == MultiplayerGameMode.CoopCampaign
-				? "Shared wing on the campaign map. Host deploys nodes."
-				: "Shared wing on the roguelike sector map. Host deploys nodes.",
+			Text =
+				"Shared wing on the Rogue-Like sector map. Host deploys nodes.\n" +
+				"(Solar campaign co-op is Phase 2 — this mode is Rogue-Like for now.)",
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = MechUiTheme.Muted
 		});
 
 		inner.AddChild(new Label
 		{
-			Text = "Optional: launch a co-op skirmish instead (loaner MAP).",
+			Text = "Optional: launch a co-op skirmish instead (loaner MAP, skirmish bag).",
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = MechUiTheme.Muted
 		});
@@ -938,6 +945,7 @@ public partial class MultiplayerLobbyUi : Control
 		_session.ApplyLobbyRoster(_net.BuildRosterPayload());
 		_session.CoopMatch = true;
 		_session.PendingBossEncounter = BossEncounterId.None;
+		_session.BeginCoopSkirmish();
 		SfxService.Confirm();
 		var payload = _session.BuildLaunchPayload(false);
 		payload["mp_mode"] = (int)_net.GameMode;

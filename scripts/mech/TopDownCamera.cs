@@ -56,6 +56,10 @@ public partial class TopDownCamera : Camera3D
 	private CanvasLayer? _inspectFxLayer;
 	private ColorRect? _inspectFx;
 	private ShaderMaterial? _inspectFxMat;
+	private float _seatForward;
+	private float _seatUp;
+	/// <summary>When true, Alt+scroll inspect zoom is suppressed (seat adjust owns scroll).</summary>
+	private bool _seatAdjustBlocksInspect;
 
 	public bool IsFirstPerson => _firstPerson;
 	public float HeadLookYaw => _headLookYaw;
@@ -65,6 +69,13 @@ public partial class TopDownCamera : Camera3D
 	public float BodyLookPitch => _bodyLookPitch;
 	/// <summary>0 = none, 1 = full InspectZoomMax magnification.</summary>
 	public float InspectZoomAmount => _inspectZoom;
+	public float SeatForward => _seatForward;
+	public float SeatUp => _seatUp;
+	public bool SeatAdjustBlocksInspect
+	{
+		get => _seatAdjustBlocksInspect;
+		set => _seatAdjustBlocksInspect = value;
+	}
 
 	public override void _Ready()
 	{
@@ -98,7 +109,8 @@ public partial class TopDownCamera : Camera3D
 		if (@event is InputEventMouseButton { Pressed: true } mouse
 		    && mouse.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown
 		    && Input.IsKeyPressed(Key.Alt)
-		    && !Input.IsKeyPressed(Key.Ctrl))
+		    && !Input.IsKeyPressed(Key.Ctrl)
+		    && !_seatAdjustBlocksInspect)
 		{
 			var delta = mouse.ButtonIndex == MouseButton.WheelUp
 				? InspectZoomScrollStep
@@ -182,6 +194,7 @@ public partial class TopDownCamera : Camera3D
 		_headLookPitch = 0f;
 		_inspectZoom = 0f;
 		_inspectZoomTarget = 0f;
+		LoadSeatFromSettings();
 		if (_target != null)
 		{
 			_bodyLookYaw = _target.GlobalRotation.Y;
@@ -238,6 +251,28 @@ public partial class TopDownCamera : Camera3D
 		_headLookPitch = pitchRadians;
 	}
 
+	public void LoadSeatFromSettings()
+	{
+		_seatForward = GameSettings.SeatForward;
+		_seatUp = GameSettings.SeatUp;
+	}
+
+	public void SetSeatOffset(float forward, float up, bool persist)
+	{
+		_seatForward = Mathf.Clamp(forward, GameSettings.SeatForwardMin, GameSettings.SeatForwardMax);
+		_seatUp = Mathf.Clamp(up, GameSettings.SeatUpMin, GameSettings.SeatUpMax);
+		if (persist)
+			GameSettings.SetSeatOffset(_seatForward, _seatUp);
+	}
+
+	public void ResetSeatOffset(bool persist)
+	{
+		_seatForward = 0f;
+		_seatUp = 0f;
+		if (persist)
+			GameSettings.ResetSeatOffset();
+	}
+
 	private void UpdateTopDown(double delta)
 	{
 		var desired = _target!.GlobalPosition + Offset;
@@ -248,7 +283,7 @@ public partial class TopDownCamera : Camera3D
 	private void TickInspectZoom(float dt)
 	{
 		// Zoom is an Alt-held inspect; releasing Alt eases back to normal vision.
-		if (!Input.IsKeyPressed(Key.Alt) || _uiBlocksCapture)
+		if (!Input.IsKeyPressed(Key.Alt) || _uiBlocksCapture || _seatAdjustBlocksInspect)
 			_inspectZoomTarget = 0f;
 
 		_inspectZoom = Mathf.MoveToward(
@@ -388,7 +423,11 @@ public partial class TopDownCamera : Camera3D
 	{
 		var cockpit = FindCockpitAnchor(target);
 		if (cockpit != null)
-			return cockpit.GlobalPosition;
+		{
+			// Seat offset in cockpit space: +forward toward glass (−Z), +up.
+			var local = new Vector3(0f, _seatUp, -_seatForward) * scale;
+			return cockpit.GlobalPosition + cockpit.GlobalTransform.Basis * local;
+		}
 
 		// Body camera: mid-to-top of the torso window (UpperBody socket is near the waist).
 		var upper = target.GetNodeOrNull<Node3D>("Sockets/UpperBody");

@@ -18,7 +18,7 @@ metallic = 0.08
 size = Vector3(80, 1, 80)
 
 [sub_resource type="BoxMesh" id="BoxMesh_wall"]
-size = Vector3(80, 4, 1)
+size = Vector3(80, 28, 1)
 
 [sub_resource type="StandardMaterial3D" id="Mat_wall"]
 albedo_color = Color(0.28, 0.32, 0.36, 1)
@@ -26,7 +26,7 @@ roughness = 0.88
 metallic = 0.12
 
 [sub_resource type="BoxShape3D" id="BoxShape_wall"]
-size = Vector3(80, 4, 1)
+size = Vector3(80, 28, 1)
 
 [sub_resource type="BoxMesh" id="BoxMesh_cover_a"]
 size = Vector3(12, 3, 4)
@@ -73,7 +73,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 shape = SubResource("BoxShape_floor")
 
 [node name="WallNorth" type="StaticBody3D" parent="World"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -40)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -40)
 collision_layer = 1
 
 [node name="Mesh" type="MeshInstance3D" parent="World/WallNorth"]
@@ -84,7 +84,7 @@ surface_material_override/0 = SubResource("Mat_wall")
 shape = SubResource("BoxShape_wall")
 
 [node name="WallSouth" type="StaticBody3D" parent="World"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 40)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, 40)
 collision_layer = 1
 
 [node name="Mesh" type="MeshInstance3D" parent="World/WallSouth"]
@@ -95,7 +95,7 @@ surface_material_override/0 = SubResource("Mat_wall")
 shape = SubResource("BoxShape_wall")
 
 [node name="WallWest" type="StaticBody3D" parent="World"]
-transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -40, 2, 0)
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -40, 14, 0)
 collision_layer = 1
 
 [node name="Mesh" type="MeshInstance3D" parent="World/WallWest"]
@@ -106,7 +106,7 @@ surface_material_override/0 = SubResource("Mat_wall")
 shape = SubResource("BoxShape_wall")
 
 [node name="WallEast" type="StaticBody3D" parent="World"]
-transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 40, 2, 0)
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 40, 14, 0)
 collision_layer = 1
 
 [node name="Mesh" type="MeshInstance3D" parent="World/WallEast"]

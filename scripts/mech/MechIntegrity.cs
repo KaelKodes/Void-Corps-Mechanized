@@ -262,6 +262,7 @@ public partial class MechIntegrity : Node
 		var packageDestroyed = target.ApplyComponentDamage(remaining, out var limbsLost);
 		var structureLost = Mathf.Max(0f, before - target.CurrentHp);
 		EmitSignal(SignalName.ComponentDamaged, (int)target.Slot, structureLost, target.CurrentHp, target.MaxHp);
+		SfxService.PlayImpactArmorOrLight(hitPosition, remaining);
 
 		if (limbsLost > 0 && target.IsLegPackage)
 			GD.Print($"{_mech?.Name} mobility package destroyed. Legs offline.");

@@ -25,14 +25,19 @@ public partial class MainMenuUi : Control
 			return;
 		}
 
-		session?.ActivateMainProfile();
+		session?.ActivateCampaignProfile();
 
 		if (session?.OpenSkirmishSetupOnMenu == true)
 		{
+			if (session.HasAnyProfile && session.Profile.HasFaction)
+			{
+				session.OpenSkirmishSetupOnMenu = false;
+				ClearBootVeil();
+				ShowSkirmishSetup();
+				return;
+			}
+
 			session.OpenSkirmishSetupOnMenu = false;
-			ClearBootVeil();
-			ShowSkirmishSetup();
-			return;
 		}
 
 		if (session is { StudioIntroPlayed: false })
@@ -96,9 +101,38 @@ public partial class MainMenuUi : Control
 
 	private void BuildUi()
 	{
-		ClearUi();
-		MouseFilter = MouseFilterEnum.Ignore;
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		session?.ActivateCampaignProfile();
 
+		if (session == null || !session.HasAnyProfile)
+		{
+			OpenProfileCreate(firstEmptySlot: 0);
+			return;
+		}
+
+		if (!session.Profile.HasFaction)
+		{
+			session.PendingFactionContinue = PendingFactionContinue.NewProfile;
+			session.PendingCreateSlot = -1;
+			GetTree().ChangeSceneToFile("res://scenes/faction_pick.tscn");
+			return;
+		}
+
+		ShowProfileHub();
+	}
+
+	private void OpenProfileCreate(int firstEmptySlot)
+	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return;
+		session.PendingCreateSlot = firstEmptySlot;
+		session.PendingFactionContinue = PendingFactionContinue.NewProfile;
+		GetTree().ChangeSceneToFile("res://scenes/faction_pick.tscn");
+	}
+
+	private void AddBrandHeader()
+	{
 		var titleBlock = new VBoxContainer
 		{
 			MouseFilter = MouseFilterEnum.Ignore,
@@ -110,10 +144,9 @@ public partial class MainMenuUi : Control
 		titleBlock.AddThemeConstantOverride("separation", 2);
 		AddChild(titleBlock);
 
-		// Universe mark — restrained, board-game lineage.
 		var universe = new Label
 		{
-			Text = "VOID CORPS",
+			Text = "CATS  ·  DOGS",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Accent.Darkened(0.08f),
 			MouseFilter = MouseFilterEnum.Ignore
@@ -123,7 +156,6 @@ public partial class MainMenuUi : Control
 		universe.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.65f));
 		titleBlock.AddChild(universe);
 
-		// Product title — the hero word.
 		var brand = new Label
 		{
 			Text = VoidCorpsIdentity.ShortTitle,
@@ -148,8 +180,107 @@ public partial class MainMenuUi : Control
 		};
 		version.AddThemeFontSizeOverride("font_size", 13);
 		titleBlock.AddChild(version);
+	}
+
+	private void ShowProfileHub()
+	{
+		ClearUi();
+		MouseFilter = MouseFilterEnum.Ignore;
+		AddBrandHeader();
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		session?.ActivateCampaignProfile();
+
+		var bar = MechUiTheme.MakePanel("ProfileHub", deep: true);
+		bar.MouseFilter = MouseFilterEnum.Stop;
+		bar.SetAnchorsPreset(LayoutPreset.BottomWide);
+		bar.AnchorTop = 1f;
+		bar.AnchorBottom = 1f;
+		bar.OffsetLeft = 100;
+		bar.OffsetRight = -100;
+		bar.OffsetTop = -280;
+		bar.OffsetBottom = -28;
+		AddChild(bar);
+
+		var inner = new VBoxContainer();
+		inner.AddThemeConstantOverride("separation", 12);
+		bar.AddChild(inner);
+
+		var identityRow = new HBoxContainer
+		{
+			Alignment = BoxContainer.AlignmentMode.Center
+		};
+		identityRow.AddThemeConstantOverride("separation", 16);
+		inner.AddChild(identityRow);
+
+		var portrait = PilotPortraits.GetPortrait(
+			session?.Profile.Faction ?? FactionId.None,
+			session?.Profile.PilotPortraitIndex ?? 0);
+		if (portrait != null)
+		{
+			var frame = new TextureRect
+			{
+				Texture = portrait,
+				CustomMinimumSize = new Vector2(96, 96),
+				ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+				StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered
+			};
+			identityRow.AddChild(frame);
+		}
+
+		var idCol = new VBoxContainer();
+		idCol.AddThemeConstantOverride("separation", 4);
+		identityRow.AddChild(idCol);
+
+		var handle = session?.Profile.ResolveAccountHandle() ?? "Pilot";
+		var faction = session != null && session.Profile.HasFaction
+			? PilotPortraits.DisplayName(session.Profile.Faction)
+			: "Unset";
+		var nameLabel = new Label
+		{
+			Text = handle,
+			Modulate = MechUiTheme.AccentHot
+		};
+		nameLabel.AddThemeFontSizeOverride("font_size", 28);
+		idCol.AddChild(nameLabel);
+		idCol.AddChild(new Label
+		{
+			Text = $"{faction} pilot  ·  Slot {(session?.ActiveSlotIndex ?? 0) + 1}",
+			Modulate = MechUiTheme.Muted
+		});
+
+		var skirmish = session != null
+			? SaveService.LoadSkirmishProfile(session.ActiveSlotIndex)
+			: null;
+		var campaignScrap = session?.Profile.Scrap ?? 0;
+		var status = new Label
+		{
+			Text =
+				$"Campaign scrap {campaignScrap}  ·  Skirmish scrap {skirmish?.Scrap ?? 0}  ·  " +
+				$"Skirmish record {skirmish?.SkirmishesWon ?? 0}/{skirmish?.SkirmishesPlayed ?? 0}",
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Muted
+		};
+		status.AddThemeFontSizeOverride("font_size", 13);
+		inner.AddChild(status);
+
+		var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+		row.AddThemeConstantOverride("separation", 12);
+		inner.AddChild(row);
+		row.AddChild(MakeBarButton("ENTER MODES", ShowModeHub, primary: true));
+		row.AddChild(MakeBarButton("MANAGE SLOTS", ShowProfileSlots));
+		row.AddChild(MakeBarButton("QUIT", () => GetTree().Quit()));
+	}
+
+	private void ShowModeHub()
+	{
+		ClearUi();
+		MouseFilter = MouseFilterEnum.Ignore;
+		AddBrandHeader();
+
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		session?.ActivateCampaignProfile();
+
 		var bar = MechUiTheme.MakePanel("MenuBar", deep: true);
 		bar.MouseFilter = MouseFilterEnum.Stop;
 		bar.SetAnchorsPreset(LayoutPreset.BottomWide);
@@ -165,21 +296,25 @@ public partial class MainMenuUi : Control
 		barInner.AddThemeConstantOverride("separation", 10);
 		bar.AddChild(barInner);
 
-		var handle = session?.Profile.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename;
+		var handle = session?.Profile.ResolveAccountHandle() ?? "Pilot";
+		var faction = session != null && session.Profile.HasFaction
+			? PilotPortraits.DisplayName(session.Profile.Faction)
+			: "?";
+		var skirmish = session != null
+			? SaveService.LoadSkirmishProfile(session.ActiveSlotIndex)
+			: null;
 		var status = new Label
 		{
-			Text = $"{handle}  ·  Scrap {session?.Profile.Scrap ?? 0}  ·  Parts {session?.Profile.OwnedCopyCount ?? 0}  ·  " +
-				   $"Lives bank {session?.Profile.LivesBank ?? 2}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}",
+			Text =
+				$"{handle} ({faction})  ·  Campaign scrap {session?.Profile.Scrap ?? 0}  ·  " +
+				$"Skirmish scrap {skirmish?.Scrap ?? 0}  ·  Record {skirmish?.SkirmishesWon ?? 0}/{skirmish?.SkirmishesPlayed ?? 0}",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.Muted
 		};
 		status.AddThemeFontSizeOverride("font_size", 13);
 		barInner.AddChild(status);
 
-		var row = new HBoxContainer
-		{
-			Alignment = BoxContainer.AlignmentMode.Center
-		};
+		var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
 		row.AddThemeConstantOverride("separation", 12);
 		barInner.AddChild(row);
 
@@ -187,7 +322,7 @@ public partial class MainMenuUi : Control
 		row.AddChild(MakeBarButton("MULTIPLAYER", ShowMultiplayerLobby));
 		row.AddChild(MakeBarButton("CAMPAIGN", ShowSolarCampaignEntry));
 		row.AddChild(MakeBarButton("ROGUELIKE", ShowRoguelikeEntry));
-		row.AddChild(MakeBarButton("PROFILE", ShowProfileSlots));
+		row.AddChild(MakeBarButton("PROFILES", ShowProfileHub));
 		row.AddChild(MakeBarButton("QUIT", () => GetTree().Quit()));
 	}
 
@@ -201,7 +336,7 @@ public partial class MainMenuUi : Control
 
 		var title = new Label
 		{
-			Text = "Profile Slots",
+			Text = "Pilot Profiles",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = MechUiTheme.AccentHot
 		};
@@ -210,7 +345,7 @@ public partial class MainMenuUi : Control
 
 		var blurb = new Label
 		{
-			Text = "Four local saves. Your slot name is your LAN multiplayer handle.",
+			Text = "Four local pilots. Callsign is your LAN multiplayer handle. Each profile holds Campaign, Rogue-Like, and Skirmish progress.",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			AutowrapMode = TextServer.AutowrapMode.WordSmart,
 			Modulate = MechUiTheme.Muted
@@ -310,9 +445,12 @@ public partial class MainMenuUi : Control
 			var slotInfo = SaveService.Manifest.Slots[selected];
 			if (occ)
 			{
+				var faction = slotInfo.Faction is (int)FactionId.Cat or (int)FactionId.Dog
+					? PilotPortraits.DisplayName((FactionId)slotInfo.Faction)
+					: "Unset";
 				var scrapHint = selected == session?.ActiveSlotIndex
-					? $"Scrap {session?.Profile.Scrap ?? 0}  ·  Record {session?.Profile.SkirmishesWon ?? 0}/{session?.Profile.SkirmishesPlayed ?? 0}"
-					: "Occupied save";
+					? $"Campaign scrap {session?.Profile.Scrap ?? 0}  ·  {faction}"
+					: $"{faction} pilot";
 				var last = "";
 				if (slotInfo.LastPlayedUnix > 0)
 				{
@@ -327,7 +465,7 @@ public partial class MainMenuUi : Control
 			}
 			else
 			{
-				summary.Text = $"Selected Slot {selected + 1}: empty — enter a handle and press New.";
+				summary.Text = $"Selected Slot {selected + 1}: empty — press New to create a pilot.";
 				if (string.IsNullOrWhiteSpace(handleEdit.Text))
 					handleEdit.Text = "";
 				handleEdit.Editable = true;
@@ -356,7 +494,7 @@ public partial class MainMenuUi : Control
 			if (selected == session.ActiveSlotIndex)
 			{
 				SfxService.Click();
-				BuildUi();
+				ShowProfileHub();
 				return;
 			}
 
@@ -379,20 +517,8 @@ public partial class MainMenuUi : Control
 				return;
 			}
 
-			var handle = SaveService.SanitizeHandle(handleEdit.Text);
-			if (!SaveService.IsValidHandle(handle))
-			{
-				status.Text = "Enter a valid account handle (1–24 characters).";
-				return;
-			}
-
-			if (session.CreateSlot(selected, handle))
-			{
-				SfxService.Confirm();
-				GetTree().ReloadCurrentScene();
-			}
-			else
-				status.Text = "Could not create profile.";
+			SfxService.Confirm();
+			OpenProfileCreate(selected);
 		}));
 
 		actions.AddChild(MakeBarButton("Rename", () =>
@@ -488,7 +614,7 @@ public partial class MainMenuUi : Control
 		{
 			copyMode = false;
 			confirmDelete = false;
-			BuildUi();
+			ShowProfileHub();
 		}));
 
 		Refresh();
@@ -563,7 +689,7 @@ public partial class MainMenuUi : Control
 				GetTree().ChangeSceneToFile("res://scenes/solar_system_map.tscn");
 		}, primary: true));
 		root.AddChild(MakeButton("NEW", ShowNewSolarCampaignOptions));
-		root.AddChild(MakeButton("Back", BuildUi));
+		root.AddChild(MakeButton("Back", ShowModeHub));
 	}
 
 	private void ShowNewSolarCampaignOptions()
@@ -591,15 +717,21 @@ public partial class MainMenuUi : Control
 		root.AddChild(MakeButton("TUTORIAL", () =>
 		{
 			SfxService.Confirm();
-			session?.BeginSolarCampaign(reset: true);
-			session?.LaunchSolarOnboarding();
-			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+			BeginWithFactionGate(PendingFactionContinue.SolarTutorial, () =>
+			{
+				session?.BeginSolarCampaign(reset: true);
+				session?.LaunchSolarOnboarding();
+				GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+			});
 		}, primary: true));
 		root.AddChild(MakeButton("SKIP TO CONVENTION", () =>
 		{
 			SfxService.Confirm();
-			session?.BeginSolarCampaignSkipToConvention();
-			GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
+			BeginWithFactionGate(PendingFactionContinue.SolarSkipConvention, () =>
+			{
+				session?.BeginSolarCampaignSkipToConvention();
+				GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
+			});
 		}));
 		root.AddChild(MakeButton("Back", ShowSolarCampaignEntry));
 	}
@@ -632,10 +764,14 @@ public partial class MainMenuUi : Control
 		var affiliation = string.IsNullOrEmpty(profile?.AffiliatedManufacturerId)
 			? "Provisional / not chosen yet"
 			: GameCatalog.GetManufacturer(profile!.AffiliatedManufacturerId).DisplayName;
+		var factionLine = profile is { HasFaction: true }
+			? $"{PilotPortraits.DisplayName(profile.Faction)}  ·  pilot #{profile.PilotPortraitIndex + 1}"
+			: "Unset — choose before starting a run";
 		var dossier = new Label
 		{
 			Text =
 				$"Handle  ·  {profile?.ResolveAccountHandle() ?? VoidCorpsIdentity.PlayerCorpCodename}\n" +
+				$"Faction  ·  {factionLine}\n" +
 				$"Manufacturer license (run)  ·  {affiliation}\n" +
 				$"{VoidCorpsIdentity.PlayerCorpBlurb}",
 			HorizontalAlignment = HorizontalAlignment.Center,
@@ -672,18 +808,33 @@ public partial class MainMenuUi : Control
 		root.AddChild(MakeButton("CADET PROGRAM — TUTORIAL", () =>
 		{
 			SfxService.Confirm();
-			session?.BeginCadetProgram();
-			GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+			BeginWithFactionGate(PendingFactionContinue.RoguelikeCadet, () =>
+			{
+				session?.BeginCadetProgram();
+				GetTree().ChangeSceneToFile("res://scenes/arena.tscn");
+			});
 		}, primary: true));
 
 		root.AddChild(MakeButton("CONVENTION — SKIP TUTORIAL", () =>
 		{
 			SfxService.Confirm();
-			session?.BeginConventionProgram();
-			GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
+			BeginWithFactionGate(PendingFactionContinue.RoguelikeConvention, () =>
+			{
+				session?.BeginConventionProgram();
+				GetTree().ChangeSceneToFile("res://scenes/convention_hall.tscn");
+			});
 		}));
 
-		root.AddChild(MakeButton("Back", BuildUi));
+		root.AddChild(MakeButton("Back", ShowModeHub));
+	}
+
+	private void BeginWithFactionGate(PendingFactionContinue pending, System.Action whenReady)
+	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		if (session == null)
+			return;
+		if (session.TryBeginWithFactionGate(pending, whenReady))
+			GetTree().ChangeSceneToFile("res://scenes/faction_pick.tscn");
 	}
 
 	private void ContinueCampaignRun(GameSession session)
@@ -828,6 +979,77 @@ public partial class MainMenuUi : Control
 		});
 		claimRow.AddChild(nextClaim);
 
+		// Day / Night — dual military clocks (12h apart) + toggle; preference persisted.
+		var arenaPeriod = session?.Profile.PreferredSkirmishArenaPeriod ?? ArenaPeriod.Night;
+		if (session != null)
+			session.PendingArenaPeriod = arenaPeriod;
+
+		var periodRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+		periodRow.AddThemeConstantOverride("separation", 16);
+		root.AddChild(periodRow);
+
+		var dayClockLabel = new Label
+		{
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Muted
+		};
+		dayClockLabel.AddThemeFontSizeOverride("font_size", 22);
+		periodRow.AddChild(dayClockLabel);
+
+		var nightClockLabel = new Label
+		{
+			HorizontalAlignment = HorizontalAlignment.Center,
+			Modulate = MechUiTheme.Muted
+		};
+		nightClockLabel.AddThemeFontSizeOverride("font_size", 22);
+		periodRow.AddChild(nightClockLabel);
+
+		var toggleRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+		toggleRow.AddThemeConstantOverride("separation", 10);
+		root.AddChild(toggleRow);
+
+		Button? dayBtn = null;
+		Button? nightBtn = null;
+
+		void RefreshPeriodClocks()
+		{
+			dayClockLabel.Text = $"{FrontierClock.FormatMilitary(ArenaPeriod.Day)}  DAY";
+			nightClockLabel.Text = $"{FrontierClock.FormatMilitary(ArenaPeriod.Night)}  NIGHT";
+			dayClockLabel.Modulate = arenaPeriod == ArenaPeriod.Day ? MechUiTheme.AccentHot : MechUiTheme.Muted;
+			nightClockLabel.Modulate = arenaPeriod == ArenaPeriod.Night ? MechUiTheme.AccentHot : MechUiTheme.Muted;
+			if (dayBtn != null)
+				dayBtn.Modulate = arenaPeriod == ArenaPeriod.Day ? MechUiTheme.AccentHot : MechUiTheme.Text;
+			if (nightBtn != null)
+				nightBtn.Modulate = arenaPeriod == ArenaPeriod.Night ? MechUiTheme.AccentHot : MechUiTheme.Text;
+		}
+
+		void SetArenaPeriod(ArenaPeriod period)
+		{
+			arenaPeriod = period;
+			if (session != null)
+			{
+				session.PendingArenaPeriod = period;
+				session.Profile.PreferredSkirmishArenaPeriod = period;
+				session.SaveProfile();
+			}
+
+			RefreshPeriodClocks();
+		}
+
+		dayBtn = MakeButton("DAY", () => SetArenaPeriod(ArenaPeriod.Day));
+		nightBtn = MakeButton("NIGHT", () => SetArenaPeriod(ArenaPeriod.Night));
+		toggleRow.AddChild(dayBtn);
+		toggleRow.AddChild(nightBtn);
+		RefreshPeriodClocks();
+
+		var clockTimer = new Godot.Timer
+		{
+			WaitTime = 1.0,
+			Autostart = true
+		};
+		clockTimer.Timeout += RefreshPeriodClocks;
+		root.AddChild(clockTimer);
+
 		var missionLabel = new Label
 		{
 			HorizontalAlignment = HorizontalAlignment.Center,
@@ -904,6 +1126,7 @@ public partial class MainMenuUi : Control
 			{
 				session.PendingDifficulty = difficulty;
 				session.PendingMission = missionType;
+				session.PendingArenaPeriod = arenaPeriod;
 			}
 			ShowSkirmishMechSelect();
 		}, primary: true));
@@ -1042,7 +1265,7 @@ public partial class MainMenuUi : Control
 	{
 		ClearUi();
 		MouseFilter = MouseFilterEnum.Stop;
-		AddChild(MultiplayerLobbyUi.Create(BuildUi));
+		AddChild(MultiplayerLobbyUi.Create(ShowModeHub));
 	}
 
 	private static Button MakeBarButton(string text, System.Action onPress, bool primary = false)

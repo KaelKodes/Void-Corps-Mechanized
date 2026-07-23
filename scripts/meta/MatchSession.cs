@@ -166,7 +166,8 @@ public sealed class MatchSession
 	}
 
 	/// <summary>Commit run rewards into the persistent profile (condition applied separately).</summary>
-	public void ApplyToProfile(PlayerProfile profile)
+	/// <param name="trackSkirmishRecord">When false, skip W/L counters (campaign/RL use skirmish bag for records).</param>
+	public void ApplyToProfile(PlayerProfile profile, bool trackSkirmishRecord = true)
 	{
 		profile.Scrap += RunScrap;
 		// Mission cargo instances are already owned on pickup; only bank legacy ID-only drops.
@@ -192,9 +193,12 @@ public sealed class MatchSession
 		}
 
 		profile.LivesBank = Mathf.Max(0, LivesRemaining);
-		profile.SkirmishesPlayed++;
-		if (Outcome == MatchOutcome.Victory)
-			profile.SkirmishesWon++;
+		if (trackSkirmishRecord)
+		{
+			profile.SkirmishesPlayed++;
+			if (Outcome == MatchOutcome.Victory)
+				profile.SkirmishesWon++;
+		}
 
 		foreach (var (slot, condition) in FinalConditionBySlot)
 		{

@@ -3,8 +3,8 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Diegetic L/R arm heat projected onto the Fleet cockpit front glass.
-/// Stacking rectangles light bottom → top as each arm heats.
+/// Diegetic heat + power brackets on the cockpit front glass.
+/// Left = chassis heat pool; right = operational power. Segment stacks fill bottom → top.
 /// Owned by CockpitDiegeticHud (TopLevel) so torso rebuilds cannot free us mid-frame.
 /// </summary>
 public partial class CockpitWindowHeatBars : Node3D
@@ -19,14 +19,13 @@ public partial class CockpitWindowHeatBars : Node3D
 	private const float ThinspineBarXOffset = 0.38f;
 	/// <summary>Anvil: default offset plus three bar-widths farther from center.</summary>
 	private const float AnvilBarXOffset = DefaultBarXOffset + BarWidth * 3f;
-	private const int LayoutVersion = 12;
+	private const int LayoutVersion = 14;
 
 	private MeshInstance3D[] _segsL = System.Array.Empty<MeshInstance3D>();
 	private MeshInstance3D[] _segsR = System.Array.Empty<MeshInstance3D>();
 	private StandardMaterial3D[] _matsL = System.Array.Empty<StandardMaterial3D>();
 	private StandardMaterial3D[] _matsR = System.Array.Empty<StandardMaterial3D>();
 	private Label3D? _overheatL;
-	private Label3D? _overheatR;
 	private ulong _torsoId;
 	private string _visualKind = "";
 	private int _builtLayoutVersion;
@@ -66,14 +65,9 @@ public partial class CockpitWindowHeatBars : Node3D
 		SetBarsVisible(true);
 
 		var power = mech.PowerHeat;
-		var hasL = HasLivingArm(mech, PartSlot.WeaponL);
-		var hasR = HasLivingArm(mech, PartSlot.WeaponR);
-		ApplyHeat(_segsL, _matsL, hasL ? power?.ArmHeatRatioL ?? 0f : -1f);
-		ApplyHeat(_segsR, _matsR, hasR ? power?.ArmHeatRatioR ?? 0f : -1f);
-
-		var cue = power?.ResolveOverheatCue() ?? OverheatCue.None;
-		SetOverheatLabel(_overheatL, cue == OverheatCue.ArmL);
-		SetOverheatLabel(_overheatR, cue == OverheatCue.ArmR);
+		ApplySegments(_segsL, _matsL, power?.HeatRatio ?? 0f, MeterKind.Heat);
+		ApplySegments(_segsR, _matsR, power?.PowerRatio ?? 0f, MeterKind.Power);
+		SetOverheatLabel(_overheatL, power?.IsOverheated == true);
 	}
 
 	/// <summary>Safe teardown — never touches Godot APIs on a disposed / queued instance.</summary>
@@ -117,16 +111,15 @@ public partial class CockpitWindowHeatBars : Node3D
 			_ => DefaultBarXOffset
 		};
 
-		var barL = BuildBar("HeatBarL", new Vector3(-xOffset, y, z));
-		var barR = BuildBar("HeatBarR", new Vector3(xOffset, y, z));
+		var barL = BuildBar("HeatBar", new Vector3(-xOffset, y, z), out _matsL);
+		var barR = BuildBar("PowerBar", new Vector3(xOffset, y, z), out _matsR);
 		AddChild(barL);
 		AddChild(barR);
 
 		_overheatL = MakeOverheatLabel(barL);
-		_overheatR = MakeOverheatLabel(barR);
 
-		_segsL = CollectSegments(barL, out _matsL);
-		_segsR = CollectSegments(barR, out _matsR);
+		_segsL = CollectSegments(barL);
+		_segsR = CollectSegments(barR);
 		_torsoId = torsoId;
 		_built = true;
 		Visible = false;
@@ -141,8 +134,10 @@ public partial class CockpitWindowHeatBars : Node3D
 
 		foreach (var child in GetChildren())
 		{
-			if (NodeAlive(child))
-				child.QueueFree();
+			if (!NodeAlive(child))
+				continue;
+			RemoveChild(child);
+			child.QueueFree();
 		}
 	}
 
@@ -158,7 +153,6 @@ public partial class CockpitWindowHeatBars : Node3D
 		_matsL = System.Array.Empty<StandardMaterial3D>();
 		_matsR = System.Array.Empty<StandardMaterial3D>();
 		_overheatL = null;
-		_overheatR = null;
 	}
 
 	private static Label3D MakeOverheatLabel(Node3D bar)
@@ -201,17 +195,18 @@ public partial class CockpitWindowHeatBars : Node3D
 		Visible = visible;
 	}
 
-	private static Node3D BuildBar(string name, Vector3 position)
+	private static Node3D BuildBar(string name, Vector3 position, out StandardMaterial3D[] mats)
 	{
 		var root = new Node3D { Name = name, Position = position };
 		var totalGaps = SegmentGap * (SegmentCount - 1);
 		var segH = (BarHeight - totalGaps) / SegmentCount;
+		mats = new StandardMaterial3D[SegmentCount];
 
 		for (var i = 0; i < SegmentCount; i++)
 		{
 			var y = -BarHeight * 0.5f + segH * 0.5f + i * (segH + SegmentGap);
 			var mat = MakeSegmentMaterial();
-			// Unique mesh per segment — shared PrimitiveMesh.Material mutations poison siblings.
+			mats[i] = mat;
 			var mi = new MeshInstance3D
 			{
 				Name = $"Seg_{i}",
@@ -219,49 +214,46 @@ public partial class CockpitWindowHeatBars : Node3D
 				Position = new Vector3(0f, y, 0f),
 				CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
 			};
-			mi.SetSurfaceOverrideMaterial(0, mat);
+			MeshMat.Bind(mi, mat);
 			root.AddChild(mi);
 		}
 
 		return root;
 	}
 
-	private static MeshInstance3D[] CollectSegments(Node3D bar, out StandardMaterial3D[] mats)
+	private static MeshInstance3D[] CollectSegments(Node3D bar)
 	{
 		var segs = new MeshInstance3D[SegmentCount];
-		mats = new StandardMaterial3D[SegmentCount];
 		for (var i = 0; i < SegmentCount; i++)
-		{
 			segs[i] = bar.GetNode<MeshInstance3D>($"Seg_{i}");
-			mats[i] = (StandardMaterial3D)segs[i].GetSurfaceOverrideMaterial(0);
-		}
-
 		return segs;
 	}
 
-	private static void ApplyHeat(MeshInstance3D[] segs, StandardMaterial3D[] mats, float ratio)
+	private enum MeterKind
 	{
-		if (ratio < 0f)
-		{
-			foreach (var seg in segs)
-			{
-				if (NodeAlive(seg))
-					seg.Visible = false;
-			}
-			return;
-		}
+		Heat,
+		Power
+	}
 
-		var litCount = Mathf.Clamp(Mathf.CeilToInt(ratio * SegmentCount), 0, SegmentCount);
+	private static void ApplySegments(MeshInstance3D[] segs, StandardMaterial3D[] mats, float ratio, MeterKind kind)
+	{
+		ratio = Mathf.Clamp(ratio, 0f, 1f);
+		var litCount = ratio <= 0.001f
+			? 0
+			: Mathf.Clamp(Mathf.CeilToInt(ratio * SegmentCount), 1, SegmentCount);
 		for (var i = 0; i < segs.Length; i++)
 		{
-			if (!NodeAlive(segs[i]))
+			if (!NodeAlive(segs[i]) || i >= mats.Length || !GodotObject.IsInstanceValid(mats[i]))
 				continue;
 			segs[i].Visible = true;
-			ApplySegmentLook(mats[i], i < litCount, ratio);
+			if (kind == MeterKind.Heat)
+				ApplyHeatLook(mats[i], i < litCount, ratio);
+			else
+				ApplyPowerLook(mats[i], i < litCount, ratio);
 		}
 	}
 
-	private static void ApplySegmentLook(StandardMaterial3D mat, bool lit, float ratio)
+	private static void ApplyHeatLook(StandardMaterial3D mat, bool lit, float ratio)
 	{
 		if (!GodotObject.IsInstanceValid(mat))
 			return;
@@ -286,6 +278,33 @@ public partial class CockpitWindowHeatBars : Node3D
 		mat.EmissionEnergyMultiplier = Mathf.Lerp(0.9f, 1.6f, ratio);
 	}
 
+	private static void ApplyPowerLook(StandardMaterial3D mat, bool lit, float ratio)
+	{
+		if (!GodotObject.IsInstanceValid(mat))
+			return;
+
+		if (!lit)
+		{
+			mat.AlbedoColor = new Color(0.1f, 0.12f, 0.16f, 0.35f);
+			mat.EmissionEnabled = true;
+			mat.Emission = new Color(0.2f, 0.28f, 0.4f);
+			mat.EmissionEnergyMultiplier = 0.12f;
+			return;
+		}
+
+		var low = ratio <= 0.25f;
+		mat.AlbedoColor = low
+			? new Color(0.95f, 0.55f, 0.2f, 0.9f)
+			: new Color(0.28f, 0.72f, 1f, 0.88f);
+		mat.EmissionEnabled = true;
+		mat.Emission = low
+			? new Color(1f, 0.55f, 0.18f)
+			: new Color(0.35f, 0.8f, 1f);
+		mat.EmissionEnergyMultiplier = low
+			? 1.1f
+			: Mathf.Lerp(0.7f, 1.35f, ratio);
+	}
+
 	private static StandardMaterial3D MakeSegmentMaterial() => new()
 	{
 		Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
@@ -296,12 +315,6 @@ public partial class CockpitWindowHeatBars : Node3D
 		Emission = new Color(0.25f, 0.3f, 0.35f),
 		EmissionEnergyMultiplier = 0.15f
 	};
-
-	private static bool HasLivingArm(MechController mech, PartSlot slot)
-	{
-		var hp = mech.Assembler?.Hardpoints.GetValueOrDefault(slot);
-		return hp?.EquippedPart != null && hp.EquippedPart.VisualKind != "empty" && !hp.IsDestroyed;
-	}
 
 	private static Node3D? FindCockpitTorso(MechController mech)
 	{

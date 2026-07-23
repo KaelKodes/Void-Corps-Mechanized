@@ -105,7 +105,18 @@ public partial class MechLegAnimator : Node
 		var speed = planar.Length();
 		var maxSpeed = Mathf.Max(1f, _assembler?.MaxSpeed ?? 10f);
 		_pace = Mathf.Clamp(speed / maxSpeed, 0f, 1.35f);
-		_gaitMoving = _pace > 0.04f;
+		var airborne = !_mech.IsOnFloor() || _mech.IsJumping;
+		var moveIntent = _mech.HasMoveIntent || (_mech.IsLocalPilot && ReadLocalMovePressed());
+		// Holding move in the air still cycles the gait even when planar speed is low (hover / boost).
+		if (airborne && moveIntent)
+		{
+			_pace = Mathf.Max(_pace, 0.55f);
+			_gaitMoving = true;
+		}
+		else
+		{
+			_gaitMoving = _pace > 0.04f;
+		}
 
 		if (_gaitMoving)
 			_phase += dt * Mathf.Lerp(4.5f, 9.5f, _pace);
@@ -274,9 +285,9 @@ public partial class MechLegAnimator : Node
 		{
 			// Plant when the clearance half-cycle ends (wave rises through 0).
 			if (_prevLeftWave < 0f && leftWave >= 0f)
-				PlayFootstep();
+				PlayFootstep(-1f);
 			if (_prevRightWave < 0f && rightWave >= 0f)
-				PlayFootstep();
+				PlayFootstep(1f);
 		}
 
 		_prevLeftWave = leftWave;
@@ -300,9 +311,9 @@ public partial class MechLegAnimator : Node
 		{
 			// Tripod plants as lift wave falls through 0 (feet return to ground).
 			if (_prevTrip0 > 0f && trip0 <= 0f)
-				PlayFootstep();
+				PlayFootstep(0f);
 			if (_prevTrip1 > 0f && trip1 <= 0f)
-				PlayFootstep();
+				PlayFootstep(0f);
 		}
 
 		_prevTrip0 = trip0;
@@ -312,15 +323,127 @@ public partial class MechLegAnimator : Node
 	/// <summary>~40 feet — beyond this, remote footfalls are silent.</summary>
 	private const float StepHearRange = 12.2f;
 
-	private void PlayFootstep()
+	private void PlayFootstep(float sideSign)
 	{
 		if (_mech == null || string.IsNullOrEmpty(_legsPartId))
 			return;
+		if (_mech.IsCarrierMounted || _mech.HangarDisplayOnly || _mech.IsDashing)
+			return;
+
+		// True boost / fall → air servo bank. Brief IsOnFloor() flicker while walking
+		// should still plant stomps (don't treat every micro-gap as airborne).
+		var airborne = _mech.IsJumping
+			|| (!_mech.IsOnFloor() && (_mech.Velocity.Y > 1.2f || _mech.Velocity.Y < -2.5f));
+		if (airborne)
+		{
+			PlayAirMove();
+			return;
+		}
 
 		var volumeDb = -2f;
 		if (_rigKind == "hex")
 			volumeDb -= 2f;
 		volumeDb += Mathf.Lerp(-1f, 0.5f, Mathf.Clamp(_pace, 0f, 1f));
+
+		if (_mech.IsLocalPilot)
+		{
+			SfxService.PlayMechStepForLegs(_legsPartId, volumeDb);
+		}
+		else
+		{
+			var listener = FindLocalMech();
+			if (listener != null)
+			{
+				var dist = _mech.GlobalPosition.DistanceTo(listener.GlobalPosition);
+				if (dist < StepHearRange)
+				{
+					// Same near-volume as local; quadratic fade to silence at hear range.
+					var t = dist / StepHearRange;
+					volumeDb += Mathf.Lerp(0f, -48f, t * t);
+					SfxService.PlayMechStepForLegs(_legsPartId, volumeDb);
+				}
+			}
+		}
+
+		// Dust for every MAP in view — not gated by step hear range / local pilot.
+		SpawnStepDust(sideSign);
+	}
+
+	private void SpawnStepDust(float sideSign)
+	{
+		if (_mech == null)
+			return;
+
+		// Only the sim authority emits (offline + host). Clients receive via RPC.
+		var net = _mech.GetNodeOrNull<NetSession>("/root/NetSession");
+		if (net is { IsOnline: true } && !_mech.Multiplayer.IsServer())
+			return;
+
+		var weight = _assembler?.Stats.TotalWeight ?? 120f;
+		// Light runners ~80–120; loaded heavies climb past ~220.
+		var weightT = Mathf.Clamp((weight - 70f) / 200f, 0f, 1f);
+		var origin = ResolveStepDustOrigin(sideSign);
+		_mech.EmitGroundDust(MechController.GroundDustKind.Footstep, origin, weightT, _pace);
+	}
+
+	private Vector3 ResolveStepDustOrigin(float sideSign)
+	{
+		if (_mech == null)
+			return Vector3.Zero;
+
+		if (_rigKind == "biped" && Mathf.Abs(sideSign) > 0.01f)
+		{
+			foreach (var limb in _bipeds)
+			{
+				if (Mathf.Sign(limb.SideSign) != Mathf.Sign(sideSign))
+					continue;
+				if (!GodotObject.IsInstanceValid(limb.Knee))
+					break;
+
+				var foot = limb.Knee.GetNodeOrNull<Node3D>("Foot");
+				var pos = foot != null && GodotObject.IsInstanceValid(foot)
+					? foot.GlobalPosition
+					: limb.Knee.GlobalPosition;
+				return new Vector3(pos.X, _mech.GlobalPosition.Y, pos.Z);
+			}
+
+			var lateral = _mech.GlobalTransform.Basis.X.Normalized() * sideSign * 0.45f
+			              * MechChassisClassUtil.VisualScale(_mech.ChassisClass);
+			return _mech.GlobalPosition + lateral;
+		}
+
+		if (_rigKind == "hex" && _hexes.Count > 0)
+		{
+			var sum = Vector3.Zero;
+			var count = 0;
+			foreach (var limb in _hexes)
+			{
+				if (!GodotObject.IsInstanceValid(limb.Foot))
+					continue;
+				sum += limb.Foot.GlobalPosition;
+				count++;
+			}
+
+			if (count > 0)
+			{
+				var avg = sum / count;
+				return new Vector3(avg.X, _mech.GlobalPosition.Y, avg.Z);
+			}
+		}
+
+		return _mech.GlobalPosition;
+	}
+
+	private void PlayAirMove()
+	{
+		var moveIntent = _mech!.HasMoveIntent || (_mech.IsLocalPilot && ReadLocalMovePressed());
+		if (_pace < 0.04f && !moveIntent)
+			return;
+
+		// Sit under the booster a bit, but stay audible on the Mech bus.
+		var volumeDb = Mathf.Lerp(-2f, 1f, Mathf.Clamp(_pace, 0f, 1f));
+		if (_rigKind == "hex")
+			volumeDb -= 1f;
 
 		if (!_mech.IsLocalPilot)
 		{
@@ -332,12 +455,19 @@ public partial class MechLegAnimator : Node
 			if (dist >= StepHearRange)
 				return;
 
-			// Same near-volume as local; quadratic fade to silence at hear range.
 			var t = dist / StepHearRange;
 			volumeDb += Mathf.Lerp(0f, -48f, t * t);
 		}
 
-		SfxService.PlayMechStepForLegs(_legsPartId, volumeDb);
+		SfxService.PlayMechAirMove(volumeDb);
+	}
+
+	private static bool ReadLocalMovePressed()
+	{
+		return Input.IsActionPressed("move_forward")
+			|| Input.IsActionPressed("move_back")
+			|| Input.IsActionPressed("turn_left")
+			|| Input.IsActionPressed("turn_right");
 	}
 
 	private MechController? FindLocalMech()

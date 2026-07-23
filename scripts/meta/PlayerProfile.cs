@@ -11,7 +11,7 @@ namespace Mechanize;
 /// </summary>
 public sealed class PlayerProfile : IPartInventory
 {
-	public const int SchemaVersion = 5;
+	public const int SchemaVersion = 6;
 	public const int StartingManufacturerRep = -10;
 	public const int StartingAlignedRep = 20;
 	public const int StartingLives = 2;
@@ -26,15 +26,23 @@ public sealed class PlayerProfile : IPartInventory
 	public LoadoutData Loadout { get; set; } = null!;
 	public int SkirmishesPlayed { get; set; }
 	public int SkirmishesWon { get; set; }
+	/// <summary>Last skirmish Day/Night toggle choice (defaults Night).</summary>
+	public ArenaPeriod PreferredSkirmishArenaPeriod { get; set; } = ArenaPeriod.Night;
 	/// <summary>Local/LAN account handle — also the profile slot display name.</summary>
 	public string AccountHandle { get; set; } = "";
 	public string MercCorpName { get; set; } = VoidCorpsIdentity.PlayerCorpCodename;
+	/// <summary>Cat / Dog identity. Locked once set. Copied onto all mode bags.</summary>
+	public FactionId Faction { get; set; } = FactionId.None;
+	/// <summary>0–8 index into the faction's 3×3 pilot portrait sheet.</summary>
+	public int PilotPortraitIndex { get; set; }
 	public string AffiliatedManufacturerId { get; set; } = "";
 	public string EmployerCompanyId { get; set; } = "";
 	public string EmployerCompanyName { get; set; } = "";
 	public Dictionary<string, int> ManufacturerReputation { get; set; } = new();
 	public Dictionary<string, int> CraftingMaterials { get; set; } = new();
 	public HashSet<string> UnlockedBlueprints { get; set; } = new();
+
+	public bool HasFaction => Faction is FactionId.Cat or FactionId.Dog;
 
 	/// <summary>Legacy/compat count map derived from instances (excludes unlimited empties).</summary>
 	public Dictionary<string, int> OwnedCounts =>
@@ -63,6 +71,8 @@ public sealed class PlayerProfile : IPartInventory
 			EquippedInstanceIds = new Dictionary<PartSlot, string>(),
 			AccountHandle = handle,
 			MercCorpName = handle,
+			Faction = FactionId.None,
+			PilotPortraitIndex = 0,
 			AffiliatedManufacturerId = "",
 			EmployerCompanyId = "",
 			EmployerCompanyName = "",
@@ -96,6 +106,29 @@ public sealed class PlayerProfile : IPartInventory
 			handle = VoidCorpsIdentity.PlayerCorpCodename;
 		AccountHandle = handle;
 		MercCorpName = handle;
+	}
+
+	/// <summary>
+	/// Lock Cat/Dog + portrait for this profile. No-ops if already locked to a faction
+	/// (unless <paramref name="force"/> — used when copying identity onto a fresh roguelike kit).
+	/// </summary>
+	public bool SetFaction(FactionId faction, int portraitIndex, bool force = false)
+	{
+		if (faction is not (FactionId.Cat or FactionId.Dog))
+			return false;
+		if (HasFaction && !force)
+			return false;
+
+		Faction = faction;
+		PilotPortraitIndex = Mathf.Clamp(portraitIndex, 0, PilotPortraits.PortraitCount - 1);
+		return true;
+	}
+
+	public void CopyFactionIdentityFrom(PlayerProfile source)
+	{
+		if (source == null || !source.HasFaction)
+			return;
+		SetFaction(source.Faction, source.PilotPortraitIndex, force: true);
 	}
 
 	public void WipeRunInventory()
@@ -471,8 +504,11 @@ public sealed class PlayerProfile : IPartInventory
 			["lives"] = LivesBank,
 			["skirmishes_played"] = SkirmishesPlayed,
 			["skirmishes_won"] = SkirmishesWon,
+			["skirmish_arena_period"] = (int)PreferredSkirmishArenaPeriod,
 			["account_handle"] = AccountHandle,
 			["merc_corp_name"] = MercCorpName,
+			["faction"] = (int)Faction,
+			["pilot_portrait"] = PilotPortraitIndex,
 			["affiliated_manufacturer"] = AffiliatedManufacturerId,
 			["employer_company"] = EmployerCompanyId,
 			["employer_company_name"] = EmployerCompanyName,
@@ -504,6 +540,13 @@ public sealed class PlayerProfile : IPartInventory
 			profile.SkirmishesPlayed = dict["skirmishes_played"].AsInt32();
 		if (dict.ContainsKey("skirmishes_won"))
 			profile.SkirmishesWon = dict["skirmishes_won"].AsInt32();
+		if (dict.ContainsKey("skirmish_arena_period"))
+		{
+			var raw = dict["skirmish_arena_period"].AsInt32();
+			profile.PreferredSkirmishArenaPeriod = raw is (int)ArenaPeriod.Day or (int)ArenaPeriod.Night
+				? (ArenaPeriod)raw
+				: ArenaPeriod.Night;
+		}
 		if (dict.ContainsKey("account_handle"))
 			profile.AccountHandle = dict["account_handle"].AsString();
 		if (dict.ContainsKey("merc_corp_name"))
@@ -512,6 +555,15 @@ public sealed class PlayerProfile : IPartInventory
 			profile.AccountHandle = profile.MercCorpName;
 		if (string.IsNullOrEmpty(profile.MercCorpName))
 			profile.MercCorpName = profile.AccountHandle;
+		if (dict.ContainsKey("faction"))
+		{
+			var raw = dict["faction"].AsInt32();
+			profile.Faction = raw is (int)FactionId.Cat or (int)FactionId.Dog
+				? (FactionId)raw
+				: FactionId.None;
+		}
+		if (dict.ContainsKey("pilot_portrait"))
+			profile.PilotPortraitIndex = Mathf.Clamp(dict["pilot_portrait"].AsInt32(), 0, PilotPortraits.PortraitCount - 1);
 		if (dict.ContainsKey("affiliated_manufacturer"))
 			profile.AffiliatedManufacturerId = dict["affiliated_manufacturer"].AsString();
 		if (dict.ContainsKey("employer_company"))

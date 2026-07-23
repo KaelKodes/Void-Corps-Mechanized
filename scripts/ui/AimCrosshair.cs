@@ -5,7 +5,7 @@ namespace Mechanize;
 /// <summary>
 /// Center-screen aim reticle. Wide while moving; tight when planted.
 /// Overall chassis heat: horizontal warning bar under the reticle (shows from 60%+).
-/// OVERHEAT cue: under this bar for system overheat (arm cues live on cockpit glass bars).
+/// OVERHEAT cue under this bar when overheated and glass meters are not live (FP).
 /// </summary>
 public partial class AimCrosshair : Control
 {
@@ -84,12 +84,10 @@ public partial class AimCrosshair : Control
 		_heatTracking = true;
 		var power = mech.PowerHeat;
 		_heatRatio = Mathf.Clamp(power?.HeatRatio ?? 0f, 0f, 1f);
-		var cue = power?.ResolveOverheatCue() ?? OverheatCue.None;
 		var firstPerson = mech.GetViewport()?.GetCamera3D() is TopDownCamera { IsFirstPerson: true };
-		var armBarsLive = firstPerson && CockpitDiegeticHud.MechHasCockpitScreens(mech);
-		// Arm cues sit on the glass bars in FP; otherwise any overheat uses this center bar.
-		_showChassisOverheat = cue == OverheatCue.Chassis
-		                       || (cue is OverheatCue.ArmL or OverheatCue.ArmR && !armBarsLive);
+		var glassMetersLive = firstPerson && CockpitDiegeticHud.MechHasCockpitScreens(mech);
+		// Glass left bar owns OVERHEAT in FP; center cue covers top-down / no-cockpit kits.
+		_showChassisOverheat = power?.IsOverheated == true && !glassMetersLive;
 
 		_showReticle = CrosshairStyleUtil.TryHasRangedWeapon(mech);
 		if (_showReticle)

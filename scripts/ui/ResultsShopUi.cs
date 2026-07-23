@@ -1022,6 +1022,11 @@ public partial class ResultsShopUi : Control
 				selected.HeatPerShot, equipped.HeatPerShot, "0", invertGood: true);
 			AppendDelta(sb, meleeComparison ? "Power / contact" : "Power / shot",
 				selected.PowerPerShot, equipped.PowerPerShot, "0", invertGood: true);
+			if (selected.WeaponFamily == WeaponFamily.Ballistic || equipped.WeaponFamily == WeaponFamily.Ballistic)
+			{
+				AppendDelta(sb, "Mag size", selected.MagazineSize, equipped.MagazineSize, "0");
+				AppendDelta(sb, "Reload s", selected.ReloadTime, equipped.ReloadTime, "0.0", invertGood: true);
+			}
 			if (selected.IsHeldShield || equipped.IsHeldShield)
 			{
 				AppendDelta(sb, "Shield arc", selected.ShieldArcDegrees, equipped.ShieldArcDegrees, "0");

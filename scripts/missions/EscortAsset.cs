@@ -129,32 +129,15 @@ public partial class EscortAsset : CharacterBody3D
 		FloorSnapLength = 0.4f;
 		FloorMaxAngle = Mathf.DegToRad(50f);
 
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.55f, 0.48f, 0.32f),
-			Roughness = 0.65f,
-			Metallic = 0.3f
-		};
-		var dark = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.32f, 0.28f, 0.22f),
-			Roughness = 0.55f,
-			Metallic = 0.4f
-		};
-		var glass = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.85f, 0.65f, 0.25f),
-			EmissionEnabled = true,
-			Emission = new Color(0.85f, 0.55f, 0.15f),
-			EmissionEnergyMultiplier = 0.75f,
-			Roughness = 0.3f
-		};
-		var drill = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.4f, 0.42f, 0.45f),
-			Roughness = 0.4f,
-			Metallic = 0.7f
-		};
+		var mat = SurfaceLibrary.Get(SurfaceLibrary.Kind.PaintedMetal, new Color(0.55f, 0.48f, 0.32f));
+		var dark = SurfaceLibrary.Get(SurfaceLibrary.Kind.SteelDark, new Color(0.32f, 0.28f, 0.22f));
+		var glass = SurfaceLibrary.Flat(
+			new Color(0.85f, 0.65f, 0.25f),
+			metallic: 0.1f,
+			roughness: 0.3f,
+			emission: new Color(0.85f, 0.55f, 0.15f),
+			emissionEnergy: 0.75f);
+		var drill = SurfaceLibrary.Get(SurfaceLibrary.Kind.Steel, new Color(0.4f, 0.42f, 0.45f));
 
 		AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(2.4f, 1.0f, 3.6f) }, mat, new Vector3(0f, 0.75f, 0f)));
 		AddChild(MeshMat.Make(new BoxMesh { Size = new Vector3(2.1f, 0.2f, 2.0f) }, dark, new Vector3(0f, 1.3f, -0.5f)));

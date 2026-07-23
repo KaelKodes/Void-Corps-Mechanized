@@ -15,7 +15,7 @@ public partial class ShatterBurst : Node3D
 		parent.AddChild(burst);
 		burst.GlobalPosition = origin;
 		burst.Build(color, sourceSize, pieceCount);
-		SfxService.Play("explosion", (float)GD.RandRange(0.85, 1.1), -1f);
+		SfxService.PlayDestruction(origin, sourceSize, pieceCount);
 	}
 
 	private void Build(Color color, Vector3 sourceSize, int pieceCount)

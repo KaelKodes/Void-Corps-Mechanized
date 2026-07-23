@@ -33,6 +33,7 @@ public static class InputBindings
 		new("jump", "Jump", "Movement"),
 		new("fire_primary", "Fire Primary", "Combat"),
 		new("fire_secondary", "Fire Secondary", "Combat"),
+		new("reload", "Reload (hold + fire arm)", "Combat"),
 		new("target_next", "Sensor Target Next", "Combat"),
 		new("target_clear", "Sensor Target Clear", "Combat"),
 		new("target_focus_cycle", "Sensor Focus Cycle", "Combat"),
@@ -44,7 +45,10 @@ public static class InputBindings
 		new("ability_6", "Ability 6", "Combat"),
 		new("buy_life", "Buy Life", "Combat"),
 		new("interact", "Interact / Extract", "Combat"),
+		new("toggle_objective", "Objective Panel", "System"),
 		new("toggle_garage", "Field Garage", "System"),
+		new("toggle_lights", "Headlights", "System"),
+		new("toggle_cab_light", "Cab Light", "System"),
 		new("self_destruct", "Deny Asset", "System"),
 		new("pause", "Pause Menu", "System")
 	];
@@ -71,10 +75,14 @@ public static class InputBindings
 		EnsureAction("pause", Key.Escape);
 		EnsureAction("buy_life", Key.B);
 		EnsureAction("interact", Key.F);
+		EnsureAction("toggle_objective", Key.O);
 		EnsureAction("target_next", Key.Tab);
 		EnsureAction("target_clear", Key.X);
 		EnsureAction("target_focus_cycle", Key.C);
 		EnsureAction("jump", Key.Space);
+		EnsureAction("reload", Key.R);
+		EnsureAction("toggle_lights", Key.L);
+		EnsureAction("toggle_cab_light", Key.L, alt: true);
 		MigrateInteractDefaultToF();
 	}
 
@@ -97,12 +105,12 @@ public static class InputBindings
 			Defaults["interact"] = InputMap.ActionGetEvents("interact").Duplicate();
 	}
 
-	private static void EnsureAction(string action, Key key)
+	private static void EnsureAction(string action, Key key, bool alt = false)
 	{
 		if (InputMap.HasAction(action))
 			return;
 		InputMap.AddAction(action);
-		var ev = new InputEventKey { PhysicalKeycode = key };
+		var ev = new InputEventKey { PhysicalKeycode = key, AltPressed = alt };
 		InputMap.ActionAddEvent(action, ev);
 	}
 
@@ -120,12 +128,24 @@ public static class InputBindings
 	{
 		return ev switch
 		{
-			InputEventKey key => key.PhysicalKeycode == Key.None
-				? key.Keycode.ToString()
-				: key.PhysicalKeycode.ToString(),
+			InputEventKey key => FormatKeyEvent(key),
 			InputEventMouseButton mouse => $"Mouse {mouse.ButtonIndex}",
 			_ => ev.AsText()
 		};
+	}
+
+	private static string FormatKeyEvent(InputEventKey key)
+	{
+		var name = key.PhysicalKeycode == Key.None
+			? key.Keycode.ToString()
+			: key.PhysicalKeycode.ToString();
+		if (key.AltPressed)
+			name = "Alt+" + name;
+		if (key.CtrlPressed)
+			name = "Ctrl+" + name;
+		if (key.ShiftPressed)
+			name = "Shift+" + name;
+		return name;
 	}
 
 	public static void Rebind(string action, InputEvent ev)

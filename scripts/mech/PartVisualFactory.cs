@@ -11,10 +11,17 @@ public static class PartVisualFactory
 			return TitanPartVisualFactory.Create(part);
 
 		var root = new Node3D { Name = $"Visual_{part.Id}" };
-		var mat = MakeMat(part.Tint, metallic: 0.38f, roughness: 0.52f);
-		var dark = MakeMat(part.Tint.Darkened(0.32f), metallic: 0.45f, roughness: 0.48f);
-		var light = MakeMat(part.Tint.Lightened(0.18f), metallic: 0.3f, roughness: 0.45f);
-		var glow = MakeMat(part.Tint.Lightened(0.35f), metallic: 0.2f, roughness: 0.35f, emission: part.Tint.Lightened(0.2f), emissionEnergy: 1.1f);
+		// Hollow torsos tint via CockpitTorsoVisual.ApplyPart; these roles cover legs / head / weapons / core.
+		// Hull = clean steel color + painted-metal scratches (no rust mottling).
+		var mat = SurfaceLibrary.GetMechPlate(part.Tint);
+		var dark = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.SteelDark, part.Tint.Darkened(0.32f));
+		var light = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.Steel, part.Tint.Lightened(0.18f));
+		var glow = SurfaceLibrary.Flat(
+			part.Tint.Lightened(0.35f),
+			metallic: 0.2f,
+			roughness: 0.35f,
+			emission: part.Tint.Lightened(0.2f),
+			emissionEnergy: 1.1f);
 
 		switch (part.VisualKind)
 		{
@@ -184,28 +191,6 @@ public static class PartVisualFactory
 		}
 
 		return root;
-	}
-
-	private static StandardMaterial3D MakeMat(
-		Color albedo,
-		float metallic = 0.35f,
-		float roughness = 0.55f,
-		Color? emission = null,
-		float emissionEnergy = 0f)
-	{
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = albedo,
-			Metallic = metallic,
-			Roughness = roughness
-		};
-		if (emission.HasValue && emissionEnergy > 0f)
-		{
-			mat.EmissionEnabled = true;
-			mat.Emission = emission.Value;
-			mat.EmissionEnergyMultiplier = emissionEnergy;
-		}
-		return mat;
 	}
 
 	/// <summary>Loads a Mech 2.0 hollow hull via <see cref="CockpitHullRegistry"/>.</summary>

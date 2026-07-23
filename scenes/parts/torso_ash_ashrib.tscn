@@ -5,10 +5,25 @@
 [sub_resource type="BoxMesh" id="MeshHullRear"]
 size = Vector3(1.15, 0.95, 0.1)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_kr4b0"]
+render_priority = 1
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0, 0, 0, 1)
+grow = true
+grow_amount = 0.01
+stencil_mode = 3
+stencil_flags = 1
+stencil_compare = 5
+metadata/_stencil_owned = true
+
 [sub_resource type="StandardMaterial3D" id="MatHull"]
+next_pass = SubResource("StandardMaterial3D_kr4b0")
 albedo_color = Color(0.35, 0.72, 0.48, 1)
 metallic = 0.38
 roughness = 0.52
+stencil_mode = 1
+stencil_flags = 2
 
 [sub_resource type="BoxMesh" id="MeshSideRear"]
 size = Vector3(0.12, 1.05, 0.38)
@@ -49,10 +64,26 @@ size = Vector3(0.55, 0.3, 0.55)
 [sub_resource type="BoxMesh" id="MeshPauldron"]
 size = Vector3(0.28, 0.32, 0.48)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_jht37"]
+render_priority = 1
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0, 0, 0, 1)
+grow = true
+grow_amount = 0.01
+stencil_mode = 3
+stencil_flags = 1
+stencil_compare = 5
+metadata/_stencil_owned = true
+
 [sub_resource type="StandardMaterial3D" id="MatLight"]
+next_pass = SubResource("StandardMaterial3D_jht37")
 albedo_color = Color(0.48, 0.82, 0.58, 1)
-metallic = 0.3
-roughness = 0.45
+metallic = 1.0
+roughness = 0.4
+subsurf_scatter_strength = 0.29
+stencil_mode = 1
+stencil_flags = 2
 
 [sub_resource type="BoxMesh" id="MeshAccent"]
 size = Vector3(0.14, 0.18, 0.05)
@@ -307,7 +338,7 @@ mesh = SubResource("MeshDeck")
 surface_material_override/0 = SubResource("MatDark")
 
 [node name="Handle" type="MeshInstance3D" parent="CockpitInterior/Dashboard/CenterStick" unique_id=1445585434]
-transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.08824834, -0.36004424)
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 2.9802322e-08, 0, -2.9802322e-08, 1.0000002, 0, -0.12018731, -0.30797237)
 mesh = SubResource("MeshAccent")
 surface_material_override/0 = SubResource("MatLight")
 
@@ -329,3 +360,9 @@ surface_material_override/0 = SubResource("MatDark")
 
 [node name="CockpitAnchor" type="Marker3D" parent="." unique_id=1227912484]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.57, 0.06)
+
+[node name="Lamp_FwdL" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.36, 0.60, -0.58)
+
+[node name="Lamp_FwdR" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.36, 0.60, -0.58)

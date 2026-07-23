@@ -113,6 +113,14 @@ public static class CatalogMounts
 			Slot = PartSlot.Backpack, Armor = 8, Tint = m["ourotech"].AccentColor, VisualKind = "heatsink",
 			HeatDissipation = 6f, HeatCapBonus = 15f, MaxSpeed = 0.3f, TurnRateDegrees = 4f
 		};
+		parts["backpack_ouro_contact"] = CatalogBuilders.AbilityPart(
+			"backpack_ouro_contact", "Contact Sweep", "ourotech", m,
+			PartSlot.Backpack, "backpack", armor: 5, AbilityId.ContactReveal, cd: 14f, power: 1f,
+			heatBurst: 10f, powerLoad: 16f, duration: 4f, family: WeaponFamily.Support);
+		parts["backpack_ouro_contact"].ScannerRange = 12f;
+		parts["backpack_ouro_contact"].ScannerResolution = 0.08f;
+		parts["backpack_ouro_contact"].ScanPenetration = ScanPenetrationMode.Contact;
+		parts["backpack_ouro_contact"].ScanBlipStyle = ScanBlipStyle.GroundRing;
 
 		// Lumina shroud / experimental
 		parts["backpack_lum_shroud"] = CatalogBuilders.AbilityPart("backpack_lum_shroud", "Shroud Drive", "lumina", m,

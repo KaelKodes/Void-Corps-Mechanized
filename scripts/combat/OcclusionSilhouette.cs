@@ -3,8 +3,9 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Team-colored X-ray silhouette — only while cover (world/targets) blocks the
-/// camera's view of the host. Allies = cyan, enemies = red.
+/// Ability-gated through-cover silhouette. Off by default; active while the local
+/// pilot's Contact Sweep / sensor reveal window is open (or debug world-blips).
+/// Hangar strip helpers and deployment telegraph still reference ghost names for cleanup.
 /// </summary>
 public partial class OcclusionSilhouette : Node
 {
@@ -50,6 +51,14 @@ public partial class OcclusionSilhouette : Node
 		if (_host == null || !GodotObject.IsInstanceValid(_host))
 			return;
 
+		// Default off — only while Contact Sweep / debug world-blip reveal is active.
+		if (!IsXrayAbilityActive())
+		{
+			_ghostsWanted = false;
+			ApplyGhostVisibility(false);
+			return;
+		}
+
 		if (!IsHostEligible())
 		{
 			_ghostsWanted = false;
@@ -81,6 +90,30 @@ public partial class OcclusionSilhouette : Node
 		}
 
 		ApplyGhostVisibility(_ghostsWanted);
+	}
+
+	/// <summary>
+	/// Live through-cover silhouettes stay off unless the local pilot has an active
+	/// sensor reveal (Contact Sweep) or the debug world-blip override.
+	/// </summary>
+	private bool IsXrayAbilityActive()
+	{
+		if (SensorContactScan.ShowWorldBlips)
+			return true;
+
+		var tree = GetTree();
+		if (tree == null)
+			return false;
+
+		foreach (var node in tree.GetNodesInGroup("mechs"))
+		{
+			if (node is not MechController { IsLocalPilot: true, HangarDisplayOnly: false } mech)
+				continue;
+			var scan = mech.GetNodeOrNull<SensorContactScan>(SensorContactScan.NodeName);
+			return scan?.WorldBlipsActive == true;
+		}
+
+		return false;
 	}
 
 	private bool IsHostEligible()

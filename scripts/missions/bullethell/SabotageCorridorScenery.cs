@@ -74,7 +74,8 @@ public static class SabotageCorridorScenery
 		Color ambience,
 		float scale)
 	{
-		var built = CoverVisualFactory.Build(kind, ambience, scale);
+		var seed = (int)(position.X * 5f) + (int)(position.Z * 11f) + (int)kind * 19;
+		var built = CoverVisualFactory.Build(kind, ambience, scale, seed);
 		var holder = new Node3D
 		{
 			Name = $"Scenery_{kind}",

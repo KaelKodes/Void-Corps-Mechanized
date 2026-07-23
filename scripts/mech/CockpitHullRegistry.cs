@@ -6,6 +6,7 @@ namespace Mechanize;
 /// <summary>
 /// Mech 2.0 hollow hull registry: VisualKind → authored cockpit scene.
 /// All scenes must expose CockpitAnchor and follow Fleet Intermediate node naming for tint binders.
+/// SeatLever is ensured at ApplyPart time under CockpitInterior/Dashboard.
 /// </summary>
 public static class CockpitHullRegistry
 {

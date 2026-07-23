@@ -17,48 +17,86 @@ public static class CatalogBuilders
 		Tint = new Color(0.4f, 0.4f, 0.4f), VisualKind = "empty"
 	};
 
+	/// <summary>Baseline hold-to-thrust pack present on every legs kit.</summary>
+	public const float StockJumpImpulse = 8f;
+	public const float StockJumpDuration = 1.05f;
+	public const float StockJumpPower = 12f;
+	public const float StockJumpHeat = 7f;
+	/// <summary>Baseline dash pack present on every legs kit.</summary>
+	public const float StockDashSpeed = 24f;
+	public const float StockDashDuration = 0.18f;
+	public const float StockDashCooldown = 1.2f;
+	public const float StockDashPower = 12f;
+	public const float StockDashHeat = 9f;
+
 	public static PartData Leg(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, float speed, float turn, string kind, LegMode mode, LegType type,
 		bool canSprint, float sprintMult = 1.45f, float sprintHeat = 0f, float sprintLoad = 0f,
-		float moveHeat = 2f, float idleHeat = 0.5f) => new()
-	{
-		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
-		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
-		VisualKind = kind, LegMode = mode, LegType = type, CanSprint = canSprint,
-		SprintMultiplier = sprintMult, SprintHeatPerSec = sprintHeat, SprintPowerLoad = sprintLoad,
-		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
-	};
+		float moveHeat = 2f, float idleHeat = 0.5f) =>
+		WithBoosterAndThruster(new PartData
+		{
+			Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+			Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+			VisualKind = kind, LegMode = mode, LegType = type, CanSprint = canSprint,
+			SprintMultiplier = sprintMult, SprintHeatPerSec = sprintHeat, SprintPowerLoad = sprintLoad,
+			MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
+		},
+			StockJumpImpulse, StockJumpDuration, StockJumpPower, StockJumpHeat,
+			StockDashSpeed, StockDashDuration, StockDashCooldown, StockDashPower, StockDashHeat);
 
-	/// <summary>Bipedal jump package — replaces sprint with a vertical Boosters module.</summary>
+	/// <summary>Bipedal jump specialist — no sprint; stock thruster dash still included.</summary>
 	public static PartData BoosterLegs(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, float speed, float turn,
-		float jumpImpulse, float jumpPower, float jumpHeat,
-		float moveHeat = 2f, float idleHeat = 0.5f) => new()
-	{
-		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
-		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
-		VisualKind = "legs_biped", LegMode = LegMode.Locked, LegType = LegType.Bipedal,
-		CanSprint = false,
-		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat,
-		MobilityModule = MobilityModuleKind.Booster,
-		JumpImpulse = jumpImpulse, JumpPowerCost = jumpPower, JumpHeat = jumpHeat
-	};
+		float jumpImpulse, float jumpDuration, float jumpPower, float jumpHeat,
+		float moveHeat = 2f, float idleHeat = 0.5f) =>
+		WithBoosterAndThruster(new PartData
+		{
+			Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+			Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+			VisualKind = "legs_biped", LegMode = LegMode.Locked, LegType = LegType.Bipedal,
+			CanSprint = false,
+			MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
+		},
+			jumpImpulse, jumpDuration, jumpPower, jumpHeat,
+			StockDashSpeed, StockDashDuration, StockDashCooldown, StockDashPower, StockDashHeat);
 
-	/// <summary>Agile dash package — replaces sprint with a horizontal Thrusters module.</summary>
+	/// <summary>Agile dash specialist — no sprint; stock booster flight still included.</summary>
 	public static PartData ThrusterLegs(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, float speed, float turn, LegMode mode,
 		float dashSpeed, float dashDuration, float dashCooldown, float dashPower, float dashHeat,
-		float moveHeat = 2f, float idleHeat = 0.5f) => new()
+		float moveHeat = 2f, float idleHeat = 0.5f) =>
+		WithBoosterAndThruster(new PartData
+		{
+			Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
+			Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
+			VisualKind = "legs_biped", LegMode = mode, LegType = LegType.Bipedal,
+			CanSprint = false,
+			MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat
+		},
+			StockJumpImpulse, StockJumpDuration, StockJumpPower, StockJumpHeat,
+			dashSpeed, dashDuration, dashCooldown, dashPower, dashHeat);
+
+	/// <summary>
+	/// Jump + dash on one package. Every legs kit uses this (stock or tuned).
+	/// Keeps whatever sprint flags the base kit already set.
+	/// </summary>
+	public static PartData WithBoosterAndThruster(
+		PartData legs,
+		float jumpImpulse, float jumpDuration, float jumpPower, float jumpHeat,
+		float dashSpeed, float dashDuration, float dashCooldown, float dashPower, float dashHeat)
 	{
-		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Legs,
-		Armor = armor, MaxSpeed = speed, TurnRateDegrees = turn, Tint = m[mfg].AccentColor,
-		VisualKind = "legs_biped", LegMode = mode, LegType = LegType.Bipedal,
-		CanSprint = false,
-		MoveHeatPerSec = moveHeat, IdleHeatPerSec = idleHeat,
-		MobilityModule = MobilityModuleKind.Thruster,
-		DashSpeed = dashSpeed, DashDuration = dashDuration, DashCooldown = dashCooldown,
-		DashPowerCost = dashPower, DashHeat = dashHeat
-	};
+		legs.MobilityModule = MobilityModuleKind.Both;
+		legs.JumpImpulse = jumpImpulse;
+		legs.JumpDuration = jumpDuration;
+		legs.JumpPowerCost = jumpPower;
+		legs.JumpHeat = jumpHeat;
+		legs.DashSpeed = dashSpeed;
+		legs.DashDuration = dashDuration;
+		legs.DashCooldown = dashCooldown;
+		legs.DashPowerCost = dashPower;
+		legs.DashHeat = dashHeat;
+		return legs;
+	}
 
 	public static PartData Torso(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, int housing, float structureHp, int shoulders, int backs, Vector3? scale = null,
@@ -74,13 +112,16 @@ public static class CatalogBuilders
 	public static PartData Head(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
 		float armor, float turn, float visionRange, float visionAngle, float close,
 		float scanRange, float scanRes, float idleHeat, float speed = 0f, float fireRateBonus = 0f,
-		Vector3? scale = null, string visualKind = "head") => new()
+		Vector3? scale = null, string visualKind = "head",
+		ScanPenetrationMode scanPenetration = ScanPenetrationMode.Contact,
+		ScanBlipStyle scanBlipStyle = ScanBlipStyle.WorldPip) => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = PartSlot.Head,
 		Armor = armor, TurnRateDegrees = turn, MaxSpeed = speed, Tint = m[mfg].AccentColor,
 		VisualKind = visualKind, VisualScale = scale ?? Vector3.One, FireRateBonus = fireRateBonus,
 		VisionRange = visionRange, VisionAngleDeg = visionAngle, CloseTargeting = close,
-		ScannerRange = scanRange, ScannerResolution = scanRes, IdleHeatPerSec = idleHeat
+		ScannerRange = scanRange, ScannerResolution = scanRes, IdleHeatPerSec = idleHeat,
+		ScanPenetration = scanPenetration, ScanBlipStyle = scanBlipStyle
 	};
 
 	public static PartData Core(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,
@@ -98,7 +139,8 @@ public static class CatalogBuilders
 		PartSlot slot, string kind, float damage, float fireRate, float range, float proj, AimMode aim,
 		float heatShot, float powerLoad, WeaponFamily family,
 		TargetingMode targeting = TargetingMode.Standard,
-		bool? allowsFireElevation = null) => new()
+		bool? allowsFireElevation = null,
+		int magazineSize = 0, float reloadTime = 0f) => new()
 	{
 		Id = id, DisplayName = name, ManufacturerId = mfg, Slot = slot, VisualKind = kind,
 		Tint = m[mfg].AccentColor, Damage = damage, FireRate = fireRate, Range = range,
@@ -107,7 +149,9 @@ public static class CatalogBuilders
 		// but catalogs may pass false for true hard-fixed barrels.
 		AllowsFireElevation = allowsFireElevation ?? true,
 		HeatPerShot = heatShot, PowerPerShot = powerLoad, IdleHeatPerSec = 0.2f,
-		WeaponFamily = family
+		WeaponFamily = family,
+		MagazineSize = family == WeaponFamily.Ballistic ? Mathf.Max(1, magazineSize) : 0,
+		ReloadTime = family == WeaponFamily.Ballistic ? Mathf.Max(0.35f, reloadTime) : 0f
 	};
 
 	public static PartData MeleeWeapon(string id, string name, string mfg, Dictionary<string, ManufacturerData> m,

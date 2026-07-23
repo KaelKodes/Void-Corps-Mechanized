@@ -1,0 +1,30 @@
+# Fixed footfall per legs kit — one step id, every plant.
+# Edit + restart. step ids: ap_005 … ap_330, fs_001, m2, m3, m3_a, m3_b, m3_c
+#
+# legs_part_id                 step_id
+
+# Bipedal / mobility (single)
+legs_tri_biped                 ap_020
+legs_tri_courier               ap_013
+legs_brin_biped                ap_005
+legs_brin_bulwark              ap_008
+legs_ouro_duelist              ap_015
+legs_lum_glasswalk             ap_016
+legs_ash_coilstriders          ap_014
+legs_vel_bracehounds           ap_010
+legs_tri_jumpjack              ap_017
+legs_lum_boosters              ap_330
+legs_brin_pilejack             ap_005
+legs_ouro_ascender             ap_015
+legs_ouro_thrusters            ap_016
+legs_lum_vector                fs_001
+legs_tri_slide                 ap_013
+legs_brin_charge               ap_008
+
+# Hexapod (multi packs OK)
+legs_ouro_hex                  m3_a
+legs_ouro_razorhex             m2
+legs_lum_hex                   m3_b
+legs_lum_phasehex              m3_c
+legs_tri_packhex               m3
+legs_brin_siegehex             m2

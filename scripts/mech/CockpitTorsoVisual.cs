@@ -73,11 +73,16 @@ public partial class CockpitTorsoVisual : Node3D
 
 	public virtual void ApplyPart(PartData part)
 	{
-		var mat = MakeMat(part.Tint, 0.38f, 0.52f);
-		var dark = MakeMat(part.Tint.Darkened(0.32f), 0.45f, 0.48f);
-		var light = MakeMat(part.Tint.Lightened(0.18f), 0.3f, 0.45f);
-		var glow = MakeMat(part.Tint.Lightened(0.35f), 0.2f, 0.35f,
-			part.Tint.Lightened(0.2f), 1.1f);
+		// Clean steel color + painted-metal scratches/dents (no rust mottling).
+		var mat = SurfaceLibrary.GetMechPlate(part.Tint);
+		var dark = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.SteelDark, part.Tint.Darkened(0.32f));
+		var light = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.Steel, part.Tint.Lightened(0.18f));
+		var glow = SurfaceLibrary.Flat(
+			part.Tint.Lightened(0.35f),
+			metallic: 0.2f,
+			roughness: 0.35f,
+			emission: part.Tint.Lightened(0.2f),
+			emissionEnergy: 1.1f);
 
 		Scale = part.VisualScale;
 
@@ -90,6 +95,8 @@ public partial class CockpitTorsoVisual : Node3D
 		var glass = MakeViewGlass();
 		foreach (var path in GlassMeshPaths)
 			BindMesh(path, glass);
+
+		CockpitSeatLever.EnsureOn(this);
 	}
 
 	protected void BindMeshes(string[] paths, Material mat)
@@ -102,24 +109,6 @@ public partial class CockpitTorsoVisual : Node3D
 	{
 		if (GetNodeOrNull<MeshInstance3D>(path) is { } mi)
 			MeshMat.Bind(mi, mat);
-	}
-
-	public static StandardMaterial3D MakeMat(
-		Color albedo, float metallic, float roughness, Color? emission = null, float emissionEnergy = 0f)
-	{
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = albedo,
-			Metallic = metallic,
-			Roughness = roughness
-		};
-		if (emission.HasValue && emissionEnergy > 0f)
-		{
-			mat.EmissionEnabled = true;
-			mat.Emission = emission.Value;
-			mat.EmissionEnergyMultiplier = emissionEnergy;
-		}
-		return mat;
 	}
 
 	/// <summary>

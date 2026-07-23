@@ -1,35 +1,52 @@
 ---
-description: Void Corps lore — manufacturers vs Corps, campaign vs MMO fantasy
+description: Mechanize lore — Cats vs Dogs factions, manufacturers vs Corps
 alwaysApply: true
 ---
 
-# Void Corps: Mechanize — world framing
+# Mechanize — world framing
 
 ## Hard distinctions
 
 - **Mechanize** = product title only.
 - **MAP** / **MAD** = operation classes (manned pilot / unmanned drone).
-- **Standard / Titan** = size tiers. Titans are still MAP/MAD by operation class; they are roughly 4× a field MAP and reserved for major claim contests.
-- **Manufacturers** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) license parts and frames. They are **not** Corps. Do not call them Corps in UI, briefs, or catalogue copy.
+- **Standard / Titan** = size tiers. Titans are still MAP/MAD by operation class; they are roughly 4× a field MAP. **Neither Cats nor Dogs field Titans** (maybe production rumor; not released). Players never pilot Titans.
+- **Factions** = **Cat** and **Dog** (cat-folk and dog-folk). The player chooses faction at campaign start. People/planet names are **TBD** placeholders until a naming pass.
+- **The Fleas** = third-party hive species/org. Universal threat via **incursions**. Few flea-folk command; they deploy MADs; **Titans are Flea T5 threats**, not faction kit. See `docs/FLEA_INCURSIONS.md`.
+- **Manufacturers** license parts and frames. They are **not** Corps and **not** factions.
+  - **Big Four** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) = independent houses. Sell to both sides / the highest bidder.
+  - **Ashwhisk** = Cat-faction primary manufacturer (faction-locked kit).
+  - **Velhound** = Dog-faction primary manufacturer (faction-locked kit).
 - **Employer companies** = independent organizations hiring people for frontier operations (settlement, mining, survey, security). Players are contracted individuals, not the company.
-- **Corps** = rival organizations from guild-scale to large businesses. Rival NPC corps field named pilots (mini-bosses) and Titans (sector Warning bosses).
-- Rumors that the Big Four manufacturers secretly back some corps may exist, but that is **not public** at campaign start. Do not present manufacturer→corp backing as established fact in early-game copy.
+- **Corps** = rival organizations from guild-scale to large businesses. Rival NPC corps field named pilots (mini-bosses) at Standard scale. Corps may lean Cat or Dog; they are still orgs, not the faction itself. **Do not default Warning/Titan bosses to rival corps** — Titans are Flea incursions.
+- Rumors that Big Four houses secretly favor one faction or back some corps may exist, but that is **not public** at campaign start. Do not present manufacturer→faction or manufacturer→corp backing as established fact in early-game copy.
+
+## Setting (Cats vs Dogs — locked)
+
+- Pilots are **cat-folk** or **dog-folk**, not humans from Earth.
+- The two peoples come from **different homeworlds** in the **same solar system** (names TBD).
+- Shared-system frontiers and claims are where company ops and rival corps collide.
+- MAP combat, manufacturers, and claim warfare stay the gameplay spine; this lock is flavor + identity gating, not a systems rewrite.
 
 ## Player fantasy (campaign)
 
-- The player is a **person**: a pilot / merc / contractor under hire.
+- The player is a **person**: a pilot / merc / contractor under hire (Cat or Dog).
+- At start they pick **faction** (Cat / Dog). That is identity — not “which Big Four sponsored you.”
 - They are hired into a **pre-existing company operation**, starting at the bottom of that company's rank ladder.
-- They are **not** a corp, not a boss, and not the organization. Never address the player as a corp in dialogue or UI.
-- Prefer: pilot, merc, contractor, operative, you. Use “corp” only for rival organizations.
+- They are **not** a corp, not a boss, not the faction-as-organization, and not the manufacturer. Never address the player as a corp in dialogue or UI.
+- Prefer: pilot, merc, contractor, operative, you. Use “corp” only for rival organizations. Use Cat/Dog for faction identity.
 
 ## Long-term pillars (do not build yet unless asked)
 
 - Grand fantasy: **territory control** via mechanized battles (Foxhole-like).
 - Later layer: persistent **MMO / seasonal wars** with player-run corps on a shared map — needs separate design passes; do not stub systems for it casually.
+- **Flea incursion RTS** (global + sector pressure, timed waves, Contested PvP) — design locked in `docs/FLEA_INCURSIONS.md`; do not stub casually until that pass is scheduled.
 
 ## Copy checklist
 
-- Garage / shop / HUD: manufacturer names = kit brands; “corp” only for rival organizations.
-- Ability keys / modules are MAP gear, not “Corps abilities.”
-- Claim briefs: people and rival corps fight for claims; manufacturers may appear as site flavor (e.g. abandoned foundry) without being the fighting faction.
-- Convention / departure / employer pitches hire **people**, never “a corp.”
+- Garage / shop / HUD: manufacturer names = kit brands; Ashwhisk/Velhound read as faction home kit; Big Four read as open market.
+- “Corp” only for rival organizations — never for manufacturers or the player.
+- Ability keys / modules are MAP gear, not “Corps abilities” or “faction abilities.”
+- Claim briefs: people and rival corps (often other-faction) fight for claims; manufacturers may appear as site flavor (e.g. abandoned foundry) without being the fighting faction.
+- Titan / Warning end threats: **Flea incursions**, not “rival corp brought a Titan,” unless a rare exception is explicitly authored.
+- Convention / departure / employer pitches hire **people** of a faction, never “a corp.”
+- Do not default copy to Earth / human colonists unless a specific relic or joke calls for it.

@@ -1,14 +1,43 @@
 # Void Corps: Mechanize
 
-**Version 0.2.2.2** — Surface warfare in the Void Corps universe.
+**Version 0.2.2.3** — Surface warfare in the Mechanize setting.
 
-**Corps** are organizations — guild-scale to large businesses — fighting for territory. You join an upstart corp, rise with it, and share in its wins.
+**Factions:** Cat-folk and dog-folk from different homeworlds in the same solar system (names TBD). Campaign start picks **Cat** or **Dog**.
 
-**Manufacturers** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) license MAP kit. They are not Corps. Rumors say the Big Four quietly back some orgs; that is not public knowledge at campaign start.
+**Corps** are organizations — guild-scale to large businesses — fighting for territory. You hire into a frontier company, rise with it, and share in its wins.
 
-When orbital claims stall, corps deploy **MAP** detachments — Mechanized Armor Pilots in licensed chassis. Unmanned **MAD** chassis (Mechanized Armor Drones) fill cheaper kill-slots.
+**Manufacturers** license MAP kit. They are not Corps and not factions.
+- **Ashwhisk** / **Velhound** = Cat / Dog primary houses (faction-locked).
+- **Big Four** (Brimforge, OuroTech, Trinova, Lumina Vaultworks) = independent; sell to both / highest bidder.
+Rumors that the Big Four quietly favor a side or back some orgs are not public knowledge at campaign start.
+
+When orbital claims stall, companies and corps deploy **MAP** detachments — Mechanized Armor Pilots in licensed chassis. Unmanned **MAD** chassis (Mechanized Armor Drones) fill cheaper kill-slots.
 
 North star: territory control facilitated by mechanized battles (Foxhole-like). Campaign is linear with branching paths; a later persistent seasonal MMO layer for player-run corps is deferred.
+
+Lore lock: `.cursor/rules/void-corps-lore.mdc` · campaign notes: `CAMPAIGN_FOUNDATION.md`.
+
+## What's new in 0.2.2.3
+
+Pilot awareness and cockpit comfort — targeting you can use, seat adjust, and less default X-ray noise.
+
+### Sensors & targeting
+- **TAB** locks hostile **fodder** as well as MAPs; threat screen shows a single HULL pool for fodder.
+- **Red lock chevron** above the current target (through walls when in front of camera).
+- **Off-view lock arrow** on Screen_Threat points toward a locked contact behind / off-screen.
+- **Green ally chevrons** for same-team fodder (and allied MAPs) inside close vision range.
+- Live occlusion X-ray silhouettes stay **off** unless Contact Sweep / sensor reveal is active.
+- Passive contact scan + world blips (ability-gated) continue as last-known awareness.
+
+### Cockpit
+- **Alt+F** then hold **F** for seat adjust (scroll / LMB / RMB; **F+Q** resets); no lever gaze required.
+- **O** minimizes / extends the window objective panel (preference saved).
+- Arena perimeter walls raised so booster hops stay inside the claim.
+
+### Meta & assets
+- Stock legs carry jump + dash mobility modules.
+- `BUY_LIST.md` for wishlisted marketplace packs not purchased yet.
+- Audio folder layout cleanup (combat / mech / voice / weapons / ambient).
 
 ## What's new in 0.2.2.2
 
@@ -22,7 +51,7 @@ Cleanup, better MAP visuals, and replacing legacy floating UI with cockpit / mod
 ### First-person cockpit HUD
 - **HUD bars** setting: **Auto** (default) / First Person (panels) / Overlay — panels in FP, floating HUD in third person when Auto.
 - Diegetic dashboard screens: sensors, integrity (+ PWR/SPD), weapons/modules, tactical placeholder.
-- Per-arm heat on the cockpit glass; **overall chassis heat** warning bar under the crosshair (appears at 60%+, orange → deep red, fades out when cooling).
+- Cockpit glass: left = chassis heat, right = operational power; **overall chassis heat** warning bar under the crosshair (appears at 60%+, orange → deep red, fades out when cooling).
 - Sensor binds (**TAB** / **C** / **X**) live beside `// SENSORS` on Screen_Threat; floating `SYSTEM LOCK: no system lock` removed in FP.
 - Damage Sustained VO only when a **component is destroyed**, not on every hit.
 

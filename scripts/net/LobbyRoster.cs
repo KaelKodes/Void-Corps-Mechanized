@@ -104,10 +104,11 @@ public static class LobbyModeRules
 
 	public static string ModeLabel(MultiplayerGameMode mode) => mode switch
 	{
-		MultiplayerGameMode.CoopCampaign => "Co-op Campaign",
-		MultiplayerGameMode.CoopRogueLike => "Co-Op Rogue-Like",
-		MultiplayerGameMode.TeamSkirmish => "Team Skirmish",
-		MultiplayerGameMode.FfaSkirmish => "FFA Skirmish",
+		// Phase 1: solar campaign co-op is not wired — both map modes are Rogue-Like.
+		MultiplayerGameMode.CoopCampaign => "Co-op Rogue-Like",
+		MultiplayerGameMode.CoopRogueLike => "Co-op Rogue-Like",
+		MultiplayerGameMode.TeamSkirmish => "Team Skirmish (PvP)",
+		MultiplayerGameMode.FfaSkirmish => "FFA Skirmish (PvP)",
 		_ => "Multiplayer"
 	};
 

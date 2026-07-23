@@ -138,5 +138,34 @@ public static class CatalogCoresSystems
 			AbilityKind = AbilityKind.Passive, AbilityId = AbilityId.HeatSink, FireRateBonus = 0.22f,
 			HeatDissipation = 15f, HeatCapBonus = 25f, TurnRateDegrees = 4f
 		};
+
+		// Sensor enhancers — extend the head's passive contact scan (never permanent X-ray).
+		parts["systems_ouro_array"] = new PartData
+		{
+			Id = "systems_ouro_array", DisplayName = "Needle Array", ManufacturerId = "ourotech",
+			Slot = PartSlot.Systems, Tint = m["ourotech"].AccentColor, VisualKind = "heatsink",
+			ScannerRange = 28f, ScannerResolution = 0.18f,
+			ScanPenetration = ScanPenetrationMode.Contact,
+			ScanBlipStyle = ScanBlipStyle.GroundRing,
+			IdleHeatPerSec = 0.35f, TurnRateDegrees = 3f
+		};
+		parts["systems_tri_spotter"] = new PartData
+		{
+			Id = "systems_tri_spotter", DisplayName = "Convoy Spotter Link", ManufacturerId = "trinova",
+			Slot = PartSlot.Systems, Tint = m["trinova"].AccentColor, VisualKind = "heatsink",
+			ScannerRange = 18f, ScannerResolution = 0.1f,
+			ScanPenetration = ScanPenetrationMode.LineOfSight,
+			ScanBlipStyle = ScanBlipStyle.WorldPip,
+			IdleHeatPerSec = 0.2f, Armor = 6f
+		};
+		parts["systems_lum_oracle_scan"] = new PartData
+		{
+			Id = "systems_lum_oracle_scan", DisplayName = "Oracle Lattice", ManufacturerId = "lumina",
+			Slot = PartSlot.Systems, Tint = m["lumina"].AccentColor, VisualKind = "heatsink",
+			ScannerRange = 35f, ScannerResolution = 0.12f,
+			ScanPenetration = ScanPenetrationMode.Contact,
+			ScanBlipStyle = ScanBlipStyle.WorldPip,
+			IdleHeatPerSec = 0.4f, MaxSpeed = 0.2f
+		};
 	}
 }

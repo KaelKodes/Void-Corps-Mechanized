@@ -6,12 +6,12 @@ namespace Mechanize;
 /// Objective + mission flavor as a SubViewport texture on a floating quad.
 /// Default (Fleet, etc.): upper-right of ViewPanel glass.
 /// Lumina Oracle: flush on Exterior/FacetTop (no ViewPanel glass chrome).
-/// Owned by CockpitDiegeticHud (TopLevel) so torso rebuilds cannot free us mid-frame.
+/// O toggles minimized / extended. Owned by CockpitDiegeticHud (TopLevel).
 /// </summary>
 public partial class CockpitWindowMissionHud : Node3D
 {
 	private static readonly Vector2I ViewportSize = new(512, 180);
-	private const int LayoutVersion = 8;
+	private const int LayoutVersion = 9;
 
 	private enum AnchorKind
 	{
@@ -30,6 +30,7 @@ public partial class CockpitWindowMissionHud : Node3D
 	private bool _built;
 	private bool _visible;
 	private bool _materialReady;
+	private bool _minimized;
 
 	private string _objectiveText = "";
 	private string _flavorText = "";
@@ -57,6 +58,15 @@ public partial class CockpitWindowMissionHud : Node3D
 			return;
 		}
 
+		if (Input.IsActionJustPressed("toggle_objective")
+		    && mech.ControlsEnabled
+		    && !mech.HangarDisplayOnly)
+		{
+			GameSettings.SetObjectiveHudMinimized(!GameSettings.ObjectiveHudMinimized);
+		}
+
+		_minimized = GameSettings.ObjectiveHudMinimized;
+
 		var (anchor, kind) = FindMissionAnchor(mech);
 		if (anchor == null)
 		{
@@ -83,7 +93,7 @@ public partial class CockpitWindowMissionHud : Node3D
 		if (_quad == null || !NodeAlive(_quad))
 			return;
 
-		var (pos, size) = QuadLayout(_kind, _visualKind);
+		var (pos, size) = QuadLayout(_kind, _visualKind, _minimized);
 		_quad.Position = pos;
 		_quad.RotationDegrees = new Vector3(0f, 180f, 0f);
 		_quad.Scale = Vector3.One;
@@ -94,17 +104,31 @@ public partial class CockpitWindowMissionHud : Node3D
 			mat.Uv1Scale = new Vector3(-1f, 1f, 1f);
 	}
 
-	private static (Vector3 Pos, Vector2 Size) QuadLayout(AnchorKind kind, string visualKind) => kind switch
+	private static (Vector3 Pos, Vector2 Size) QuadLayout(AnchorKind kind, string visualKind, bool minimized)
 	{
-		// FacetTop is a 0.42×0.5×0.08 box. Sit just outside the +Z face (pilot-facing /
-		// cockpit underside) so the opaque facet doesn't occlude the SubViewport quad.
-		AnchorKind.FacetTop => (new Vector3(0f, 0f, 0.055f), new Vector2(0.38f, 0.46f)),
-		// Thinspine: raised + shifted left so text clears the narrow mullion/frame.
-		_ when visualKind == "torso_ouro_thin" =>
-			(new Vector3(0.14f, 0.34f, 0.028f), new Vector2(0.40f, 0.13f)),
-		// ViewPanel (Fleet default): upper-right, dropped to clear Fleet frame chrome.
-		_ => (new Vector3(0.28f, 0.16f, 0.028f), new Vector2(0.40f, 0.13f))
-	};
+		if (minimized)
+		{
+			return kind switch
+			{
+				AnchorKind.FacetTop => (new Vector3(0f, 0.16f, 0.055f), new Vector2(0.22f, 0.08f)),
+				_ when visualKind == "torso_ouro_thin" =>
+					(new Vector3(0.22f, 0.38f, 0.028f), new Vector2(0.16f, 0.045f)),
+				_ => (new Vector3(0.36f, 0.20f, 0.028f), new Vector2(0.16f, 0.045f))
+			};
+		}
+
+		return kind switch
+		{
+			// FacetTop is a 0.42×0.5×0.08 box. Sit just outside the +Z face (pilot-facing /
+			// cockpit underside) so the opaque facet doesn't occlude the SubViewport quad.
+			AnchorKind.FacetTop => (new Vector3(0f, 0f, 0.055f), new Vector2(0.38f, 0.46f)),
+			// Thinspine: raised + shifted left so text clears the narrow mullion/frame.
+			_ when visualKind == "torso_ouro_thin" =>
+				(new Vector3(0.14f, 0.34f, 0.028f), new Vector2(0.40f, 0.13f)),
+			// ViewPanel (Fleet default): upper-right, dropped to clear Fleet frame chrome.
+			_ => (new Vector3(0.28f, 0.16f, 0.028f), new Vector2(0.40f, 0.13f))
+		};
+	}
 
 	public void TearDown()
 	{
@@ -227,7 +251,7 @@ public partial class CockpitWindowMissionHud : Node3D
 		_flavor.AddThemeFontSizeOverride("font_size", kind == AnchorKind.FacetTop ? 15 : 12);
 		col.AddChild(_flavor);
 
-		var (pos, size) = QuadLayout(kind, visualKind);
+		var (pos, size) = QuadLayout(kind, visualKind, _minimized);
 		_quad = new MeshInstance3D
 		{
 			Name = "MissionGlassQuad",
@@ -287,11 +311,24 @@ public partial class CockpitWindowMissionHud : Node3D
 	private void ApplyText()
 	{
 		if (_objective != null && GodotObject.IsInstanceValid(_objective))
-			_objective.Text = string.IsNullOrEmpty(_objectiveText) ? "" : _objectiveText;
+		{
+			if (_minimized)
+				_objective.Text = "OBJ ▸";
+			else
+				_objective.Text = string.IsNullOrEmpty(_objectiveText) ? "" : _objectiveText;
+		}
 
 		if (_flavor == null || !GodotObject.IsInstanceValid(_flavor))
 			return;
 
+		if (_minimized)
+		{
+			_flavor.Text = "";
+			_flavor.Visible = false;
+			return;
+		}
+
+		_flavor.Visible = true;
 		if (!string.IsNullOrEmpty(_statusText))
 			_flavor.Text = string.IsNullOrEmpty(_flavorText)
 				? _statusText

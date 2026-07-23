@@ -258,8 +258,11 @@ public partial class Projectile : Area3D
 						telemetry?.RecordKill(TelemetryTargetKind.Map);
 				}
 			}
+			else
+			{
+				SfxService.PlayImpactLight(impactPosition, -6f);
+			}
 
-			SfxService.Play("weapon_hit", (float)GD.RandRange(0.9, 1.1), -2f);
 			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
@@ -282,7 +285,7 @@ public partial class Projectile : Area3D
 			}
 
 			if (PlaysWorldImpactSfx)
-				SfxService.Play("weapon_hit", (float)GD.RandRange(0.95, 1.15), -3f);
+				SfxService.PlayImpactCover(impactPosition, -3f);
 			MeshMat.QueueFreeSafe(this);
 			return true;
 		}
@@ -291,7 +294,7 @@ public partial class Projectile : Area3D
 		if (hitTeam == TeamId.Neutral)
 		{
 			if (PlaysWorldImpactSfx)
-				SfxService.Play("weapon_hit", 0.8f, -8f);
+				SfxService.PlayImpactCover(impactPosition, -8f);
 			MeshMat.QueueFreeSafe(this);
 			return true;
 		}

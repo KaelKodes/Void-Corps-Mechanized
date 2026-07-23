@@ -29,12 +29,19 @@ public sealed class MechStats
 	public float IdleHeatPerSec { get; init; } = 1f;
 	public float MoveHeatPerSec { get; init; }
 
-	// Sensors (head)
+	// Sensors (head baseline + component enhancers)
 	public float VisionRange { get; init; } = 35f;
 	public float VisionAngleDeg { get; init; } = 110f;
 	public float CloseTargeting { get; init; } = 0.5f;
 	public float ScannerRange { get; init; } = 60f;
 	public float ScannerResolution { get; init; } = 0.3f;
+	/// <summary>True = passive blips need a clear ray past cover; false = through-walls contact.</summary>
+	public bool ScanRequiresLos { get; init; }
+	public ScanBlipStyle ScanBlipStyle { get; init; } = ScanBlipStyle.WorldPip;
+	/// <summary>Sum of living part MagazineBonus — added to ballistic mag size.</summary>
+	public int MagazineBonus { get; init; }
+	/// <summary>Sum of living part ReloadSpeedBonus — shortens ballistic reload.</summary>
+	public float ReloadSpeedBonus { get; init; }
 
 	// Mobility
 	public float WalkSpeed { get; init; } = 10f;
@@ -55,10 +62,15 @@ public sealed class MechStats
 	public float DashPowerCost { get; init; }
 	public float DashHeat { get; init; }
 
-	// Booster (jump)
+	// Booster (hold-to-thrust flight)
 	public bool HasBooster { get; init; }
+	/// <summary>Climb thrust while Space is held (m/s target up-rate).</summary>
 	public float JumpImpulse { get; init; }
+	/// <summary>Fuel seconds of booster flight; refills on landing.</summary>
+	public float JumpDuration { get; init; } = 1.1f;
+	/// <summary>Continuous power draw while thrusting.</summary>
 	public float JumpPowerCost { get; init; }
+	/// <summary>Heat per second while thrusting.</summary>
 	public float JumpHeat { get; init; }
 
 	/// <summary>Sum of installed non-empty part weights (includes destroyed parts).</summary>
@@ -87,6 +99,8 @@ public sealed class MechStats
 		CloseTargeting = 0.15f,
 		ScannerRange = 20f,
 		ScannerResolution = 0.1f,
+		ScanRequiresLos = true,
+		ScanBlipStyle = ScanBlipStyle.WorldPip,
 		WalkSpeed = 6f,
 		TurnRateDegrees = 50f
 	};

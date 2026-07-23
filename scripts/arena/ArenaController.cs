@@ -76,6 +76,7 @@ public partial class ArenaController : Node3D, IMissionHost
 	private NetCombatBus? _netCombat;
 	private DeploymentDirector? _deployment;
 	private float _matchHudSyncTimer;
+	private PadBarrierRing? _padBarriers;
 
 	public override void _Ready()
 	{
@@ -193,12 +194,14 @@ public partial class ArenaController : Node3D, IMissionHost
 				OnCoopReadyPressed(loaner);
 			else
 				BeginCountdown(loaner);
+			RefreshCombatMousePolicy();
 			UpdateHud();
 			return;
 		}
 
 		_phase = MatchPhase.Prep;
 		MusicService.Cue(MusicCue.Hangar);
+		RefreshCombatMousePolicy();
 		UpdateHud();
 	}
 
@@ -256,7 +259,7 @@ public partial class ArenaController : Node3D, IMissionHost
 	{
 		if (GetTree() != null)
 			GetTree().Paused = false;
-		SetCameraUiCaptureBlocked(false);
+		RefreshCombatMousePolicy();
 		_mechHud?.Refresh(_mech);
 		_aimCrosshair?.Refresh(_mech);
 	}
@@ -288,26 +291,47 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		_pauseMenu.Open();
 		GetTree().Paused = true;
-		SetCameraUiCaptureBlocked(true);
+		RefreshCombatMousePolicy();
 		_mechHud?.Refresh(_mech);
 		_aimCrosshair?.Refresh(_mech);
 	}
 
 	private void OnGarageVisibilityChanged()
 	{
-		if (_garage == null || _phase != MatchPhase.Fighting)
+		if (_garage == null)
 			return;
 
-		SetLocalWingControls(!_garage.Visible);
-		SetCombatHudVisible(!_garage.Visible);
-		SetCameraUiCaptureBlocked(_garage.Visible);
+		// Field hangar mid-fight: freeze wing + hide combat chrome while browsing.
+		if (_phase == MatchPhase.Fighting)
+		{
+			SetLocalWingControls(!_garage.Visible);
+			SetCombatHudVisible(!_garage.Visible);
+		}
+
+		RefreshCombatMousePolicy();
 		UpdateHud();
+	}
+
+	/// <summary>
+	/// Mouse stays free in hangar prep / pause / results.
+	/// Capture only once countdown or fight is live (FP), unless UI is up.
+	/// </summary>
+	private void RefreshCombatMousePolicy()
+	{
+		var uiBlocks = _matchResolved
+			|| _phase == MatchPhase.Prep
+			|| (_pauseMenu?.IsOpen == true)
+			|| (_results?.Visible == true)
+			|| (_garage?.Visible == true);
+		SetCameraUiCaptureBlocked(uiBlocks);
 	}
 
 	private void SetCameraUiCaptureBlocked(bool blocked)
 	{
 		if (GetViewport()?.GetCamera3D() is TopDownCamera camera)
 			camera.SetUiBlocksCapture(blocked);
+		else if (blocked)
+			Input.MouseMode = Input.MouseModeEnum.Visible;
 	}
 
 	private void SetCombatHudVisible(bool visible)
@@ -483,8 +507,19 @@ public partial class ArenaController : Node3D, IMissionHost
 
 		ApplyArenaShell(_layout);
 		ApplyAtmosphere(_layout);
+		_padBarriers = new PadBarrierRing(this);
+		_padBarriers.Apply();
 		RebuildCover(_layout);
+		RebuildExteriorBackdrop(_layout);
 		PlaceCrates(_layout);
+	}
+
+	private void RebuildExteriorBackdrop(ClaimArenaLayout layout)
+	{
+		var world = GetNodeOrNull<Node3D>("World");
+		if (world == null)
+			return;
+		ClaimExteriorBackdrop.Rebuild(world, layout);
 	}
 
 	/// <summary>
@@ -499,7 +534,9 @@ public partial class ArenaController : Node3D, IMissionHost
 		var halfZ = layout.HalfExtentZ;
 		var extentX = halfX * 2f;
 		var extentZ = halfZ * 2f;
-		var floorSize = new Vector3(extentX, 1f, extentZ);
+		// Same pad mesh, oversized past the walls — continuous ground beyond the barrier (no second apron seam).
+		var apron = ClaimExteriorBackdrop.FloorApron * 2f;
+		var floorSize = new Vector3(extentX + apron, 1f, extentZ + apron);
 		// West/East are pre-rotated 90° in arena.tscn, so their local X maps to world Z.
 		var wallNS = new Vector3(extentX, PerimeterWallHeight, 1f);
 		var wallEW = new Vector3(extentZ, PerimeterWallHeight, 1f);
@@ -547,44 +584,49 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	private void ApplyAtmosphere(ClaimArenaLayout layout)
 	{
+		var session = GetNodeOrNull<GameSession>("/root/GameSession");
+		var period = session?.PendingArenaPeriod ?? ArenaPeriod.Night;
+		var lighting = ClaimAtmosphere.Resolve(layout, period);
+
 		var envNode = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
 		if (envNode?.Environment != null)
 		{
 			var env = envNode.Environment;
-			env.BackgroundMode = Godot.Environment.BGMode.Color;
-			env.BackgroundColor = layout.SkyColor;
+			ClaimExteriorBackdrop.ApplySky(env, layout, period);
 			env.AmbientLightSource = Godot.Environment.AmbientSource.Color;
-			env.AmbientLightColor = layout.AmbientColor;
-			// Slightly lower ambient so SSAO / sun shadows carve the PBR.
-			env.AmbientLightEnergy = Mathf.Clamp(layout.AmbientEnergy * 0.85f, 0.25f, 1.2f);
+			env.AmbientLightColor = lighting.AmbientColor;
+			env.AmbientLightEnergy = lighting.AmbientEnergy;
 
+			// Soft contact AO only. High intensity/power was salt-and-pepper on asphalt at night.
 			env.SsaoEnabled = true;
-			env.SsaoRadius = 1.35f;
-			env.SsaoIntensity = 0.55f;
-			env.SsaoPower = 1.5f;
-			env.SsaoHorizon = 0.06f;
-			env.SsaoSharpness = 0.85f;
+			env.SsaoRadius = 1.8f;
+			env.SsaoIntensity = period == ArenaPeriod.Day ? 0.12f : 0.18f;
+			env.SsaoPower = 1.1f;
+			env.SsaoHorizon = 0.04f;
+			env.SsaoSharpness = 0.5f;
 
 			env.GlowEnabled = true;
-			env.GlowIntensity = 0.35f;
-			env.GlowStrength = 0.8f;
-			env.GlowBloom = 0.12f;
+			env.GlowIntensity = period == ArenaPeriod.Day ? 0.12f : 0.22f;
+			env.GlowStrength = 0.65f;
+			env.GlowBloom = period == ArenaPeriod.Day ? 0.02f : 0.04f;
 			env.TonemapMode = Godot.Environment.ToneMapper.Aces;
-			env.TonemapExposure = 1.05f;
+			env.TonemapExposure = lighting.Exposure;
+
+			ClaimExteriorBackdrop.ApplyFog(env, layout, period);
 		}
 
 		var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
 		if (sun != null)
 		{
-			sun.LightColor = layout.SunColor;
-			sun.LightEnergy = layout.SunEnergy;
-			sun.RotationDegrees = layout.SunRotationDegrees;
+			sun.LightColor = lighting.SunColor;
+			sun.LightEnergy = lighting.SunEnergy;
+			sun.RotationDegrees = lighting.SunRotationDegrees;
 			sun.ShadowEnabled = true;
 			sun.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
 			sun.ShadowBias = 0.04f;
 			sun.ShadowNormalBias = 1.0f;
 			sun.DirectionalShadowMaxDistance = 180f;
-			sun.LightAngularDistance = 0.6f;
+			sun.LightAngularDistance = period == ArenaPeriod.Day ? 0.35f : 0.6f;
 		}
 
 		TintWorldMeshes(layout);
@@ -592,20 +634,10 @@ public partial class ArenaController : Node3D, IMissionHost
 
 	private void TintWorldMeshes(ClaimArenaLayout layout)
 	{
-		var floorKind = SurfaceLibrary.FloorForClaim(layout.ClaimCode);
-		var wallKind = SurfaceLibrary.WallForClaim(layout.ClaimCode);
-
 		var floorMesh = GetNodeOrNull<MeshInstance3D>("World/Floor/Mesh");
 		if (floorMesh != null)
-			MeshMat.Bind(floorMesh, SurfaceLibrary.Get(floorKind, layout.FloorColor));
-
-		var wallMat = SurfaceLibrary.Get(wallKind, layout.WallColor);
-		foreach (var name in new[] { "WallNorth", "WallSouth", "WallWest", "WallEast" })
-		{
-			var mesh = GetNodeOrNull<MeshInstance3D>($"World/{name}/Mesh");
-			if (mesh != null)
-				MeshMat.Bind(mesh, wallMat);
-		}
+			MeshMat.Bind(floorMesh, SurfaceLibrary.GetPadFloor(layout.ClaimCode, layout.FloorColor));
+		// Perimeter visuals are the shield barrier ring (see PadBarrierRing) — not concrete bulkheads.
 	}
 
 	private void RebuildCover(ClaimArenaLayout layout)
@@ -642,7 +674,11 @@ public partial class ArenaController : Node3D, IMissionHost
 			var piece = layout.Covers[i];
 			// Slight paint variance so identical kinds don't look stamped.
 			var ambience = layout.WallColor.Lightened((i % 5) * 0.03f - 0.06f);
-			var built = CoverVisualFactory.Build(piece.Kind, ambience, piece.Scale);
+			var seed = i * 17
+			           + (int)(piece.Position.X * 3f)
+			           + (int)(piece.Position.Z * 7f)
+			           + (int)piece.Kind * 31;
+			var built = CoverVisualFactory.Build(piece.Kind, ambience, piece.Scale, seed);
 
 			var body = new StaticBody3D
 			{
@@ -1546,7 +1582,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (existing != null)
 		{
 			existing.ResetTransferClaim();
-			SfxService.Play("alarm", 1.1f, -6f);
+			SfxService.PlayUiError(UiErrorTone.DeeDoo);
 			return;
 		}
 
@@ -1560,7 +1596,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		restored.MarkLanded();
 		AddChild(restored);
 		_fieldCrates.Add(restored);
-		SfxService.Play("alarm", 1.1f, -6f);
+		SfxService.PlayUiError(UiErrorTone.DeeDoo);
 	}
 
 	private Vector3 PickFieldLandingNear(Vector3 origin)
@@ -1870,6 +1906,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (_garage != null)
 			_garage.Visible = false;
 		SetCombatHudVisible(false);
+		RefreshCombatMousePolicy();
 
 		var session = GetNodeOrNull<GameSession>("/root/GameSession");
 		if (session != null)
@@ -1908,7 +1945,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			GD.Print($"Bought life. Lives {session.Match.LivesRemaining}, scrap {session.Match.RunScrap}.");
 		}
 		else
-			SfxService.Play("alarm", 1.1f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Incorrect);
 	}
 
 	private void DespawnEnemyMech(string name)
@@ -1942,6 +1979,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			return;
 
 		var dt = (float)delta;
+		_padBarriers?.Tick(dt, _mech);
 		_deployment?.Tick(dt);
 
 		if (_phase == MatchPhase.Countdown)
@@ -2049,6 +2087,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		_countdownRemaining = 5.25f;
 		_lastCountdownSecond = -1;
 		_playerDropStarted = false;
+		RefreshCombatMousePolicy();
 		// Sabotage starts its track on fight begin so the beat clock is at 0:00.
 		if (string.IsNullOrEmpty(_mission?.PreferredCombatTrack))
 			MusicService.Cue(MusicCue.Combat);
@@ -2089,6 +2128,7 @@ public partial class ArenaController : Node3D, IMissionHost
 			_phase = MatchPhase.Fighting;
 			SetCombatActive(true);
 			SetCombatHudVisible(true);
+			RefreshCombatMousePolicy();
 			_mission?.OnFightStarted();
 			SfxService.Play("fight", 1f, -1f);
 

@@ -35,6 +35,15 @@ public partial class Hardpoint : Node3D
 	public bool CanFire => IsWeapon && EquippedPart != null && !IsDestroyed
 	                       && EquippedPart is { IsHeldShield: false, Damage: > 0f };
 
+	/// <summary>True when this hardpoint runs a ballistic magazine.</summary>
+	public bool UsesMagazine =>
+		EquippedPart is { WeaponFamily: WeaponFamily.Ballistic, MagazineSize: > 0 };
+
+	public int AmmoInMag => _ammoInMag;
+	public int MagazineCapacity => _magazineCapacity;
+	public bool IsReloading => _reloadRemaining > 0.01f;
+	public float ReloadRemaining => Mathf.Max(0f, _reloadRemaining);
+
 	/// <summary>1 = full mobility, 0 = immobilized.</summary>
 	public float MobilityFactor
 	{
@@ -53,6 +62,10 @@ public partial class Hardpoint : Node3D
 	}
 
 	private float _cooldown;
+	private int _ammoInMag;
+	private int _magazineCapacity;
+	private float _reloadRemaining;
+	private float _reloadDuration;
 	private Vector3 _previousMeleeForward;
 	private bool _hasPreviousMeleeForward;
 	private ulong _latchedMeleeContactId;
@@ -76,6 +89,7 @@ public partial class Hardpoint : Node3D
 		EffectiveAimMode = AimMode.Fixed;
 		IsDestroyed = false;
 		ResetMeleeContactState();
+		ResetMagazineState();
 
 		if (part != null)
 			EffectiveAimMode = part.AimMode;
@@ -514,6 +528,8 @@ public partial class Hardpoint : Node3D
 			return false;
 		if (_cooldown > 0f)
 			return false;
+		if (UsesMagazine && (IsReloading || _ammoInMag <= 0))
+			return false;
 
 		var rate = EquippedPart.FireRate * Mathf.Max(0.1f, fireRateMultiplier) * Mathf.Max(0.05f, heatThrottle);
 		_cooldown = 1f / Mathf.Max(0.1f, rate);
@@ -619,11 +635,92 @@ public partial class Hardpoint : Node3D
 			projectile.LookAt(muzzle + direction, Vector3.Up);
 		}
 
-		SfxService.Play("weapon_fire", (float)GD.RandRange(0.92, 1.08), -3f);
+		var localPilot = source is MechController { IsLocalPilot: true };
+		SfxService.PlayBallisticFire(
+			EquippedPart,
+			-3f,
+			origin: muzzle,
+			fullVolume: localPilot);
+
+		if (UsesMagazine)
+			_ammoInMag = Mathf.Max(0, _ammoInMag - 1);
 
 		damageDealt = EquippedPart.Damage;
 		heatGenerated = EquippedPart.HeatPerShot;
 		return true;
+	}
+
+	/// <summary>
+	/// Configure magazine capacity from the gun + chassis utility bonuses, then fill.
+	/// Call after stats rebuild so MagazineBonus applies.
+	/// </summary>
+	public void ConfigureMagazine(int magazineBonus = 0)
+	{
+		if (EquippedPart is not { WeaponFamily: WeaponFamily.Ballistic, MagazineSize: > 0 } part)
+		{
+			_magazineCapacity = 0;
+			_ammoInMag = 0;
+			_reloadRemaining = 0f;
+			_reloadDuration = 0f;
+			return;
+		}
+
+		var capacity = Mathf.Max(1, part.MagazineSize + Mathf.Max(0, magazineBonus));
+		var keepRatio = _magazineCapacity > 0
+			? Mathf.Clamp(_ammoInMag / (float)_magazineCapacity, 0f, 1f)
+			: 1f;
+		_magazineCapacity = capacity;
+		_ammoInMag = Mathf.Clamp(Mathf.RoundToInt(capacity * keepRatio), 0, capacity);
+		if (_ammoInMag <= 0 && !IsReloading)
+			_ammoInMag = capacity;
+	}
+
+	/// <summary>
+	/// Start a reload if this is a ballistic mag gun that isn't already full / reloading.
+	/// </summary>
+	public bool TryBeginReload(float reloadSpeedBonus = 0f)
+	{
+		if (!UsesMagazine || EquippedPart == null || IsDestroyed)
+			return false;
+		if (IsReloading)
+			return false;
+		if (_ammoInMag >= _magazineCapacity && _magazineCapacity > 0)
+			return false;
+
+		var baseTime = Mathf.Max(0.35f, EquippedPart.ReloadTime);
+		_reloadDuration = baseTime / Mathf.Max(0.25f, 1f + Mathf.Max(0f, reloadSpeedBonus));
+		_reloadRemaining = _reloadDuration;
+		SfxService.PlayBallisticReload(EquippedPart, -5f);
+		return true;
+	}
+
+	private void ResetMagazineState()
+	{
+		_reloadRemaining = 0f;
+		_reloadDuration = 0f;
+		if (EquippedPart is { WeaponFamily: WeaponFamily.Ballistic, MagazineSize: > 0 } part)
+		{
+			_magazineCapacity = Mathf.Max(1, part.MagazineSize);
+			_ammoInMag = _magazineCapacity;
+		}
+		else
+		{
+			_magazineCapacity = 0;
+			_ammoInMag = 0;
+		}
+	}
+
+	private void TickMagazine(float dt)
+	{
+		if (!UsesMagazine || _reloadRemaining <= 0f)
+			return;
+
+		_reloadRemaining = Mathf.Max(0f, _reloadRemaining - dt);
+		if (_reloadRemaining > 0f)
+			return;
+
+		_ammoInMag = _magazineCapacity;
+		// Chamber clack is the start of reload; finish stays quiet so we don't double-up.
 	}
 
 	/// <summary>
@@ -687,7 +784,6 @@ public partial class Hardpoint : Node3D
 			_cooldown = 1f / rate;
 			heatGenerated = EquippedPart.HeatPerShot;
 			dealtDamage = ApplyMeleeContact(source, contactHit, aimedSlot);
-			SfxService.Play("weapon_hit", (float)GD.RandRange(0.88, 1.06), dealtDamage ? -1f : -5f);
 		}
 
 		// Remaining in contact cannot machine-gun damage. Pull the blade clear, then
@@ -912,9 +1008,14 @@ public partial class Hardpoint : Node3D
 
 		var damageable = FindDamageable(collider);
 		if (damageable == null)
-			return false; // solid cover: contact heat, no structure damage API
+		{
+			// Solid cover with no Damageable API — still a metal contact.
+			SfxService.PlayImpactCover(impact, -4f);
+			return false;
+		}
 
 		damageable.ApplyDamage(EquippedPart.Damage);
+		SfxService.PlayImpactCover(impact, -3f);
 		RecordMeleeTelemetry(source, null, damageable);
 		return true;
 	}
@@ -977,8 +1078,10 @@ public partial class Hardpoint : Node3D
 
 	public override void _Process(double delta)
 	{
+		var dt = (float)delta;
 		if (_cooldown > 0f)
-			_cooldown -= (float)delta;
+			_cooldown -= dt;
+		TickMagazine(dt);
 
 		EnsureDamageSmoke();
 		_damageSmoke?.SetHealth(

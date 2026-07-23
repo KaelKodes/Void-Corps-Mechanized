@@ -53,7 +53,12 @@ public static class SurfaceLibrary
 	/// Build (or reuse) a triplanar PBR material. Tint multiplies albedo for claim ambience.
 	/// Falls back to flat color if textures are missing.
 	/// </summary>
-	public static StandardMaterial3D Get(Kind kind, Color? tint = null, float metallicBias = 0f, float roughnessBias = 0f)
+	public static StandardMaterial3D Get(
+		Kind kind,
+		Color? tint = null,
+		float metallicBias = 0f,
+		float roughnessBias = 0f,
+		float uvScaleMul = 1f)
 	{
 		if (!Cache.TryGetValue(kind, out var proto))
 		{
@@ -68,7 +73,94 @@ public static class SurfaceLibrary
 			mat.Metallic = Mathf.Clamp(mat.Metallic + metallicBias, 0f, 1f);
 		if (roughnessBias != 0f)
 			mat.Roughness = Mathf.Clamp(mat.Roughness + roughnessBias, 0f, 1f);
+		if (!Mathf.IsEqualApprox(uvScaleMul, 1f))
+		{
+			var s = mat.Uv1Scale.X * uvScaleMul;
+			mat.Uv1Scale = new Vector3(s, s, s);
+		}
 		return mat;
+	}
+
+	/// <summary>
+	/// Mech kit / hollow hull plate. Finer tiles than arena cover; softened normals for FP.
+	/// Object-space triplanar (not world) so paint stays glued when the mech moves.
+	/// </summary>
+	public static StandardMaterial3D GetMech(Kind kind, Color tint, float metersPerTile = 1.1f, float normalScale = 0.55f)
+	{
+		var mat = Get(kind, tint);
+		mat.Uv1WorldTriplanar = false;
+		mat.Uv1Scale = new Vector3(metersPerTile, metersPerTile, metersPerTile);
+		if (mat.NormalEnabled)
+			mat.NormalScale = normalScale;
+		return mat;
+	}
+
+	/// <summary>
+	/// Issued MAP plate: steel albedo (clean paint color) + painted-metal normals/roughness
+	/// (scratches / dents) without the rust mottling in the paint pack's color map.
+	/// </summary>
+	public static StandardMaterial3D GetMechPlate(Color tint, float metersPerTile = 1.1f, float normalScale = 0.7f)
+	{
+		var mat = Get(Kind.PaintedMetal, tint);
+		var clean = Get(Kind.Steel, Colors.White);
+		if (clean.AlbedoTexture != null)
+			mat.AlbedoTexture = clean.AlbedoTexture;
+		mat.AlbedoColor = tint;
+		mat.Uv1WorldTriplanar = false;
+		mat.Uv1Scale = new Vector3(metersPerTile, metersPerTile, metersPerTile);
+		if (mat.NormalEnabled)
+			mat.NormalScale = normalScale;
+		// Keep it issued-kit, not chrome: wear lives in the normal/rough maps.
+		mat.Metallic = Mathf.Clamp(mat.Metallic - 0.15f, 0.2f, 0.85f);
+		mat.Roughness = Mathf.Clamp(mat.Roughness + 0.08f, 0.35f, 0.95f);
+		return mat;
+	}
+
+	/// <summary>
+	/// Tall rim buildings — stretched tiles + matte concrete so FP doesn't read sandpaper chrome.
+	/// </summary>
+	public static StandardMaterial3D GetBuildingFacade(Color tint, int seed = 0)
+	{
+		unchecked
+		{
+			var h = (uint)(seed * 2654435761u);
+			var tintN = (h % 1000u) / 1000f;
+			var tinted = tint.Lightened(tintN * 0.06f - 0.03f);
+			var mat = Get(Kind.Concrete, tinted);
+			// ~18–24 m per tile on a ~28 m tower = a few soft mottles, not glitter.
+			var meters = 18f + ((h / 1000u) % 1000u) / 1000f * 6f;
+			mat.Uv1Scale = new Vector3(meters, meters, meters);
+			mat.NormalEnabled = false;
+			mat.NormalTexture = null;
+			mat.RoughnessTexture = null;
+			mat.MetallicTexture = null;
+			mat.Metallic = 0.04f;
+			mat.Roughness = 0.9f;
+			return mat;
+		}
+	}
+
+	/// <summary>
+	/// Deterministic tint + UV-scale jitter so identical cover kinds don't look stamped.
+	/// Seed typically comes from cover index / world position hash.
+	/// </summary>
+	public static StandardMaterial3D GetVaried(
+		Kind kind,
+		Color tint,
+		int seed,
+		float metallicBias = 0f,
+		float roughnessBias = 0f,
+		float uvScaleMul = 1f)
+	{
+		unchecked
+		{
+			var h = (uint)(seed * 2654435761u);
+			var tintN = (h % 1000u) / 1000f;
+			var uvN = ((h / 1000u) % 1000u) / 1000f;
+			var tinted = tint.Lightened(tintN * 0.1f - 0.05f);
+			var uvMul = (0.82f + uvN * 0.36f) * uvScaleMul; // ~0.82–1.18 * optional stretch
+			return Get(kind, tinted, metallicBias, roughnessBias, uvMul);
+		}
 	}
 
 	/// <summary>Pick a floor surface that matches claim fantasy.</summary>
@@ -86,14 +178,36 @@ public static class SurfaceLibrary
 	}
 
 	/// <summary>Wall / pad-edge surface for a claim.</summary>
-	public static Kind WallForClaim(string claimCode)
+	public static Kind WallForClaim(string claimCode) => Kind.Concrete;
+
+	/// <summary>
+	/// Arena bulkhead material. Same concrete albedo as cover, but strips normal/roughness maps
+	/// and uses large tiles — big vertical planes make pack micro-grain look like sandpaper.
+	/// </summary>
+	public static StandardMaterial3D GetPadWall(Color tint)
 	{
-		if (claimCode.Contains("BLACK-WHARF", StringComparison.OrdinalIgnoreCase)
-		    || claimCode.Contains("SPIRE-NULL", StringComparison.OrdinalIgnoreCase))
-			return Kind.Concrete;
-		if (claimCode.Contains("7-ORBITAL", StringComparison.OrdinalIgnoreCase))
-			return Kind.ConcreteRough;
-		return Kind.Concrete;
+		var mat = Get(Kind.Concrete, tint);
+		return CalmLargePlane(mat, metersPerTile: 22f);
+	}
+
+	/// <summary>
+	/// Claim floor — claim albedo pick, but calm maps so FP looking-down isn't sandpaper.
+	/// </summary>
+	public static StandardMaterial3D GetPadFloor(string claimCode, Color tint)
+	{
+		var mat = Get(FloorForClaim(claimCode), tint);
+		return CalmLargePlane(mat, metersPerTile: 28f);
+	}
+
+	private static StandardMaterial3D CalmLargePlane(StandardMaterial3D mat, float metersPerTile)
+	{
+		mat.NormalEnabled = false;
+		mat.NormalTexture = null;
+		mat.RoughnessTexture = null;
+		mat.MetallicTexture = null;
+		mat.Roughness = 0.92f;
+		mat.Uv1Scale = new Vector3(metersPerTile, metersPerTile, metersPerTile);
+		return mat;
 	}
 
 	/// <summary>Flat emissive / accent — not textured.</summary>
@@ -158,7 +272,7 @@ public static class SurfaceLibrary
 		{
 			mat.NormalEnabled = true;
 			mat.NormalTexture = normal;
-			mat.NormalScale = 1f;
+			mat.NormalScale = kind is Kind.Asphalt or Kind.Ground or Kind.ConcreteRough ? 0.45f : 0.75f;
 		}
 
 		if (rough != null)

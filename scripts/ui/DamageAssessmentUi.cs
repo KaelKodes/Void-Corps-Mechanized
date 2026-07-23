@@ -281,7 +281,7 @@ public partial class DamageAssessmentUi : Control
 		if (any)
 			SfxService.Confirm();
 		else
-			SfxService.Play("alarm", 1.1f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Incorrect);
 		Refresh();
 	}
 
@@ -297,7 +297,7 @@ public partial class DamageAssessmentUi : Control
 		if (repaired > 0)
 			SfxService.Confirm();
 		else
-			SfxService.Play("alarm", 1.1f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Incorrect);
 		Refresh();
 	}
 

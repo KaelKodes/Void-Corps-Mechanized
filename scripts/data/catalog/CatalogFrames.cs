@@ -19,9 +19,12 @@ public static class CatalogFrames
 		parts["legs_tri_biped"] = CatalogBuilders.Leg("legs_tri_biped", "Stride Biped", "trinova", m,
 			25, 11f, 95f, "legs_biped", LegMode.Locked, LegType.Bipedal,
 			canSprint: true, sprintMult: 1.5f, sprintHeat: 16f, sprintLoad: 22f, moveHeat: 2f);
-		parts["legs_tri_courier"] = CatalogBuilders.Leg("legs_tri_courier", "Courier Striders", "trinova", m,
-			18, 13.5f, 105f, "legs_biped", LegMode.Locked, LegType.Bipedal,
-			canSprint: true, sprintMult: 1.65f, sprintHeat: 18f, sprintLoad: 20f, moveHeat: 1.6f, idleHeat: 0.4f);
+		parts["legs_tri_courier"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_tri_courier", "Courier Striders", "trinova", m,
+				18, 13.5f, 105f, "legs_biped", LegMode.Locked, LegType.Bipedal,
+				canSprint: true, sprintMult: 1.65f, sprintHeat: 18f, sprintLoad: 20f, moveHeat: 1.6f, idleHeat: 0.4f),
+			jumpImpulse: 8f, jumpDuration: 1.1f, jumpPower: 12f, jumpHeat: 7f,
+			dashSpeed: 26f, dashDuration: 0.18f, dashCooldown: 1.15f, dashPower: 12f, dashHeat: 9f);
 		parts["legs_brin_biped"] = CatalogBuilders.Leg("legs_brin_biped", "Stomp Biped", "brimforge", m,
 			45, 7.5f, 60f, "legs_biped", LegMode.Locked, LegType.Bipedal,
 			canSprint: true, sprintMult: 1.35f, sprintHeat: 22f, sprintLoad: 28f, moveHeat: 3.5f);
@@ -39,15 +42,21 @@ public static class CatalogFrames
 		parts["legs_ouro_hex"] = CatalogBuilders.Leg("legs_ouro_hex", "Skitter Hexapod", "ourotech", m,
 			15, 12.5f, 130f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
 			canSprint: true, sprintMult: 1.55f, sprintHeat: 14f, sprintLoad: 20f, moveHeat: 2.5f);
-		parts["legs_ouro_razorhex"] = CatalogBuilders.Leg("legs_ouro_razorhex", "Razorhex Array", "ourotech", m,
-			12, 14f, 150f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
-			canSprint: true, sprintMult: 1.7f, sprintHeat: 16f, sprintLoad: 22f, moveHeat: 2.8f, idleHeat: 0.45f);
+		parts["legs_ouro_razorhex"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_ouro_razorhex", "Razorhex Array", "ourotech", m,
+				12, 14f, 150f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
+				canSprint: true, sprintMult: 1.7f, sprintHeat: 16f, sprintLoad: 22f, moveHeat: 2.8f, idleHeat: 0.45f),
+			jumpImpulse: 7.5f, jumpDuration: 0.95f, jumpPower: 11f, jumpHeat: 6f,
+			dashSpeed: 30f, dashDuration: 0.16f, dashCooldown: 1.0f, dashPower: 13f, dashHeat: 8f);
 		parts["legs_lum_hex"] = CatalogBuilders.Leg("legs_lum_hex", "Vault Crawler", "lumina", m,
 			20, 11f, 110f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
 			canSprint: true, sprintMult: 1.48f, sprintHeat: 15f, sprintLoad: 21f, moveHeat: 2.2f);
-		parts["legs_lum_phasehex"] = CatalogBuilders.Leg("legs_lum_phasehex", "Phase Skitter", "lumina", m,
-			11, 13.2f, 125f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
-			canSprint: true, sprintMult: 1.62f, sprintHeat: 11f, sprintLoad: 26f, moveHeat: 1.9f, idleHeat: 0.7f);
+		parts["legs_lum_phasehex"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_lum_phasehex", "Phase Skitter", "lumina", m,
+				11, 13.2f, 125f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
+				canSprint: true, sprintMult: 1.62f, sprintHeat: 11f, sprintLoad: 26f, moveHeat: 1.9f, idleHeat: 0.7f),
+			jumpImpulse: 9f, jumpDuration: 1.2f, jumpPower: 14f, jumpHeat: 6f,
+			dashSpeed: 31f, dashDuration: 0.15f, dashCooldown: 0.95f, dashPower: 14f, dashHeat: 7f);
 		parts["legs_tri_packhex"] = CatalogBuilders.Leg("legs_tri_packhex", "Packmule Hex", "trinova", m,
 			28, 10f, 100f, "legs_hex", LegMode.Gimbaled, LegType.Hexapod,
 			canSprint: true, sprintMult: 1.4f, sprintHeat: 17f, sprintLoad: 24f, moveHeat: 2.6f);
@@ -59,9 +68,12 @@ public static class CatalogFrames
 		parts["legs_brin_tracks"] = CatalogBuilders.Leg("legs_brin_tracks", "Forge Tracks", "brimforge", m,
 			55, 9f, 40f, "legs_tracks", LegMode.Locked, LegType.Tracks,
 			canSprint: false, moveHeat: 4f, idleHeat: 1f);
-		parts["legs_brin_fortress"] = CatalogBuilders.Leg("legs_brin_fortress", "Fortress Belts", "brimforge", m,
-			70, 7.5f, 32f, "legs_tracks", LegMode.Locked, LegType.Tracks,
-			canSprint: false, moveHeat: 5f, idleHeat: 1.3f);
+		parts["legs_brin_fortress"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_brin_fortress", "Fortress Belts", "brimforge", m,
+				70, 7.5f, 32f, "legs_tracks", LegMode.Locked, LegType.Tracks,
+				canSprint: false, moveHeat: 5f, idleHeat: 1.3f),
+			jumpImpulse: 10f, jumpDuration: 1.35f, jumpPower: 20f, jumpHeat: 12f,
+			dashSpeed: 20f, dashDuration: 0.22f, dashCooldown: 1.55f, dashPower: 18f, dashHeat: 14f);
 		parts["legs_tri_tracks"] = CatalogBuilders.Leg("legs_tri_tracks", "Convoy Treads", "trinova", m,
 			35, 10.5f, 55f, "legs_tracks", LegMode.Locked, LegType.Tracks,
 			canSprint: false, moveHeat: 3f);
@@ -75,17 +87,22 @@ public static class CatalogFrames
 			24, 10.8f, 65f, "legs_tracks", LegMode.Locked, LegType.Tracks,
 			canSprint: false, moveHeat: 2.2f, idleHeat: 0.85f);
 
-		// --- Boosters (jump) — bipedal; no sprint; MobilityModule.Booster ---
+		// --- Boosters (hold-to-thrust specialist) — bipedal; no sprint; stock thruster included ---
+		// JumpImpulse = climb rate (m/s); JumpDuration = fuel seconds; power/heat are per-second while held.
 		parts["legs_tri_jumpjack"] = CatalogBuilders.BoosterLegs("legs_tri_jumpjack", "Jumpjack Struts", "trinova", m,
-			20, 11.2f, 100f, jumpImpulse: 11f, jumpPower: 14f, jumpHeat: 10f, moveHeat: 1.9f, idleHeat: 0.45f);
+			20, 11.2f, 100f, jumpImpulse: 8.5f, jumpDuration: 1.15f, jumpPower: 14f, jumpHeat: 8f,
+			moveHeat: 1.9f, idleHeat: 0.45f);
 		parts["legs_lum_boosters"] = CatalogBuilders.BoosterLegs("legs_lum_boosters", "Vault Boosters", "lumina", m,
-			13, 11.8f, 118f, jumpImpulse: 14.5f, jumpPower: 16f, jumpHeat: 9f, moveHeat: 1.6f, idleHeat: 0.55f);
+			13, 11.8f, 118f, jumpImpulse: 10.5f, jumpDuration: 1.45f, jumpPower: 16f, jumpHeat: 7f,
+			moveHeat: 1.6f, idleHeat: 0.55f);
 		parts["legs_brin_pilejack"] = CatalogBuilders.BoosterLegs("legs_brin_pilejack", "Pilejack Pedestals", "brimforge", m,
-			42, 7.8f, 55f, jumpImpulse: 16f, jumpPower: 22f, jumpHeat: 18f, moveHeat: 3.6f, idleHeat: 0.85f);
+			42, 7.8f, 55f, jumpImpulse: 11.5f, jumpDuration: 1.7f, jumpPower: 22f, jumpHeat: 14f,
+			moveHeat: 3.6f, idleHeat: 0.85f);
 		parts["legs_ouro_ascender"] = CatalogBuilders.BoosterLegs("legs_ouro_ascender", "Ascender Spurs", "ourotech", m,
-			12, 12.5f, 135f, jumpImpulse: 13f, jumpPower: 12f, jumpHeat: 8f, moveHeat: 1.7f, idleHeat: 0.4f);
+			12, 12.5f, 135f, jumpImpulse: 9.5f, jumpDuration: 1.3f, jumpPower: 12f, jumpHeat: 6f,
+			moveHeat: 1.7f, idleHeat: 0.4f);
 
-		// --- Thrusters (dash) — bipedal; no sprint; MobilityModule.Thruster ---
+		// --- Thrusters (dash specialist) — bipedal; no sprint; stock booster included ---
 		parts["legs_ouro_thrusters"] = CatalogBuilders.ThrusterLegs("legs_ouro_thrusters", "Rail Thrusters", "ourotech", m,
 			15, 12.2f, 130f, LegMode.Gimbaled,
 			dashSpeed: 28f, dashDuration: 0.18f, dashCooldown: 1.1f, dashPower: 14f, dashHeat: 9f,
@@ -104,12 +121,18 @@ public static class CatalogFrames
 			moveHeat: 3.8f, idleHeat: 0.9f);
 
 		// --- Ashwhisk / Velhound body houses (skirmish Whisperframe / Yardbreaker; T1 Field) ---
-		parts["legs_ash_coilstriders"] = CatalogBuilders.Leg("legs_ash_coilstriders", "Coilstriders", "ashwhisk", m,
-			16, 14f, 125f, "legs_ash_coil", LegMode.Locked, LegType.Bipedal,
-			canSprint: true, sprintMult: 1.68f, sprintHeat: 15f, sprintLoad: 19f, moveHeat: 1.5f, idleHeat: 0.35f);
-		parts["legs_vel_bracehounds"] = CatalogBuilders.Leg("legs_vel_bracehounds", "Bracehounds", "velhound", m,
-			38, 10.2f, 78f, "legs_biped", LegMode.Locked, LegType.Bipedal,
-			canSprint: true, sprintMult: 1.42f, sprintHeat: 20f, sprintLoad: 26f, moveHeat: 3.0f, idleHeat: 0.65f);
+		parts["legs_ash_coilstriders"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_ash_coilstriders", "Coilstriders", "ashwhisk", m,
+				16, 14f, 125f, "legs_ash_coil", LegMode.Locked, LegType.Bipedal,
+				canSprint: true, sprintMult: 1.68f, sprintHeat: 15f, sprintLoad: 19f, moveHeat: 1.5f, idleHeat: 0.35f),
+			jumpImpulse: 8.5f, jumpDuration: 1.15f, jumpPower: 12f, jumpHeat: 6f,
+			dashSpeed: 29f, dashDuration: 0.17f, dashCooldown: 1.05f, dashPower: 13f, dashHeat: 8f);
+		parts["legs_vel_bracehounds"] = CatalogBuilders.WithBoosterAndThruster(
+			CatalogBuilders.Leg("legs_vel_bracehounds", "Bracehounds", "velhound", m,
+				38, 10.2f, 78f, "legs_biped", LegMode.Locked, LegType.Bipedal,
+				canSprint: true, sprintMult: 1.42f, sprintHeat: 20f, sprintLoad: 26f, moveHeat: 3.0f, idleHeat: 0.65f),
+			jumpImpulse: 9.5f, jumpDuration: 1.25f, jumpPower: 18f, jumpHeat: 11f,
+			dashSpeed: 23f, dashDuration: 0.2f, dashCooldown: 1.4f, dashPower: 16f, dashHeat: 12f);
 	}
 
 	private static void RegisterTorsos(Dictionary<string, PartData> parts, Dictionary<string, ManufacturerData> m)
@@ -178,13 +201,16 @@ public static class CatalogFrames
 
 		parts["head_brin_helm"] = CatalogBuilders.Head("head_brin_helm", "Slab Helm", "brimforge", m,
 			28, turn: -5f, visionRange: 32f, visionAngle: 95f, close: 0.4f,
-			scanRange: 50f, scanRes: 0.25f, idleHeat: 0.6f, scale: new Vector3(1.15f, 1.05f, 1.1f));
+			scanRange: 50f, scanRes: 0.25f, idleHeat: 0.6f, scale: new Vector3(1.15f, 1.05f, 1.1f),
+			scanPenetration: ScanPenetrationMode.LineOfSight);
 		parts["head_brin_visor"] = CatalogBuilders.Head("head_brin_visor", "Blast Visor", "brimforge", m,
 			34, turn: -8f, visionRange: 28f, visionAngle: 85f, close: 0.35f,
-			scanRange: 45f, scanRes: 0.22f, idleHeat: 0.7f, scale: new Vector3(1.2f, 1.1f, 1.15f));
+			scanRange: 45f, scanRes: 0.22f, idleHeat: 0.7f, scale: new Vector3(1.2f, 1.1f, 1.15f),
+			scanPenetration: ScanPenetrationMode.LineOfSight);
 		parts["head_brin_warface"] = CatalogBuilders.Head("head_brin_warface", "Warface Casque", "brimforge", m,
 			40, turn: -10f, visionRange: 30f, visionAngle: 90f, close: 0.38f,
-			scanRange: 55f, scanRes: 0.28f, idleHeat: 0.75f, scale: new Vector3(1.25f, 1.12f, 1.18f));
+			scanRange: 55f, scanRes: 0.28f, idleHeat: 0.75f, scale: new Vector3(1.25f, 1.12f, 1.18f),
+			scanPenetration: ScanPenetrationMode.LineOfSight);
 
 		parts["head_ouro_scope"] = CatalogBuilders.Head("head_ouro_scope", "Glass Eye", "ourotech", m,
 			8, turn: 12f, visionRange: 58f, visionAngle: 75f, close: 0.9f,

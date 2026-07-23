@@ -1,0 +1,13 @@
+﻿Drop oscilloscope / vocoder robot voice one-shots here (mp3 or wav).
+
+Suggested names:
+  access_denied.mp3
+  access_granted.mp3
+  warning.mp3
+  system_alert.mp3
+  insufficient_power.mp3
+  offline.mp3
+
+Use for: mission blocks, locked actions, cockpit system callouts.
+Short lines (~0.8–2.0s). Same generic scope-voice character is ideal.
+Note: we already slice Access Denied from the old robotic pack — new oneshots here can replace/augment that.

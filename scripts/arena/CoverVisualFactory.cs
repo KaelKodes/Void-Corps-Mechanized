@@ -68,9 +68,13 @@ public static class CoverVisualFactory
 	/// <summary>Interior clearance height for <see cref="CoverKind.ServiceTunnel"/>.</summary>
 	public const float ServiceTunnelClearance = 3.2f;
 
-	public static BuiltCover Build(CoverKind kind, Color ambience, float scale = 1f)
+	/// <summary>Per-build seed so MakeMat can jitter UV / tint without threading args through every builder.</summary>
+	private static int _variationSeed;
+
+	public static BuiltCover Build(CoverKind kind, Color ambience, float scale = 1f, int variationSeed = 0, float maxScale = 1.6f)
 	{
-		scale = Mathf.Clamp(scale, 0.65f, 1.6f);
+		scale = Mathf.Clamp(scale, 0.65f, Mathf.Max(maxScale, 0.65f));
+		_variationSeed = variationSeed;
 		return kind switch
 		{
 			CoverKind.ShippingContainer => BuildShippingContainer(ambience, scale, stacked: false),
@@ -295,12 +299,18 @@ public static class CoverVisualFactory
 	private static BuiltCover BuildSkyscraper(Color ambience, float scale)
 	{
 		var root = new Node3D { Name = "Skyscraper" };
-		var facade = MakeMat(new Color(0.28f, 0.32f, 0.38f).Lerp(ambience, 0.15f), 0.55f, 0.4f,
-			surface: SurfaceLibrary.Kind.Concrete);
-		var glass = MakeMat(new Color(0.25f, 0.4f, 0.55f), 0.2f, 0.25f, new Color(0.35f, 0.55f, 0.75f), 0.35f);
-		var dark = MakeMat(new Color(0.12f, 0.13f, 0.15f), 0.4f, 0.5f, surface: SurfaceLibrary.Kind.Steel);
-		var trim = MakeMat(new Color(0.55f, 0.5f, 0.35f).Lerp(ambience, 0.2f), 0.45f, 0.45f,
-			surface: SurfaceLibrary.Kind.PaintedMetal);
+		_variationSeed++;
+		// Matte facade, stretched tiles — not chrome concrete glitter.
+		var facade = SurfaceLibrary.GetBuildingFacade(
+			new Color(0.28f, 0.32f, 0.38f).Lerp(ambience, 0.15f),
+			_variationSeed);
+		// Glass only — slightly glossy, not mirror.
+		var glass = MakeMat(new Color(0.25f, 0.4f, 0.55f), 0.12f, 0.42f, new Color(0.35f, 0.55f, 0.75f), 0.28f);
+		// Structure metal stays duller than kit plate.
+		var dark = MakeMat(new Color(0.12f, 0.13f, 0.15f), 0.25f, 0.72f,
+			surface: SurfaceLibrary.Kind.SteelDark, uvScaleMul: 2.5f);
+		var trim = MakeMat(new Color(0.55f, 0.5f, 0.35f).Lerp(ambience, 0.2f), 0.2f, 0.65f,
+			surface: SurfaceLibrary.Kind.PaintedMetal, uvScaleMul: 2.2f);
 
 		var w = 5.5f * scale;
 		var d = 5.5f * scale;
@@ -715,11 +725,18 @@ public static class CoverVisualFactory
 		float roughness,
 		Color? emission = null,
 		float emissionEnergy = 0f,
-		SurfaceLibrary.Kind? surface = null)
+		SurfaceLibrary.Kind? surface = null,
+		float uvScaleMul = 1f)
 	{
 		// Emissive accents stay flat; everything else prefers tileable PBR when available.
 		if (surface.HasValue && emissionEnergy <= 0.001f)
-			return SurfaceLibrary.Get(surface.Value, albedo);
+		{
+			_variationSeed++;
+			// Bias toward the authored metallic/roughness instead of ignoring them.
+			var metalBias = metallic - 0.35f;
+			var roughBias = roughness - 0.55f;
+			return SurfaceLibrary.GetVaried(surface.Value, albedo, _variationSeed, metalBias, roughBias, uvScaleMul);
+		}
 
 		return SurfaceLibrary.Flat(albedo, metallic, roughness, emission, emissionEnergy);
 	}

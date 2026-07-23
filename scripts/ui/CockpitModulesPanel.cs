@@ -74,7 +74,7 @@ public partial class CockpitModulesPanel : Control
 
 		_mobilityStrip = new Label
 		{
-			Text = "tap Shift dash  ·  hold sprint  ·  Space jump",
+			Text = "tap Shift dash  ·  hold sprint  ·  hold Space boost",
 			HorizontalAlignment = HorizontalAlignment.Center,
 			Modulate = new Color(0.65f, 0.75f, 0.82f, 0.9f),
 			MouseFilter = MouseFilterEnum.Ignore
@@ -176,6 +176,13 @@ public partial class CockpitModulesPanel : Control
 		else
 		{
 			status = hp.IsDestroyed ? "DOWN" : "READY";
+			if (!hp.IsDestroyed && hp.UsesMagazine)
+			{
+				if (hp.IsReloading)
+					status = $"RLD {hp.ReloadRemaining:0.0}";
+				else
+					status = $"{hp.AmmoInMag}/{hp.MagazineCapacity}";
+			}
 			details = $"{part.DisplayName} · DMG {part.Damage:0} · H {part.HeatPerShot:0} · {status}";
 		}
 

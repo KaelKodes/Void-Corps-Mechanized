@@ -464,7 +464,7 @@ public partial class GarageUi : Control
 		var slot = _activeSlot.Value;
 		if (!GameCatalog.CanEquipPart(_draft, slot, _previewPartId))
 		{
-			SfxService.Play("alarm", 1.05f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Incorrect);
 			RefreshActions();
 			return;
 		}
@@ -512,7 +512,7 @@ public partial class GarageUi : Control
 		GameCatalog.SanitizeMounts(_draft);
 		if (!GameCatalog.IsPowerLegal(_draft))
 		{
-			SfxService.Play("alarm", 1.05f, -6f);
+			SfxService.PlayUiError(UiErrorTone.DeeDoo);
 			RefreshStats();
 			RefreshActions();
 			return;
@@ -527,7 +527,7 @@ public partial class GarageUi : Control
 	{
 		if (_activeSlot == null || string.IsNullOrEmpty(_previewPartId))
 		{
-			SfxService.Play("alarm", 1.05f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Quick);
 			if (_equipHint != null)
 				_equipHint.Text = "Select a spare part to request a field delivery.";
 			return;
@@ -542,7 +542,7 @@ public partial class GarageUi : Control
 			.FirstOrDefault(i => GameCatalog.GetPart(i.PartId)?.Slot == slot);
 		if (spare == null)
 		{
-			SfxService.Play("alarm", 1.05f, -6f);
+			SfxService.PlayUiError(UiErrorTone.Incorrect);
 			if (_equipHint != null)
 				_equipHint.Text = "No free copy available for delivery.";
 			return;
@@ -860,6 +860,13 @@ public partial class GarageUi : Control
 					equipped?.HeatPerShot, compare, "0", invertGood: true);
 				AppendPartStat(sb, melee ? "Power / contact" : "Power / shot", selected.PowerPerShot,
 					equipped?.PowerPerShot, compare, "0", invertGood: true);
+				if (selected.WeaponFamily == WeaponFamily.Ballistic
+				    || equipped?.WeaponFamily == WeaponFamily.Ballistic)
+				{
+					AppendPartStat(sb, "Mag size", selected.MagazineSize, equipped?.MagazineSize, compare, "0");
+					AppendPartStat(sb, "Reload s", selected.ReloadTime, equipped?.ReloadTime, compare, "0.0",
+						invertGood: true);
+				}
 				if (!melee)
 					AppendPartStat(sb, "Proj speed", selected.ProjectileSpeed, equipped?.ProjectileSpeed, compare, "0");
 				if (selected.AimMode != AimMode.Fixed || (equipped != null && equipped.AimMode != selected.AimMode))
@@ -902,22 +909,27 @@ public partial class GarageUi : Control
 			AppendPartStat(sb, "Turn", selected.TurnRateDegrees, equipped?.TurnRateDegrees, compare, "0");
 			AppendPartStat(sb, "Load rating", selected.LoadRating, equipped?.LoadRating, compare, "0");
 			sb.AppendLine($"  Sprint {(selected.CanSprint ? $"Yes ×{selected.SprintMultiplier:0.00}" : "No")}");
-			if (selected.MobilityModule == MobilityModuleKind.Booster || equipped?.MobilityModule == MobilityModuleKind.Booster)
+			if (selected.MobilityModule is MobilityModuleKind.Booster or MobilityModuleKind.Both
+			    || equipped?.MobilityModule is MobilityModuleKind.Booster or MobilityModuleKind.Both)
 			{
-				sb.AppendLine($"  Boosters  {(selected.MobilityModule == MobilityModuleKind.Booster ? "Yes" : "No")}");
-				if (selected.MobilityModule == MobilityModuleKind.Booster)
+				var selectedBooster = selected.MobilityModule is MobilityModuleKind.Booster or MobilityModuleKind.Both;
+				sb.AppendLine($"  Boosters  {(selectedBooster ? "Yes" : "No")}");
+				if (selectedBooster)
 				{
-					AppendPartStat(sb, "Jump impulse", selected.JumpImpulse, equipped?.JumpImpulse, compare, "0.0");
-					AppendPartStat(sb, "Jump power", selected.JumpPowerCost, equipped?.JumpPowerCost, compare, "0",
+					AppendPartStat(sb, "Boost climb", selected.JumpImpulse, equipped?.JumpImpulse, compare, "0.0");
+					AppendPartStat(sb, "Boost fuel", selected.JumpDuration, equipped?.JumpDuration, compare, "0.00");
+					AppendPartStat(sb, "Boost power/s", selected.JumpPowerCost, equipped?.JumpPowerCost, compare, "0",
 						invertGood: true);
-					AppendPartStat(sb, "Jump heat", selected.JumpHeat, equipped?.JumpHeat, compare, "0",
+					AppendPartStat(sb, "Boost heat/s", selected.JumpHeat, equipped?.JumpHeat, compare, "0",
 						invertGood: true);
 				}
 			}
-			if (selected.MobilityModule == MobilityModuleKind.Thruster || equipped?.MobilityModule == MobilityModuleKind.Thruster)
+			if (selected.MobilityModule is MobilityModuleKind.Thruster or MobilityModuleKind.Both
+			    || equipped?.MobilityModule is MobilityModuleKind.Thruster or MobilityModuleKind.Both)
 			{
-				sb.AppendLine($"  Thrusters  {(selected.MobilityModule == MobilityModuleKind.Thruster ? "Yes" : "No")}");
-				if (selected.MobilityModule == MobilityModuleKind.Thruster)
+				var selectedThruster = selected.MobilityModule is MobilityModuleKind.Thruster or MobilityModuleKind.Both;
+				sb.AppendLine($"  Thrusters  {(selectedThruster ? "Yes" : "No")}");
+				if (selectedThruster)
 				{
 					AppendPartStat(sb, "Dash speed", selected.DashSpeed, equipped?.DashSpeed, compare, "0.0");
 					AppendPartStat(sb, "Dash dur", selected.DashDuration, equipped?.DashDuration, compare, "0.00");
@@ -939,6 +951,22 @@ public partial class GarageUi : Control
 			AppendPartStat(sb, "Vision deg", selected.VisionAngleDeg, equipped?.VisionAngleDeg, compare, "0");
 			AppendPartStat(sb, "Close ID", selected.CloseTargeting, equipped?.CloseTargeting, compare, "0.00");
 			AppendPartStat(sb, "Scan m", selected.ScannerRange, equipped?.ScannerRange, compare, "0");
+			AppendPartStat(sb, "Scan res", selected.ScannerResolution, equipped?.ScannerResolution, compare, "0.00");
+			sb.AppendLine($"  Mode  {FormatScanMode(selected.ScanPenetration)}");
+			sb.AppendLine($"  Blip  {FormatScanBlip(selected.ScanBlipStyle)}");
+		}
+		else if (selected.ScannerRange > 0.01f || selected.ScannerResolution > 0.001f
+		         || selected.ScanPenetration != ScanPenetrationMode.Inherit
+		         || selected.ScanBlipStyle != ScanBlipStyle.Inherit)
+		{
+			sb.AppendLine();
+			sb.AppendLine("SENSOR LINK");
+			AppendPartStat(sb, "Scan +m", selected.ScannerRange, equipped?.ScannerRange ?? 0f, compare, "0");
+			AppendPartStat(sb, "Scan +res", selected.ScannerResolution, equipped?.ScannerResolution ?? 0f, compare, "0.00");
+			if (selected.ScanPenetration != ScanPenetrationMode.Inherit)
+				sb.AppendLine($"  Mode  {FormatScanMode(selected.ScanPenetration)}");
+			if (selected.ScanBlipStyle != ScanBlipStyle.Inherit)
+				sb.AppendLine($"  Blip  {FormatScanBlip(selected.ScanBlipStyle)}");
 		}
 
 		if (selected.AbilityKind != AbilityKind.None || equipped is { AbilityKind: not AbilityKind.None })
@@ -1126,7 +1154,7 @@ public partial class GarageUi : Control
 			previewing, "0");
 		sb.AppendLine($"  Sprint {(preview.CanSprint ? $"Yes ×{preview.SprintMultiplier:0.00}" : "No")}");
 		if (preview.HasBooster)
-			sb.AppendLine($"  Boosters  jump {preview.JumpImpulse:0.0}  (P {preview.JumpPowerCost:0} / H {preview.JumpHeat:0})");
+			sb.AppendLine($"  Boosters  climb {preview.JumpImpulse:0.0}  fuel {preview.JumpDuration:0.00}s  (P {preview.JumpPowerCost:0}/s / H {preview.JumpHeat:0}/s)");
 		if (preview.HasThruster)
 			sb.AppendLine($"  Thrusters  dash {preview.DashSpeed:0.0}  ({preview.DashDuration:0.00}s / CD {preview.DashCooldown:0.00}s)");
 		sb.AppendLine();
@@ -1187,6 +1215,11 @@ public partial class GarageUi : Control
 		var hasCore = false;
 		int coreClass = 0, housing = 1, shoulders = 0, backs = 0;
 		float vision = 12f, angle = 50f, close = 0.15f, scan = 20f, scanRes = 0.1f;
+		float scanBonus = 0f, scanResBonus = 0f;
+		var scanPenetration = ScanPenetrationMode.Contact;
+		var scanBlipStyle = ScanBlipStyle.WorldPip;
+		int magazineBonus = 0;
+		float reloadSpeedBonus = 0f;
 		bool canSprint = false;
 		float sprintMult = 1.45f, sprintHeat = 18f, sprintLoad = 25f;
 		var legMode = LegMode.Locked;
@@ -1195,7 +1228,7 @@ public partial class GarageUi : Control
 		var hasThruster = false;
 		float dashSpeed = 0f, dashDuration = 0.18f, dashCooldown = 1.2f, dashPower = 0f, dashHeat = 0f;
 		var hasBooster = false;
-		float jumpImpulse = 0f, jumpPower = 0f, jumpHeat = 0f;
+		float jumpImpulse = 0f, jumpDuration = 1.1f, jumpPower = 0f, jumpHeat = 0f;
 
 		foreach (PartSlot slot in Enum.GetValues(typeof(PartSlot)))
 		{
@@ -1218,8 +1251,11 @@ public partial class GarageUi : Control
 			dissipate += p.HeatDissipation;
 			idle += p.IdleHeatPerSec;
 			moveHeat += p.MoveHeatPerSec;
+			magazineBonus += Math.Max(0, p.MagazineBonus);
+			reloadSpeedBonus += Math.Max(0f, p.ReloadSpeedBonus);
 
-			if (p.MobilityModule == MobilityModuleKind.Thruster && p.DashSpeed > 0.1f)
+			if (p.DashSpeed > 0.1f
+			    && p.MobilityModule is MobilityModuleKind.Thruster or MobilityModuleKind.Both)
 			{
 				hasThruster = true;
 				if (p.DashSpeed >= dashSpeed)
@@ -1231,12 +1267,15 @@ public partial class GarageUi : Control
 					dashHeat = Math.Max(0f, p.DashHeat);
 				}
 			}
-			else if (p.MobilityModule == MobilityModuleKind.Booster && p.JumpImpulse > 0.1f)
+
+			if (p.JumpImpulse > 0.1f
+			    && p.MobilityModule is MobilityModuleKind.Booster or MobilityModuleKind.Both)
 			{
 				hasBooster = true;
 				if (p.JumpImpulse >= jumpImpulse)
 				{
 					jumpImpulse = p.JumpImpulse;
+					jumpDuration = Math.Max(0.08f, p.JumpDuration);
 					jumpPower = Math.Max(0f, p.JumpPowerCost);
 					jumpHeat = Math.Max(0f, p.JumpHeat);
 				}
@@ -1262,6 +1301,10 @@ public partial class GarageUi : Control
 					close = p.CloseTargeting;
 					scan = p.ScannerRange;
 					scanRes = p.ScannerResolution;
+					if (p.ScanPenetration != ScanPenetrationMode.Inherit)
+						scanPenetration = p.ScanPenetration;
+					if (p.ScanBlipStyle != ScanBlipStyle.Inherit)
+						scanBlipStyle = p.ScanBlipStyle;
 					break;
 				case PartSlot.Legs:
 					legMode = p.LegMode;
@@ -1272,6 +1315,16 @@ public partial class GarageUi : Control
 					sprintLoad = p.SprintPowerLoad;
 					loadRating = Math.Max(0f, p.LoadRating);
 					break;
+				default:
+					if (p.ScannerRange > 0.01f)
+						scanBonus += p.ScannerRange;
+					if (p.ScannerResolution > 0.001f)
+						scanResBonus += p.ScannerResolution;
+					if (p.ScanPenetration != ScanPenetrationMode.Inherit)
+						scanPenetration = p.ScanPenetration;
+					if (p.ScanBlipStyle != ScanBlipStyle.Inherit)
+						scanBlipStyle = p.ScanBlipStyle;
+					break;
 			}
 		}
 
@@ -1280,6 +1333,9 @@ public partial class GarageUi : Control
 			powerCap = 0f;
 			powerGen = 0f;
 		}
+
+		scan += scanBonus;
+		scanRes += scanResBonus;
 
 		reserved = Math.Max(0f, reserved);
 		var operational = Math.Max(0f, powerCap - reserved);
@@ -1306,6 +1362,10 @@ public partial class GarageUi : Control
 			CloseTargeting = close,
 			ScannerRange = scan,
 			ScannerResolution = scanRes,
+			ScanRequiresLos = scanPenetration == ScanPenetrationMode.LineOfSight,
+			ScanBlipStyle = scanBlipStyle,
+			MagazineBonus = magazineBonus,
+			ReloadSpeedBonus = reloadSpeedBonus,
 			WalkSpeed = Math.Max(2.2f, speed * 0.72f),
 			TurnRateDegrees = Math.Max(18f, turn * 0.9f),
 			FireRateMultiplier = Math.Max(0.25f, fire),
@@ -1323,6 +1383,7 @@ public partial class GarageUi : Control
 			DashHeat = dashHeat,
 			HasBooster = hasBooster,
 			JumpImpulse = jumpImpulse,
+			JumpDuration = jumpDuration,
 			JumpPowerCost = jumpPower,
 			JumpHeat = jumpHeat,
 			TotalWeight = totalWeight,
@@ -1346,5 +1407,19 @@ public partial class GarageUi : Control
 		PartSlot.Backpack => "Backpack",
 		PartSlot.Systems => "Systems",
 		_ => slot.ToString()
+	};
+
+	private static string FormatScanMode(ScanPenetrationMode mode) => mode switch
+	{
+		ScanPenetrationMode.LineOfSight => "LOS optical",
+		ScanPenetrationMode.Contact => "Through-wall",
+		_ => "Inherit"
+	};
+
+	private static string FormatScanBlip(ScanBlipStyle style) => style switch
+	{
+		ScanBlipStyle.GroundRing => "Ground ring",
+		ScanBlipStyle.WorldPip => "World pip",
+		_ => "Inherit"
 	};
 }

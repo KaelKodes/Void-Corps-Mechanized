@@ -25,7 +25,8 @@ Status labels:
 - **Mechanize** is the product title.
 - **MAP** is a manned pilot chassis.
 - **MAD** is an unmanned drone chassis.
-- Manufacturers license frames and components; they are not corps.
+- Manufacturers license frames and components; they are not corps and not factions.
+- **Universe framing (Cats vs Dogs):** see `.cursor/rules/void-corps-lore.mdc` and `CAMPAIGN_FOUNDATION.md` — Cat/Dog faction at start; Ashwhisk/Velhound faction-locked; Big Four cross-faction. Mech systems in this doc are unchanged by that lock.
 
 ## MAP assembly
 
@@ -51,8 +52,8 @@ The torso determines shoulder mounts, backpack mounts, and supported power-core 
 3. Heat
 4. Power — **hybrid preserved (build gate + combat pool)**
 5. Sensors and targeting
-6. Weapons — **melee + held shield + missile guidance split shipping** (full weapon pass still open)
-7. Abilities and utility (incl. shield generators)
+6. Weapons — **melee + held shield + missile guidance + ballistic magazines shipping**; ballistic/energy damage+heat identity and energy shields deferred
+7. Abilities and utility (incl. shield generators / energy shields)
 8. Assembly constraints and overall balance
 
 ---
@@ -299,7 +300,8 @@ Incoming attack
 **Proposed traits (open until Abilities review):**
 - Small global pool; may regenerate after a quiet period.
 - Power cost while active and/or recharging.
-- Energy weapons deal bonus damage to generator shields; ballistics remain stronger against structure.
+- Energy weapons deal bonus damage to generator shields; ballistics remain stronger against structure; energy also applies target heat — **deferred** until energy-shield pass (see Weapons — Ballistic vs Energy).
+- Physical vs energy shield split — **deferred** (held plates soak both families today).
 - Destroying the generator removes the pool.
 
 ## Why this complements durability
@@ -331,6 +333,45 @@ Melee vs held shield uses the normal hit order (soak → armor → structure).
 
 ---
 
+# Weapons — Ballistic vs Energy (July 21, 2026)
+
+## Combat identity (intent — damage pass deferred)
+
+Do **not** change hit damage / soak math until the energy-shield pass. Locked fantasy:
+
+| | **Ballistic** | **Energy** |
+|--|---------------|------------|
+| Structure / kit | Stronger damage | Weaker / baseline |
+| Target heat | Little / none | Applies heat to the target (pressure dissipation / overheat) |
+| Your sustain | Magazine + reload | Fire while power + heat allow (current model) |
+| vs physical plate | Contested later | Punches through / weak soak |
+| vs energy barrier | Punches through / weak soak | Contested later |
+
+Ghost-heat family tax (dual same-family arms) remains as today.
+
+## Magazines (ballistic — implementing)
+
+Energy weapons do **not** use magazines.
+
+Ballistic weapons:
+- Independent magazine per arm.
+- Auto-reload when empty.
+- Manual: hold **Reload** (`R`) + that arm’s fire button → reload that weapon (does not fire).
+- No movement / sprint modifier on reload speed.
+- Authored per part: `MagazineSize`, `ReloadTime`.
+- Utility components may later add mag size / reload speed (`MagazineBonus`, `ReloadSpeedBonus` hooks).
+
+## Shields — physical vs energy (deferred pass)
+
+Current held shields soak **both** families — too universal. Split direction:
+
+- **Physical (metal plate)** — blocks ballistic; energy punches through or barely soaks. Bulwark-style stays here.
+- **Energy (jackal-style barrier)** — blocks energy; ballistic punches through or barely soaks. New archetype (arm projector and/or generator pool).
+
+Generator shield pool + family damage/heat transfer ship in that focused pass. Stubs only until then.
+
+---
+
 # Missiles (guidance split — first pass)
 
 Missile abilities share `AbilityId.MissileSalvo` but aim via per-part `MissileGuidanceMode`:
@@ -342,6 +383,46 @@ Missile abilities share `AbilityId.MissileSalvo` but aim via per-part `MissileGu
 | **SensorContact** | Tap with TAB lock | Lock in acquire range (vision optional) + in weapon range |
 
 **Catalogue split (July 19, 2026):** Brimforge / Trinova / Lumina stay **Paint**. OuroTech seekers use sensor lock — Seeker / Needle / Whisper = **SensorVision**; Caliper = **SensorContact** (scanner track). Seekers home on the locked mech / focus band; mid-flight lock loss keeps last velocity. Vision vs contact is always a **weapon** property, not a global sensor rule.
+
+---
+
+# Sensors and targeting (contact scan — first pass)
+
+## Hard rule
+
+No MAP has permanent live X-ray / occlusion silhouette. Cover hides units until a scan pulse stamps a **last-known** blip.
+
+## Head = baseline passive scan
+
+Every living head runs a passive contact pulse within `ScannerRange`:
+
+- Marks **allies and enemies** (team-colored).
+- Blips freeze at pulse-time position for ~1.2–2.0s (scales with `ScannerResolution`), then fade.
+- Pulses recur on an interval (~2–4s; better resolution = more frequent).
+- Not a live mesh ghost — radar / last-known only.
+- Destroyed head → blind fallback (short range, LOS-only).
+- **World 3D blips stay off by default.** The pulse still writes `LastKnownContacts` for mini-map / cockpit radar.
+- Abilities call `SensorContactScan.RevealWorldBlips(duration)` to turn the passive 3D display on for a window (extends if re-triggered). Dedicated part: `AbilityId.ContactReveal` / Contact Sweep backpack. Debug: `ShowWorldBlips = true`.
+
+## Per-part mode and presentation
+
+| Field | Role |
+|-------|------|
+| `ScanPenetration` | `LineOfSight` (optical) vs `Contact` (through walls). **Depends on the part.** |
+| `ScanBlipStyle` | `WorldPip` vs `GroundRing` (and later cockpit-only). **Depends on the part.** |
+
+Baseline catalogue lean: Brimforge heads default **LOS**; most others default **Contact**. Systems/backpack enhancers may override mode/style and add range/resolution.
+
+## Component enhancers
+
+Systems (and future backpack links) with `ScannerRange` / `ScannerResolution` add to the head total while the head is alive. Examples: Needle Array (Ouro), Convoy Spotter Link (Trinova), Oracle Lattice (Lumina).
+
+Active force-pulse utilities can call the same stamp path later; they are not required for baseline awareness.
+
+## Vision vs scanner (unchanged split)
+
+- **Vision** (`VisionRange` / angle) — combat ID cone for guns / paint / SensorVision missiles.
+- **Scanner** — passive contact blips + SensorContact missile acquire range (with vision).
 
 ---
 
@@ -635,7 +716,7 @@ This section captures visual/rig issues discovered during the Fleet cockpit pass
 
 These are known issues to revisit only when their system enters review:
 
-- Scanner range and scanner resolution are displayed but do not drive acquisition.
+- Scanner range / resolution drive the head's passive contact-scan pulse (last-known blips). Live occlusion X-ray is retired.
 - Shroud changes appearance but does not currently change detection or targeting.
 - Garage preview duplicates runtime stat derivation.
 - No tonnage hard-block — Weight is soft by design.

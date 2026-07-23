@@ -115,21 +115,13 @@ public partial class HellfireTurret : StaticBody3D
 		};
 		AddChild(collision);
 
-		var steel = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.22f, 0.24f, 0.28f),
-			Metallic = 0.72f,
-			Roughness = 0.38f
-		};
-		var accent = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.55f, 0.18f, 0.12f),
-			Metallic = 0.4f,
-			Roughness = 0.45f,
-			EmissionEnabled = true,
-			Emission = _idleGlow,
-			EmissionEnergyMultiplier = 0.55f
-		};
+		var steel = SurfaceLibrary.Get(SurfaceLibrary.Kind.SteelDark, new Color(0.22f, 0.24f, 0.28f));
+		var accent = SurfaceLibrary.Flat(
+			new Color(0.55f, 0.18f, 0.12f),
+			metallic: 0.4f,
+			roughness: 0.45f,
+			emission: _idleGlow,
+			emissionEnergy: 0.55f);
 		_glowMat = accent;
 
 		var baseMesh = new MeshInstance3D
@@ -215,7 +207,7 @@ public partial class HellfireTurret : StaticBody3D
 
 		// Soft collapse — leave the wreck as lane cover silhouette.
 		Scale = new Vector3(1f, 0.55f, 1f);
-		SfxService.Play("weapon_hit", 0.7f, -4f);
+		SfxService.PlayImpactArmor(GlobalPosition, -4f);
 	}
 
 	private void RefreshStatus()

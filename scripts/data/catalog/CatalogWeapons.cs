@@ -11,60 +11,81 @@ public static class CatalogWeapons
 		var s = PartSlot.WeaponL;
 
 		// --- Brimforge ballistic ---
+		// Slow heavies: small mag, long reload. Autocannons: large mag, mid reload.
 		parts["wep_brin_slug"] = CatalogBuilders.Weapon("wep_brin_slug", "Slug Cannon", "brimforge", m, s, "cannon",
-			18, 1.4f, 38f, 40f, AimMode.Fixed, 8f, 12f, WeaponFamily.Ballistic);
+			18, 1.4f, 38f, 40f, AimMode.Fixed, 8f, 12f, WeaponFamily.Ballistic,
+			magazineSize: 12, reloadTime: 2.9f);
 		parts["wep_brin_maul"] = CatalogBuilders.Weapon("wep_brin_maul", "Maul Howitzer", "brimforge", m, s, "cannon",
-			28, 0.85f, 34f, 36f, AimMode.Fixed, 14f, 22f, WeaponFamily.Ballistic);
+			28, 0.85f, 34f, 36f, AimMode.Fixed, 14f, 22f, WeaponFamily.Ballistic,
+			magazineSize: 6, reloadTime: 3.5f);
 		parts["wep_brin_rivet"] = CatalogBuilders.Weapon("wep_brin_rivet", "Rivet Gun", "brimforge", m, s, "rifle",
-			7, 7.5f, 28f, 48f, AimMode.Fixed, 1.8f, 7f, WeaponFamily.Ballistic);
+			7, 7.5f, 28f, 48f, AimMode.Fixed, 1.8f, 7f, WeaponFamily.Ballistic,
+			magazineSize: 60, reloadTime: 2.4f);
 		parts["wep_brin_anvil"] = CatalogBuilders.Weapon("wep_brin_anvil", "Anvil Mortar", "brimforge", m, s, "cannon",
-			34, 0.65f, 42f, 28f, AimMode.Fixed, 18f, 28f, WeaponFamily.Ballistic);
+			34, 0.65f, 42f, 28f, AimMode.Fixed, 18f, 28f, WeaponFamily.Ballistic,
+			magazineSize: 5, reloadTime: 3.9f);
 		parts["wep_brin_chain"] = CatalogBuilders.Weapon("wep_brin_chain", "Chain Autocannon", "brimforge", m, s, "cannon",
-			11, 4.2f, 36f, 44f, AimMode.Fixed, 4.5f, 14f, WeaponFamily.Ballistic);
+			11, 4.2f, 36f, 44f, AimMode.Fixed, 4.5f, 14f, WeaponFamily.Ballistic,
+			magazineSize: 36, reloadTime: 2.7f);
 		parts["wep_brin_pile"] = CatalogBuilders.Weapon("wep_brin_pile", "Pile Driver", "brimforge", m, s, "cannon",
-			40, 0.5f, 22f, 32f, AimMode.Fixed, 22f, 32f, WeaponFamily.Ballistic);
+			40, 0.5f, 22f, 32f, AimMode.Fixed, 22f, 32f, WeaponFamily.Ballistic,
+			magazineSize: 4, reloadTime: 4.3f);
 		parts["wep_brin_scatter"] = CatalogBuilders.Weapon("wep_brin_scatter", "Scatter Bore", "brimforge", m, s, "cannon",
-			14, 2.2f, 24f, 38f, AimMode.Fixed, 9f, 16f, WeaponFamily.Ballistic);
+			14, 2.2f, 24f, 38f, AimMode.Fixed, 9f, 16f, WeaponFamily.Ballistic,
+			magazineSize: 10, reloadTime: 3.1f);
 		parts["wep_brin_deny"] = CatalogBuilders.Weapon("wep_brin_deny", "Deny-Asset Lance", "brimforge", m, s, "cannon",
-			22, 1.1f, 30f, 35f, AimMode.Fixed, 12f, 20f, WeaponFamily.Ballistic);
+			22, 1.1f, 30f, 35f, AimMode.Fixed, 12f, 20f, WeaponFamily.Ballistic,
+			magazineSize: 8, reloadTime: 3.3f);
 
 		// --- OuroTech precision ---
 		parts["wep_ouro_rifle"] = CatalogBuilders.Weapon("wep_ouro_rifle", "Needle Rifle", "ourotech", m, s, "rifle",
-			8, 6f, 50f, 70f, AimMode.Gimbaled, 2.2f, 6f, WeaponFamily.Ballistic);
+			8, 6f, 50f, 70f, AimMode.Gimbaled, 2.2f, 6f, WeaponFamily.Ballistic,
+			magazineSize: 30, reloadTime: 2.2f);
 		parts["wep_ouro_marksman"] = CatalogBuilders.Weapon("wep_ouro_marksman", "Marksman Caliper", "ourotech", m, s, "rifle",
 			16, 1.8f, 55f, 85f, AimMode.Gimbaled, 6f, 10f, WeaponFamily.Ballistic,
-			TargetingMode.AimedComponent);
+			TargetingMode.AimedComponent, magazineSize: 10, reloadTime: 2.8f);
 		parts["wep_ouro_stitch"] = CatalogBuilders.Weapon("wep_ouro_stitch", "Stitch Carbine", "ourotech", m, s, "rifle",
-			5, 9.5f, 40f, 75f, AimMode.Gimbaled, 1.4f, 5f, WeaponFamily.Ballistic);
+			5, 9.5f, 40f, 75f, AimMode.Gimbaled, 1.4f, 5f, WeaponFamily.Ballistic,
+			magazineSize: 48, reloadTime: 2.0f);
 		parts["wep_ouro_longneedle"] = CatalogBuilders.Weapon("wep_ouro_longneedle", "Longneedle", "ourotech", m, s, "rifle",
-			12, 2.4f, 62f, 90f, AimMode.Gimbaled, 4.5f, 9f, WeaponFamily.Ballistic);
+			12, 2.4f, 62f, 90f, AimMode.Gimbaled, 4.5f, 9f, WeaponFamily.Ballistic,
+			magazineSize: 12, reloadTime: 2.6f);
 		parts["wep_ouro_scalpel"] = CatalogBuilders.Weapon("wep_ouro_scalpel", "Scalpel Rail", "ourotech", m, s, "rifle",
 			20, 1.5f, 58f, 95f, AimMode.Gimbaled, 8f, 14f, WeaponFamily.Ballistic,
-			TargetingMode.AimedComponent);
+			TargetingMode.AimedComponent, magazineSize: 8, reloadTime: 3.0f);
 		parts["wep_ouro_pulse"] = CatalogBuilders.Weapon("wep_ouro_pulse", "Pulse Needle", "ourotech", m, s, "rifle",
-			6, 7.5f, 46f, 72f, AimMode.Gimbaled, 1.9f, 7f, WeaponFamily.Ballistic);
+			6, 7.5f, 46f, 72f, AimMode.Gimbaled, 1.9f, 7f, WeaponFamily.Ballistic,
+			magazineSize: 40, reloadTime: 2.1f);
 		parts["wep_ouro_duelist"] = CatalogBuilders.Weapon("wep_ouro_duelist", "Duelist Sidearm", "ourotech", m, s, "rifle",
-			10, 3.5f, 36f, 68f, AimMode.Gimbaled, 3.2f, 8f, WeaponFamily.Ballistic);
+			10, 3.5f, 36f, 68f, AimMode.Gimbaled, 3.2f, 8f, WeaponFamily.Ballistic,
+			magazineSize: 18, reloadTime: 2.3f);
 		parts["wep_ouro_whisper"] = CatalogBuilders.Weapon("wep_ouro_whisper", "Whisper Bore", "ourotech", m, s, "rifle",
-			9, 4f, 48f, 80f, AimMode.Gimbaled, 2.8f, 6f, WeaponFamily.Ballistic);
+			9, 4f, 48f, 80f, AimMode.Gimbaled, 2.8f, 6f, WeaponFamily.Ballistic,
+			magazineSize: 24, reloadTime: 2.2f);
 
 		// --- Trinova hybrid ---
 		parts["wep_tri_burst"] = CatalogBuilders.Weapon("wep_tri_burst", "Burst Pod", "trinova", m, s, "rifle",
-			6, 8f, 32f, 55f, AimMode.Fixed, 1.6f, 5f, WeaponFamily.Ballistic);
+			6, 8f, 32f, 55f, AimMode.Fixed, 1.6f, 5f, WeaponFamily.Ballistic,
+			magazineSize: 36, reloadTime: 2.2f);
 		parts["wep_tri_patrol"] = CatalogBuilders.Weapon("wep_tri_patrol", "Patrol Carbine", "trinova", m, s, "rifle",
-			7, 5.5f, 38f, 58f, AimMode.Fixed, 2f, 6f, WeaponFamily.Ballistic);
+			7, 5.5f, 38f, 58f, AimMode.Fixed, 2f, 6f, WeaponFamily.Ballistic,
+			magazineSize: 28, reloadTime: 2.3f);
 		parts["wep_tri_convoy"] = CatalogBuilders.Weapon("wep_tri_convoy", "Convoy Autogun", "trinova", m, s, "rifle",
-			5, 10f, 30f, 52f, AimMode.Fixed, 1.3f, 5f, WeaponFamily.Ballistic);
+			5, 10f, 30f, 52f, AimMode.Fixed, 1.3f, 5f, WeaponFamily.Ballistic,
+			magazineSize: 50, reloadTime: 2.0f);
 		parts["wep_tri_workhorse"] = CatalogBuilders.Weapon("wep_tri_workhorse", "Workhorse Cannon", "trinova", m, s, "cannon",
-			14, 2f, 36f, 42f, AimMode.Fixed, 6f, 11f, WeaponFamily.Ballistic);
+			14, 2f, 36f, 42f, AimMode.Fixed, 6f, 11f, WeaponFamily.Ballistic,
+			magazineSize: 14, reloadTime: 2.8f);
 		parts["wep_tri_hybrid"] = CatalogBuilders.Weapon("wep_tri_hybrid", "Hybrid Projector", "trinova", m, s, "energy",
 			9, 3.5f, 40f, 60f, AimMode.Gimbaled, 4f, 10f, WeaponFamily.Energy);
 		parts["wep_tri_fleet"] = CatalogBuilders.Weapon("wep_tri_fleet", "Fleet Softgun", "trinova", m, s, "rifle",
-			8, 4.5f, 44f, 62f, AimMode.Gimbaled, 2.5f, 7f, WeaponFamily.Ballistic);
+			8, 4.5f, 44f, 62f, AimMode.Gimbaled, 2.5f, 7f, WeaponFamily.Ballistic,
+			magazineSize: 26, reloadTime: 2.3f);
 		parts["wep_tri_anchor"] = CatalogBuilders.Weapon("wep_tri_anchor", "Anchor Shot", "trinova", m, s, "cannon",
-			20, 1.2f, 33f, 40f, AimMode.Fixed, 9f, 15f, WeaponFamily.Ballistic);
+			20, 1.2f, 33f, 40f, AimMode.Fixed, 9f, 15f, WeaponFamily.Ballistic,
+			magazineSize: 8, reloadTime: 3.2f);
 
-		// --- Lumina energy ---
+		// --- Lumina energy (no magazines) ---
 		parts["wep_lum_arc"] = CatalogBuilders.Weapon("wep_lum_arc", "Arc Lance", "lumina", m, s, "energy",
 			12, 2.5f, 45f, 60f, AimMode.Gimbaled, 7f, 14f, WeaponFamily.Energy);
 		parts["wep_lum_volt"] = CatalogBuilders.Weapon("wep_lum_volt", "Volt Needle", "lumina", m, s, "energy",

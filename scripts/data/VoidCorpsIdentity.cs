@@ -15,7 +15,7 @@ public static class VoidCorpsIdentity
 	public const string ProductTitle = "Void Corps: Mechanize";
 	public const string ShortTitle = "MECHANIZE";
 	/// <summary>Player-facing build label (semver).</summary>
-	public const string GameVersion = "0.2.2.2";
+	public const string GameVersion = "0.2.2.3";
 
 	/// <summary>Manned combat chassis — Mechanized Armor Pilot.</summary>
 	public const string MapAcronym = "MAP";
@@ -63,39 +63,39 @@ public static class VoidCorpsIdentity
 
 	public static readonly ClaimSite[] ClaimSites =
 	[
-		// --- Map gen 3.0 / Medium floor ---
+		// --- Map gen 3.5 / Medium floor (FPS layers) ---
 		new ClaimSite(
 			"VC-CLAIM 7-ORBITAL",
 			"Dust Claim 7-Orbital",
 			"Unregistered rock in a disputed belt. First corp to silence opposing MAP detachments files the claim.",
 			ArenaSize.Medium,
-			3.3f),
+			3.5f),
 		new ClaimSite(
 			"VC-CLAIM GRID-ASH",
 			"Grid Ash Outpost",
 			"Abandoned relay pad cut into trenches and service tunnels. Branch the decks, deny the junction, take the salvage rights.",
 			ArenaSize.Medium,
-			3.1f),
+			3.5f),
 		new ClaimSite(
 			"VC-CLAIM BLACK-WHARF",
 			"Black Wharf Shelf",
 			"Cold industrial shelf under a dead docking spine. Fight the freight deck, underpass, and ledge — hold the pad.",
 			ArenaSize.Medium,
-			3.2f),
+			3.5f),
 
-		// --- Map gen 2.0 ---
+		// --- Map gen 3.5 / layered industrial + plaza ---
 		new ClaimSite(
 			"VC-CLAIM SLAG-FOUNDRY",
 			"Slag Foundry Yard",
 			"Brimforge pour-floor gone dark. Lane the slag pits, deny the rival detachment, claim the furnace rights.",
 			ArenaSize.Medium,
-			2.0f),
+			3.5f),
 		new ClaimSite(
 			"VC-CLAIM SPIRE-NULL",
 			"Spire-Null Plaza",
 			"A dead corporate megacity core. Fight the plaza under glass towers — whoever holds the pad owns the skyline claim.",
 			ArenaSize.Large,
-			2.0f),
+			3.5f),
 
 		// --- Sabotage corridor (mission-exclusive — never random/skirmish/campaign pool) ---
 		new ClaimSite(
@@ -103,7 +103,7 @@ public static class VoidCorpsIdentity
 			"Echelon Approach",
 			"Long industrial approach under automated fire lattices. Reach the uplink. Plant. Call for pickup.",
 			ArenaSize.Medium,
-			2.3f,
+			2.5f,
 			sabotageOnly: true),
 
 		// --- Escort haul-line (mission-exclusive — long drill run) ---
@@ -112,7 +112,7 @@ public static class VoidCorpsIdentity
 			"Drift Haul-Line",
 			"A deep ore drift with a single haul-line to the surface pad. Walk the rig down, guard the dig, haul it home.",
 			ArenaSize.Medium,
-			2.3f,
+			2.5f,
 			missionOnly: true),
 	];
 

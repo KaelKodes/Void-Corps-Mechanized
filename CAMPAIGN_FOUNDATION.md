@@ -1,14 +1,45 @@
 # Campaign Foundation
 
-This is a first-pass implementation pass around the new story spine. It is not the final campaign spec.
+This is a first-pass implementation pass around the story spine. It is not the final campaign spec.
+
+## Universe lock (July 22, 2026) — Cats vs Dogs
+
+**Source of truth for framing:** `.cursor/rules/void-corps-lore.mdc`.
+
+Locked direction:
+
+- Setting is **cat-folk vs dog-folk** from different homeworlds in the **same solar system** (people/planet names TBD).
+- Campaign start identity = **faction pick (Cat / Dog)**, not Big Four manufacturer affiliation.
+- **Ashwhisk** = Cat primary manufacturer (faction-locked).
+- **Velhound** = Dog primary manufacturer (faction-locked).
+- **Big Four** (Brimforge, OuroTech, Trinova, Lumina) remain independent cross-faction suppliers.
+- Player remains a hired pilot/contractor inside a frontier company — not a corp and not “the faction.”
+
+### Not done yet (follow-up slices)
+
+- Ashwhisk / Velhound shop and loaner gates by faction (campaign agent)
+- Academy / convention / employer copy pass away from Earth-human and “Big Four as identity”
+
+Scaffolding below still mentions manufacturer affiliation / convention trials; treat that as **legacy plumbing to re-aim** at faction + employer companies, not as competing lore.
+
+### Faction pick + Phase 1 bags (July 22, 2026)
+
+- `FactionId` + `PilotPortraitIndex` on `PlayerProfile` (schema 6). Locked once set.
+- Forced create: callsign + Cat/Dog + portrait before any mode (`faction_pick.tscn`).
+- Per-slot bags: `campaign_profile.json`, `roguelike_profile.json`, `skirmish_profile.json`.
+- Skirmish scrap/unlocks receive one-way copies from campaign/RL earns; skirmish never writes back.
+- See `docs/CATS_DOGS_PHASE1_FOUNDATION.md`. Galaxy hub is Phase 2 (gated).
+- Titans / Warning end threats: **The Fleas** (`docs/FLEA_INCURSIONS.md`) — not faction kit, not default rival-corp Titans.
+- Ashwhisk / Velhound shop gates deferred to campaign agent.
 
 ## Story framing now in-project
 
-- Player-facing framing now supports:
+- Player-facing framing currently still supports (legacy / transitional):
   - MAP Cadet Program tutorial
   - graduation into active service
-  - Big Four manufacturer convention / trial premise
-  - covert merc-corp operations as a manufacturer's shadow arm
+  - Big Four manufacturer convention / trial premise *(superseded as identity — keep as optional market/trial content only)*
+  - frontier Job Convention / employer-company hire *(keep; aligns with lock)*
+  - covert ops as someone’s shadow arm *(re-aim: company/corp, not manufacturer nation)*
 - The currently playable slice is explicitly framed as **active operations**, not the full cadet-to-convention pipeline yet.
 
 ## Implemented foundation

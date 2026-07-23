@@ -43,7 +43,10 @@ public partial class EnemyTargetSchematic : Control
 	private Label? _header;
 	private Label? _sub;
 	private Label? _hint;
+	private Control? _dirArrowHost;
 	private float _pulse;
+	private float _arrowAngle;
+	private bool _arrowVisible;
 	private MechController? _pilot;
 
 	[Signal] public delegate void FocusRequestedEventHandler(int slot);
@@ -69,6 +72,10 @@ public partial class EnemyTargetSchematic : Control
 				continue;
 			zone.FocusFrame.Modulate = new Color(1f, 1f, 1f, pulse);
 		}
+
+		UpdateOffViewArrow();
+		if (_dirArrowHost != null)
+			_dirArrowHost.QueueRedraw();
 	}
 
 	public void BindPilot(MechController? pilot) => _pilot = pilot;
@@ -77,6 +84,8 @@ public partial class EnemyTargetSchematic : Control
 	{
 		_pilot = pilot;
 		var target = pilot?.SensorLockTarget;
+		var mechTarget = pilot?.SensorLockMech;
+		var fodder = target as SupportUnit;
 		var focus = pilot?.SensorFocusSlot;
 
 		if (_binds != null)
@@ -89,7 +98,9 @@ public partial class EnemyTargetSchematic : Control
 
 		if (_header != null)
 		{
-			_header.Text = target == null ? "// SENSORS" : $"LOCK  ·  {Callsign(target)}";
+			_header.Text = target == null
+				? "// SENSORS"
+				: $"LOCK  ·  {Callsign(target)}";
 			_header.Modulate = target == null ? MechUiTheme.Accent : LockColor;
 		}
 
@@ -98,7 +109,9 @@ public partial class EnemyTargetSchematic : Control
 			_sub.Text = target == null
 				? "Acquire contact"
 				: pilot!.SensorLockInVision
-					? "TRACKING  ·  click band to focus"
+					? fodder != null
+						? "TRACKING  ·  fodder contact"
+						: "TRACKING  ·  click band to focus"
 					: "CONTACT  ·  outside vision cone";
 			_sub.Modulate = target != null && pilot!.SensorLockInVision
 				? LockColor
@@ -109,13 +122,20 @@ public partial class EnemyTargetSchematic : Control
 		{
 			_hint.Text = target == null
 				? ""
-				: focus.HasValue
-					? $"FOCUS  {ShortSlot(focus.Value)}"
-					: "Select a band";
+				: fodder != null
+					? "FODDER  ·  single pool"
+					: focus.HasValue
+						? $"FOCUS  {ShortSlot(focus.Value)}"
+						: "Select a band";
 		}
 
-		foreach (var slot in _zones.Keys)
-			RefreshZone(target, slot, focus);
+		if (fodder != null)
+			RefreshFodderZones(fodder);
+		else
+		{
+			foreach (var slot in _zones.Keys)
+				RefreshZone(mechTarget, slot, focus);
+		}
 	}
 
 	private void Build()
@@ -220,6 +240,16 @@ public partial class EnemyTargetSchematic : Control
 		_hint.Position = new Vector2(0, ContentHeight - 22);
 		_hint.Size = new Vector2(ContentWidth, 22);
 		inner.AddChild(_hint);
+
+		_dirArrowHost = new Control
+		{
+			Name = "LockDirArrow",
+			MouseFilter = MouseFilterEnum.Ignore,
+			Visible = false
+		};
+		_dirArrowHost.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+		_dirArrowHost.Draw += OnDirArrowDraw;
+		inner.AddChild(_dirArrowHost);
 	}
 
 	private void AddZone(Control parent, PartSlot slot, string title, Vector2 size, Vector2 position)
@@ -346,6 +376,15 @@ public partial class EnemyTargetSchematic : Control
 
 		zone.Hit.Disabled = target == null;
 		zone.FocusFrame.Visible = target != null && focus == slot;
+		zone.TitleLabel.Text = slot switch
+		{
+			PartSlot.Head => "HEAD",
+			PartSlot.WeaponL => "L ARM",
+			PartSlot.WeaponR => "R ARM",
+			PartSlot.Torso => "TORSO",
+			PartSlot.Legs => "LEGS",
+			_ => slot.ToString().ToUpperInvariant()
+		};
 
 		if (target == null)
 		{
@@ -386,14 +425,136 @@ public partial class EnemyTargetSchematic : Control
 			focused ? FocusColor : ratio < 0.35f ? FillCritical : PlateBorder));
 	}
 
-	private static string Callsign(MechController mech)
+	private void RefreshFodderZones(SupportUnit unit)
 	{
-		if (mech.ChassisClass == MechChassisClass.Titan)
-			return "TITAN";
-		var name = mech.Name.ToString();
-		if (name.StartsWith("Enemy", System.StringComparison.Ordinal))
-			return name.ToUpperInvariant();
-		return name.Length <= 14 ? name.ToUpperInvariant() : name[..14].ToUpperInvariant();
+		foreach (var slot in _zones.Keys)
+		{
+			if (!_zones.TryGetValue(slot, out var zone))
+				continue;
+
+			zone.Hit.Disabled = true;
+			zone.FocusFrame.Visible = false;
+
+			if (slot != PartSlot.Torso)
+			{
+				zone.Fill.Color = FillMissing;
+				SetFillHeight(zone, 1f);
+				zone.ValueLabel.Text = "—";
+				zone.Plate.AddThemeStyleboxOverride("panel", MakePlateStyle(new Color(0.3f, 0.35f, 0.4f, 0.7f)));
+				continue;
+			}
+
+			var cur = Mathf.Max(0f, unit.Health?.CurrentHealth ?? 0f);
+			var max = Mathf.Max(1f, unit.Health?.MaxHealth ?? 1f);
+			var ratio = Mathf.Clamp(cur / max, 0f, 1f);
+			zone.Fill.Color = MixFill(ratio);
+			SetFillHeight(zone, ratio);
+			zone.ValueLabel.Text = $"{Mathf.CeilToInt(cur)}/{Mathf.CeilToInt(max)}";
+			zone.TitleLabel.Text = "HULL";
+			zone.Plate.AddThemeStyleboxOverride("panel", MakePlateStyle(
+				ratio < 0.35f ? FillCritical : LockColor));
+		}
+
+		if (_zones.TryGetValue(PartSlot.Torso, out var torso))
+			torso.TitleLabel.Text = "HULL";
+	}
+
+	private void UpdateOffViewArrow()
+	{
+		_arrowVisible = false;
+		if (_dirArrowHost == null)
+			return;
+
+		var target = _pilot?.SensorLockTarget;
+		if (target == null || !GodotObject.IsInstanceValid(target) || _pilot == null)
+		{
+			_dirArrowHost.Visible = false;
+			return;
+		}
+
+		var cam = _pilot.GetViewport()?.GetCamera3D();
+		if (cam == null || !cam.Current)
+		{
+			_dirArrowHost.Visible = false;
+			return;
+		}
+
+		var aim = CombatChevronMarkers.ResolveAimPoint(target);
+		var to = aim - cam.GlobalPosition;
+		if (to.LengthSquared() < 0.01f)
+		{
+			_dirArrowHost.Visible = false;
+			return;
+		}
+
+		var forward = -cam.GlobalTransform.Basis.Z;
+		var inFront = to.Normalized().Dot(forward.Normalized()) > 0.08f;
+		if (inFront)
+		{
+			var screen = cam.UnprojectPosition(aim);
+			var rect = cam.GetViewport().GetVisibleRect();
+			var margin = 48f;
+			var onScreen = screen.X >= rect.Position.X + margin
+			               && screen.X <= rect.End.X - margin
+			               && screen.Y >= rect.Position.Y + margin
+			               && screen.Y <= rect.End.Y - margin;
+			if (onScreen)
+			{
+				_dirArrowHost.Visible = false;
+				return;
+			}
+		}
+
+		// Flat angle relative to camera yaw — 0 = ahead, +π/2 = right, etc.
+		var toFlat = new Vector3(to.X, 0f, to.Z);
+		var fwdFlat = new Vector3(forward.X, 0f, forward.Z);
+		if (toFlat.LengthSquared() < 0.0001f || fwdFlat.LengthSquared() < 0.0001f)
+		{
+			_dirArrowHost.Visible = false;
+			return;
+		}
+
+		toFlat = toFlat.Normalized();
+		fwdFlat = fwdFlat.Normalized();
+		var rightFlat = new Vector3(fwdFlat.Z, 0f, -fwdFlat.X);
+		var x = toFlat.Dot(rightFlat);
+		var z = toFlat.Dot(fwdFlat);
+		_arrowAngle = Mathf.Atan2(x, z);
+		_arrowVisible = true;
+		_dirArrowHost.Visible = true;
+	}
+
+	private void OnDirArrowDraw()
+	{
+		if (_dirArrowHost == null || !_arrowVisible)
+			return;
+
+		var center = _dirArrowHost.Size * 0.5f;
+		var radius = Mathf.Min(_dirArrowHost.Size.X, _dirArrowHost.Size.Y) * 0.34f;
+		var tip = center + new Vector2(Mathf.Sin(_arrowAngle), -Mathf.Cos(_arrowAngle)) * radius;
+		var back = center + new Vector2(Mathf.Sin(_arrowAngle), -Mathf.Cos(_arrowAngle)) * (radius * 0.42f);
+		var side = new Vector2(Mathf.Cos(_arrowAngle), Mathf.Sin(_arrowAngle)) * 14f;
+		var left = back - side;
+		var right = back + side;
+
+		var pulse = 0.7f + 0.3f * (0.5f + 0.5f * Mathf.Sin(_pulse * 1.4f));
+		var color = new Color(1f, 0.18f, 0.14f, pulse);
+		_dirArrowHost.DrawColoredPolygon([tip, left, right], color);
+		_dirArrowHost.DrawCircle(center, 3.5f, new Color(1f, 0.35f, 0.28f, 0.85f));
+	}
+
+	private static string Callsign(Node3D node) => node switch
+	{
+		MechController mech when mech.ChassisClass == MechChassisClass.Titan => "TITAN",
+		MechController mech => TruncateName(mech.Name),
+		SupportUnit unit => TruncateName(unit.Data?.DisplayName ?? unit.UnitId),
+		_ => "CONTACT"
+	};
+
+	private static string TruncateName(string name)
+	{
+		var upper = name.ToUpperInvariant();
+		return upper.Length <= 14 ? upper : upper[..14];
 	}
 
 	private static void SetFillHeight(Zone zone, float ratio)

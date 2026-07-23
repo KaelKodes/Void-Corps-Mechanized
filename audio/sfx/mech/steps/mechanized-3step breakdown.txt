@@ -1,0 +1,4 @@
+mechanized-3step.mp3 — mech footfall pack
+step1  0.0  – 1.05
+step2  1.05 – 1.95
+step3  1.95 – 2.70

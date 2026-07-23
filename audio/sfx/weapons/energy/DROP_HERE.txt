@@ -1,0 +1,16 @@
+Energy lasers — ONE fixed clip per gun (not random).
+
+  energy_laser_01  →  Hybrid Projector   (wep_tri_hybrid)
+  energy_laser_02  →  Arc Lance          (wep_lum_arc)
+  energy_laser_03  →  Volt Needle        (wep_lum_volt)
+  energy_laser_04  →  Prism Beam         (wep_lum_prism)
+  energy_laser_05  →  Surge Coil         (wep_lum_surge)
+  energy_laser_06  →  Ghost Arc          (wep_lum_ghost)
+  energy_laser_07  →  Oracle Ray         (wep_lum_oracle)
+  energy_laser_08  →  Spark Cascade      (wep_lum_spark)
+  energy_laser_09  →  Well Emitter       (wep_lum_well)
+  energy_laser_10  →  support towers
+  energy_laser_11  →  fallback
+
+Full clip plays; rapid fire layers (does not cut).
+Tell Kyle which gun should swap to which number if the pairing feels wrong.

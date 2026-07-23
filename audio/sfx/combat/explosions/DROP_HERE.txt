@@ -1,0 +1,20 @@
+﻿Destruction / explosion one-shots (wired):
+
+Small (props / light shatter):
+  destroy_ceramic.mp3
+  destroy_wood_crate.mp3
+  destroy_crunch_universal.mp3
+
+Medium (cover chunks / concrete):
+  destroy_concrete.mp3
+  destroy_crunch_universal.mp3
+  explosion_concrete_glass.mp3
+
+Heavy (buildings / self-destruct):
+  explosion_mortar.mp3
+  explosion_bomb_close.mp3
+  explosion_medium_distant.mp3
+  explosion_concrete_glass.mp3
+
+Scale is picked from ShatterBurst size × piece count.
+Ceramic/wood also reserved for future foot-crush props.

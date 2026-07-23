@@ -70,6 +70,18 @@ public partial class PartData : Resource
 	[Export] public float HeatPerShot { get; set; }
 	/// <summary>Operational power spent once per successful weapon shot.</summary>
 	[Export] public float PowerPerShot { get; set; }
+	/// <summary>
+	/// Ballistic magazine capacity. 0 = no magazine (energy / melee / non-guns).
+	/// </summary>
+	[Export] public int MagazineSize { get; set; }
+	/// <summary>Seconds to refill a ballistic magazine. Ignored when <see cref="MagazineSize"/> is 0.</summary>
+	[Export] public float ReloadTime { get; set; }
+	/// <summary>Utility bonus added to ballistic magazine size while this part is alive.</summary>
+	[Export] public int MagazineBonus { get; set; }
+	/// <summary>
+	/// Utility reload speed bonus. Effective reload = ReloadTime / (1 + sum of bonuses).
+	/// </summary>
+	[Export] public float ReloadSpeedBonus { get; set; }
 	/// <summary>Burst spend on ability activate, or per-second drain while channelling pulse repair.</summary>
 	[Export] public float AbilityPowerLoad { get; set; }
 	[Export] public float AbilityHeatBurst { get; set; }
@@ -88,6 +100,13 @@ public partial class PartData : Resource
 	[Export] public float CloseTargeting { get; set; }
 	[Export] public float ScannerRange { get; set; }
 	[Export] public float ScannerResolution { get; set; }
+	/// <summary>
+	/// Passive contact-scan cover rule. Heads set baseline; Systems/Backpack may override
+	/// with a non-<see cref="ScanPenetrationMode.Inherit"/> value. Live X-ray is never granted.
+	/// </summary>
+	[Export] public ScanPenetrationMode ScanPenetration { get; set; } = ScanPenetrationMode.Inherit;
+	/// <summary>Last-known blip presentation. Heads set baseline; enhancers may override.</summary>
+	[Export] public ScanBlipStyle ScanBlipStyle { get; set; } = ScanBlipStyle.Inherit;
 
 	/// <summary>Mass units. Soft mobility constraint vs leg LoadRating.</summary>
 	[Export] public float Weight { get; set; }
@@ -107,8 +126,13 @@ public partial class PartData : Resource
 	[Export] public float DashCooldown { get; set; } = 1.2f;
 	[Export] public float DashPowerCost { get; set; }
 	[Export] public float DashHeat { get; set; }
+	/// <summary>Climb thrust while boosters fire (m/s target up-rate).</summary>
 	[Export] public float JumpImpulse { get; set; }
+	/// <summary>Booster fuel — seconds of hold-to-thrust flight before landing refill.</summary>
+	[Export] public float JumpDuration { get; set; } = 1.1f;
+	/// <summary>Power draw per second while thrusting (sprint-style continuous load).</summary>
 	[Export] public float JumpPowerCost { get; set; }
+	/// <summary>Heat per second while thrusting.</summary>
 	[Export] public float JumpHeat { get; set; }
 
 	public bool GrantsActiveAbility => AbilityKind == AbilityKind.Active && AbilityId != AbilityId.None;

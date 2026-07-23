@@ -257,7 +257,7 @@ public partial class FieldPartCrate : Area3D
 		{
 			_busy = false;
 			_hold = 0f;
-			SfxService.Play("alarm", 1.1f, -6f);
+			SfxService.PlayUiError(UiErrorTone.DeeDoo);
 			return;
 		}
 

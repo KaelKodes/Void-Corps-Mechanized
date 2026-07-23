@@ -1,0 +1,2 @@
+mechanized-2step.mp3 — multi-stomp pack (hex cadence)
+Labeled multi in step_kind.txt. Bipeds do not use this file.

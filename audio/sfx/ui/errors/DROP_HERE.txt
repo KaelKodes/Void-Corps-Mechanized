@@ -1,0 +1,8 @@
+﻿UI error tones (wired):
+
+  QuickErrorBloop.mp3  — soft short bloop (light deny / empty sensor)
+  IncorrectError.mp3   — wrong-answer buzz (illegal equip / bad input)
+  DeeDooError.mp3      — two-tone error (blocked / unavailable)
+  BuzzBuzzError.mp3    — double buzz (hard fail / break / overheat cut)
+
+Call via SfxService.PlayUiError(UiErrorTone.…); plays on the Ui bus.

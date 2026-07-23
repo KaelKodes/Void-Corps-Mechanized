@@ -7,7 +7,7 @@ namespace Mechanize;
 /// Maps cockpit dashboard meshes to combat HUD panels while in first-person (Fleet torso).
 /// Screen_Threat → sensors, Screen_Self → integrity,
 /// Screen_WingR → weapons/modules + run strip, Screen_WingL → claim header + map placeholder.
-/// Glass: arm heat + objective/flavor. Stick handle: P / Esc prompts.
+/// Glass: chassis heat + operational power + objective/flavor. Stick handle: P / Esc prompts.
 /// </summary>
 public partial class CockpitDiegeticHud : Node
 {

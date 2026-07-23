@@ -4,7 +4,8 @@ using Godot;
 namespace Mechanize;
 
 /// <summary>
-/// Heat pool plus rechargeable operational power pool.
+/// Chassis heat pool plus rechargeable operational power pool.
+/// Weapons feed the shared heat pool; only the MAP dissipates it.
 /// Capacity gates installation; generation refills CurrentPower up to OperationalMax.
 /// </summary>
 public partial class MechPowerHeat : Node
@@ -30,10 +31,7 @@ public partial class MechPowerHeat : Node
 		IsPowerAuthority ? Stats.OperationalMax : _replicatedOperationalMax;
 
 	public float HeatRatio => Stats.HeatCap <= 0.01f ? 0f : CurrentHeat / Stats.HeatCap;
-	public float ArmHeatL { get; private set; }
-	public float ArmHeatR { get; private set; }
-	public float ArmHeatRatioL => Stats.HeatCap <= 0.01f ? 0f : Mathf.Clamp(ArmHeatL / Stats.HeatCap, 0f, 1f);
-	public float ArmHeatRatioR => Stats.HeatCap <= 0.01f ? 0f : Mathf.Clamp(ArmHeatR / Stats.HeatCap, 0f, 1f);
+
 	public float PowerRatio
 	{
 		get
@@ -109,16 +107,12 @@ public partial class MechPowerHeat : Node
 		{
 			_drainRates.Clear();
 			CurrentHeat = 0f;
-			ArmHeatL = 0f;
-			ArmHeatR = 0f;
 			_overheated = false;
 			CurrentPower = Stats.OperationalMax;
 			return;
 		}
 
 		CurrentHeat = Mathf.Clamp(CurrentHeat, 0f, Stats.HeatCap);
-		ArmHeatL = Mathf.Clamp(ArmHeatL, 0f, Stats.HeatCap);
-		ArmHeatR = Mathf.Clamp(ArmHeatR, 0f, Stats.HeatCap);
 		CurrentPower = Mathf.Clamp(CurrentPower, 0f, Stats.OperationalMax);
 		SyncOverheatFlag();
 	}
@@ -134,10 +128,6 @@ public partial class MechPowerHeat : Node
 		CurrentHeat += stats.IdleHeatPerSec * dt;
 		CurrentHeat -= stats.HeatDissipation * dt;
 		CurrentHeat = Mathf.Clamp(CurrentHeat, 0f, stats.HeatCap);
-
-		var armDecay = stats.HeatDissipation * dt;
-		ArmHeatL = Mathf.Max(0f, ArmHeatL - armDecay);
-		ArmHeatR = Mathf.Max(0f, ArmHeatR - armDecay);
 		SyncOverheatFlag();
 
 		// Generate, then apply sustained drains (sprint / pulse repair / future shields).
@@ -186,24 +176,6 @@ public partial class MechPowerHeat : Node
 		SyncOverheatFlag();
 	}
 
-	/// <summary>Apply heat from a weapon arm to the global pool and that arm's bracket meter.</summary>
-	public void AddArmHeat(PartSlot slot, float amount)
-	{
-		if (amount <= 0f || _assembler == null)
-			return;
-
-		AddHeat(amount);
-		switch (slot)
-		{
-			case PartSlot.WeaponL:
-				ArmHeatL = Mathf.Min(Stats.HeatCap, ArmHeatL + amount);
-				break;
-			case PartSlot.WeaponR:
-				ArmHeatR = Mathf.Min(Stats.HeatCap, ArmHeatR + amount);
-				break;
-		}
-	}
-
 	private void SyncOverheatFlag()
 	{
 		if (_assembler == null)
@@ -243,32 +215,4 @@ public partial class MechPowerHeat : Node
 		!_overheated && Stats.CanSprint && EffectiveOperationalMax > 0.01f && CurrentPower > 0.5f;
 
 	public bool CanUseAbilities => !_overheated && CurrentPower > 0.5f;
-
-	/// <summary>
-	/// Where to paint the OVERHEAT cue: under a leading arm heat bar, or under the
-	/// chassis 60%+ heat bar when the pool overheated without a clear arm culprit.
-	/// </summary>
-	public OverheatCue ResolveOverheatCue()
-	{
-		if (!_overheated)
-			return OverheatCue.None;
-
-		var l = ArmHeatRatioL;
-		var r = ArmHeatRatioR;
-		const float minArm = 0.45f;
-		const float lead = 0.12f;
-		if (l >= minArm && l >= r + lead)
-			return OverheatCue.ArmL;
-		if (r >= minArm && r >= l + lead)
-			return OverheatCue.ArmR;
-		return OverheatCue.Chassis;
-	}
-}
-
-public enum OverheatCue
-{
-	None,
-	ArmL,
-	ArmR,
-	Chassis
 }

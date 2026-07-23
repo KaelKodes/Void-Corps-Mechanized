@@ -8,6 +8,8 @@ public sealed class ProfileSlotSummary
 	public bool Occupied;
 	public string AccountHandle = "";
 	public long LastPlayedUnix;
+	public int Faction;
+	public int PortraitIndex;
 }
 
 public sealed class ProfileManifest
@@ -33,7 +35,9 @@ public sealed class ProfileManifest
 			{
 				["occupied"] = slot.Occupied,
 				["handle"] = slot.AccountHandle,
-				["last_played"] = slot.LastPlayedUnix
+				["last_played"] = slot.LastPlayedUnix,
+				["faction"] = slot.Faction,
+				["portrait"] = slot.PortraitIndex
 			});
 		}
 
@@ -72,6 +76,8 @@ public sealed class ProfileManifest
 			m.Slots[i].Occupied = d.ContainsKey("occupied") && d["occupied"].AsBool();
 			m.Slots[i].AccountHandle = d.ContainsKey("handle") ? d["handle"].AsString() : "";
 			m.Slots[i].LastPlayedUnix = d.ContainsKey("last_played") ? d["last_played"].AsInt64() : 0;
+			m.Slots[i].Faction = d.ContainsKey("faction") ? d["faction"].AsInt32() : 0;
+			m.Slots[i].PortraitIndex = d.ContainsKey("portrait") ? d["portrait"].AsInt32() : 0;
 			i++;
 		}
 
@@ -97,7 +103,7 @@ public static class SaveService
 	public const string ManifestPath = "user://profiles/manifest.json";
 
 	/// <summary>Compat aliases — resolve to the active slot.</summary>
-	public static string SavePath => ProfilePath(ActiveSlot);
+	public static string SavePath => CampaignProfilePath(ActiveSlot);
 	public static string RoguelikeSavePath => RoguelikePath(ActiveSlot);
 
 	private static ProfileManifest? _manifest;
@@ -114,13 +120,33 @@ public static class SaveService
 	}
 
 	public static string SlotDir(int slot) => $"{ProfilesRoot}/slot_{ClampSlot(slot)}";
-	public static string ProfilePath(int slot) => $"{SlotDir(slot)}/profile.json";
+	/// <summary>Campaign economy bag (solar). Legacy <c>profile.json</c> is migrated on load.</summary>
+	public static string CampaignProfilePath(int slot) => $"{SlotDir(slot)}/campaign_profile.json";
+	public static string LegacyMainProfilePath(int slot) => $"{SlotDir(slot)}/profile.json";
+	/// <summary>Alias for campaign bag path.</summary>
+	public static string ProfilePath(int slot) => CampaignProfilePath(slot);
 	public static string RoguelikePath(int slot) => $"{SlotDir(slot)}/roguelike_profile.json";
+	public static string SkirmishPath(int slot) => $"{SlotDir(slot)}/skirmish_profile.json";
 	public static string SolarCampaignPath(int slot) => $"{SlotDir(slot)}/solar_campaign.json";
 	public static string CampaignPath(int slot) => $"{SlotDir(slot)}/campaign.json";
 	public static string SolarOnboardingPath(int slot) => $"{SlotDir(slot)}/solar_onboarding.json";
 
-	public static bool HasSave() => Godot.FileAccess.FileExists(ProfilePath(ActiveSlot));
+	public static bool HasSave() => CampaignBagExists(ActiveSlot);
+
+	public static bool AnyOccupiedSlot()
+	{
+		for (var i = 0; i < MaxSlots; i++)
+		{
+			if (SlotOccupied(i))
+				return true;
+		}
+
+		return false;
+	}
+
+	public static bool CampaignBagExists(int slot)
+		=> Godot.FileAccess.FileExists(CampaignProfilePath(slot))
+		   || Godot.FileAccess.FileExists(LegacyMainProfilePath(slot));
 
 	public static void EnsureReady()
 	{
@@ -171,6 +197,8 @@ public static class SaveService
 		s.Occupied = true;
 		s.AccountHandle = profile.ResolveAccountHandle();
 		s.LastPlayedUnix = NowUnix();
+		s.Faction = (int)profile.Faction;
+		s.PortraitIndex = profile.PilotPortraitIndex;
 		SaveManifest(Manifest);
 	}
 
@@ -199,12 +227,14 @@ public static class SaveService
 
 	public static void SaveActiveProfile(PlayerProfile profile)
 	{
-		Save(profile, ProfilePath(ActiveSlot));
+		Save(profile, CampaignProfilePath(ActiveSlot));
 		UpdateSlotSummary(ActiveSlot, profile);
+		// Drop legacy main bag name after successful write.
+		DeleteFileIfExists(LegacyMainProfilePath(ActiveSlot));
 	}
 
 	public static PlayerProfile LoadOrNew()
-		=> LoadOrNew(ProfilePath(ActiveSlot));
+		=> LoadCampaignProfile(ActiveSlot);
 
 	public static PlayerProfile LoadOrNew(string path)
 	{
@@ -223,8 +253,25 @@ public static class SaveService
 		return PlayerProfile.FromDict(parsed.AsGodotDictionary());
 	}
 
+	public static PlayerProfile LoadCampaignProfile(int slot)
+	{
+		slot = ClampSlot(slot);
+		var modern = CampaignProfilePath(slot);
+		if (Godot.FileAccess.FileExists(modern))
+			return LoadOrNew(modern);
+
+		var legacy = LegacyMainProfilePath(slot);
+		if (Godot.FileAccess.FileExists(legacy))
+			return LoadOrNew(legacy);
+
+		return PlayerProfile.CreateNew();
+	}
+
 	public static PlayerProfile LoadActiveProfile()
-		=> LoadOrNew(ProfilePath(ActiveSlot));
+		=> LoadCampaignProfile(ActiveSlot);
+
+	public static PlayerProfile LoadSkirmishProfile(int slot)
+		=> LoadOrNew(SkirmishPath(ClampSlot(slot)));
 
 	public static ProfileManifest LoadManifest()
 	{
@@ -256,7 +303,7 @@ public static class SaveService
 		slot = ClampSlot(slot);
 		if (Manifest.Slots[slot].Occupied)
 			return true;
-		return Godot.FileAccess.FileExists(ProfilePath(slot));
+		return CampaignBagExists(slot);
 	}
 
 	public static void EnsureSlotDir(int slot)
@@ -268,8 +315,10 @@ public static class SaveService
 	public static void DeleteSlotFiles(int slot)
 	{
 		slot = ClampSlot(slot);
-		DeleteFileIfExists(ProfilePath(slot));
+		DeleteFileIfExists(CampaignProfilePath(slot));
+		DeleteFileIfExists(LegacyMainProfilePath(slot));
 		DeleteFileIfExists(RoguelikePath(slot));
+		DeleteFileIfExists(SkirmishPath(slot));
 		DeleteFileIfExists(SolarCampaignPath(slot));
 		DeleteFileIfExists(CampaignPath(slot));
 		DeleteFileIfExists(SolarOnboardingPath(slot));
@@ -283,8 +332,12 @@ public static class SaveService
 		if (from == to)
 			return;
 		EnsureSlotDir(to);
-		CopyFileIfExists(ProfilePath(from), ProfilePath(to));
+		if (Godot.FileAccess.FileExists(CampaignProfilePath(from)))
+			CopyFileIfExists(CampaignProfilePath(from), CampaignProfilePath(to));
+		else
+			CopyFileIfExists(LegacyMainProfilePath(from), CampaignProfilePath(to));
 		CopyFileIfExists(RoguelikePath(from), RoguelikePath(to));
+		CopyFileIfExists(SkirmishPath(from), SkirmishPath(to));
 		CopyFileIfExists(SolarCampaignPath(from), SolarCampaignPath(to));
 		CopyFileIfExists(CampaignPath(from), CampaignPath(to));
 		CopyFileIfExists(SolarOnboardingPath(from), SolarOnboardingPath(to));
@@ -332,13 +385,15 @@ public static class SaveService
 		}
 
 		EnsureSlotDir(0);
-		CopyFileIfExists(LegacySavePath, ProfilePath(0));
+		CopyFileIfExists(LegacySavePath, CampaignProfilePath(0));
 		CopyFileIfExists(LegacyRoguelikeSavePath, RoguelikePath(0));
 		CopyFileIfExists(LegacySolarCampaignPath, SolarCampaignPath(0));
 		CopyFileIfExists(LegacyCampaignPath, CampaignPath(0));
 		CopyFileIfExists(LegacySolarOnboardingPath, SolarOnboardingPath(0));
 
-		var profile = LoadOrNew(ProfilePath(0));
+		var profile = LoadCampaignProfile(0);
+		Save(profile, CampaignProfilePath(0));
+		EnsureSkirmishBag(0, profile);
 		var manifest = new ProfileManifest
 		{
 			ActiveSlot = 0,
@@ -347,8 +402,28 @@ public static class SaveService
 		manifest.Slots[0].Occupied = true;
 		manifest.Slots[0].AccountHandle = profile.ResolveAccountHandle();
 		manifest.Slots[0].LastPlayedUnix = NowUnix();
+		manifest.Slots[0].Faction = (int)profile.Faction;
+		manifest.Slots[0].PortraitIndex = profile.PilotPortraitIndex;
 		SaveManifest(manifest);
 		GD.Print("Migrated legacy profile into slot 0.");
+	}
+
+	/// <summary>Ensure a skirmish bag exists for the slot (seeded empty with identity).</summary>
+	public static void EnsureSkirmishBag(int slot, PlayerProfile identitySource)
+	{
+		slot = ClampSlot(slot);
+		var path = SkirmishPath(slot);
+		if (Godot.FileAccess.FileExists(path))
+			return;
+
+		var skirmish = PlayerProfile.CreateNew(identitySource.ResolveAccountHandle());
+		skirmish.SetAccountHandle(identitySource.ResolveAccountHandle());
+		if (identitySource.HasFaction)
+			skirmish.CopyFactionIdentityFrom(identitySource);
+		skirmish.Scrap = 0;
+		skirmish.SkirmishesPlayed = 0;
+		skirmish.SkirmishesWon = 0;
+		Save(skirmish, path);
 	}
 
 	private static void ReconcileOccupiedFromDisk()
@@ -356,14 +431,38 @@ public static class SaveService
 		var changed = false;
 		for (var i = 0; i < MaxSlots; i++)
 		{
-			var exists = Godot.FileAccess.FileExists(ProfilePath(i));
-			if (exists == Manifest.Slots[i].Occupied)
-				continue;
-			Manifest.Slots[i].Occupied = exists;
-			if (exists && string.IsNullOrEmpty(Manifest.Slots[i].AccountHandle))
+			var exists = CampaignBagExists(i);
+			if (exists == Manifest.Slots[i].Occupied
+			    && !(exists && string.IsNullOrEmpty(Manifest.Slots[i].AccountHandle)))
 			{
-				var p = LoadOrNew(ProfilePath(i));
+				if (exists && Godot.FileAccess.FileExists(LegacyMainProfilePath(i))
+				    && !Godot.FileAccess.FileExists(CampaignProfilePath(i)))
+				{
+					var migrated = LoadOrNew(LegacyMainProfilePath(i));
+					Save(migrated, CampaignProfilePath(i));
+					DeleteFileIfExists(LegacyMainProfilePath(i));
+					EnsureSkirmishBag(i, migrated);
+					changed = true;
+				}
+
+				continue;
+			}
+
+			Manifest.Slots[i].Occupied = exists;
+			if (exists)
+			{
+				var p = LoadCampaignProfile(i);
 				Manifest.Slots[i].AccountHandle = p.ResolveAccountHandle();
+				Manifest.Slots[i].Faction = (int)p.Faction;
+				Manifest.Slots[i].PortraitIndex = p.PilotPortraitIndex;
+				if (Godot.FileAccess.FileExists(LegacyMainProfilePath(i))
+				    && !Godot.FileAccess.FileExists(CampaignProfilePath(i)))
+				{
+					Save(p, CampaignProfilePath(i));
+					DeleteFileIfExists(LegacyMainProfilePath(i));
+				}
+
+				EnsureSkirmishBag(i, p);
 			}
 
 			changed = true;

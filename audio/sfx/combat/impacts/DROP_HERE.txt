@@ -1,0 +1,15 @@
+﻿Impact one-shots (mp3/wav). Prefix = pool. Variants auto-load.
+
+MAP / armor (full hits):
+  MetalimpactHit.mp3, MetalimpactHit1–4.mp3
+
+Cover / world:
+  MetalimpactCrunch.mp3
+
+Held shield deflect:
+  MetalimpactClang.mp3, MetalimpactClang1.mp3, MetalimpactClang2.mp3
+
+Graze / low damage (≤5 through to structure):
+  MetalimpactLightHit.mp3, MetalimpactLightHit2.mp3
+
+All distance-faded in combat.

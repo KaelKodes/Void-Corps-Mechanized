@@ -73,6 +73,7 @@ public partial class AbilityController : Node
 			AbilityId.PulseRepair => true,
 			AbilityId.Shroud => true,
 			AbilityId.HeatSink => true,
+			AbilityId.ContactReveal => true,
 			_ => false
 		};
 	}
@@ -140,7 +141,7 @@ public partial class AbilityController : Node
 			return null;
 
 		var range = Mathf.Max(12f, part.Range);
-		var locked = _mech.SensorLockTarget;
+		var locked = _mech.SensorLockMech;
 		if (locked != null
 		    && locked.Integrity?.IsCollapsed != true
 		    && locked.Health?.IsDead != true
@@ -307,6 +308,7 @@ public partial class AbilityController : Node
 			AbilityId.MissileSalvo => ActivateMissileSalvo(part, aimPoint),
 			AbilityId.MendPulse => ActivateMendBeacon(part, aimPoint),
 			AbilityId.Shroud => ActivateShroud(part),
+			AbilityId.ContactReveal => ActivateContactReveal(part),
 			_ => false
 		};
 
@@ -372,7 +374,7 @@ public partial class AbilityController : Node
 		if (powerHeat != null && powerHeat.IsOverheated)
 		{
 			EndPulseRepair(applyCooldown: true);
-			SfxService.Play("alarm", 1.1f, -5f);
+			SfxService.PlayUiError(UiErrorTone.BuzzBuzz, -5f);
 			return;
 		}
 
@@ -398,7 +400,7 @@ public partial class AbilityController : Node
 		if (powerHeat is { IsOverheated: true })
 		{
 			EndPulseRepair(applyCooldown: true);
-			SfxService.Play("alarm", 1.1f, -5f);
+			SfxService.PlayUiError(UiErrorTone.BuzzBuzz, -5f);
 			return;
 		}
 
@@ -631,7 +633,7 @@ public partial class AbilityController : Node
 				telemetry?.RecordShot(missile: true);
 		}
 
-		SfxService.Play("weapon_fire", 0.72f, -1f);
+		SfxService.PlayWorld("weapon_fire", _mech.GlobalPosition, 0.72f, -1f);
 		return true;
 	}
 
@@ -654,6 +656,24 @@ public partial class AbilityController : Node
 		_shroudActive = true;
 		_shroudRemaining = part.AbilityDuration;
 		ApplyShroudVisual(true);
+		return true;
+	}
+
+	/// <summary>
+	/// Turns the head's passive contact-scan 3D display on for <see cref="PartData.AbilityDuration"/>.
+	/// Any future ability can also call <see cref="SensorContactScan.RevealWorldBlips"/> directly.
+	/// </summary>
+	private bool ActivateContactReveal(PartData part)
+	{
+		if (_mech == null)
+			return false;
+
+		var scan = _mech.GetNodeOrNull<SensorContactScan>(SensorContactScan.NodeName);
+		if (scan == null)
+			return false;
+
+		scan.RevealWorldBlips(part.AbilityDuration > 0.05f ? part.AbilityDuration : 2.5f);
+		SfxService.Play("confirm", 1.05f, -6f);
 		return true;
 	}
 

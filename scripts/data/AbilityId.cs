@@ -9,5 +9,7 @@ public enum AbilityId
 	/// <summary>Hold-to-channel self/ally repair (Pulse Repair).</summary>
 	PulseRepair,
 	Shroud,
-	HeatSink
+	HeatSink,
+	/// <summary>Reveal passive contact-scan world blips for AbilityDuration.</summary>
+	ContactReveal
 }

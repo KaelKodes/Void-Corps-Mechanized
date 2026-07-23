@@ -30,6 +30,7 @@ public partial class SupportUnit : CharacterBody3D
 		_data = SupportCatalog.Get(UnitId) ?? SupportCatalog.Get("light_tank");
 		CollisionLayer = 2;
 		CollisionMask = 1 | 8;
+		AddToGroup("support");
 
 		EnsureCollision();
 		EnsureHealth();
@@ -232,7 +233,7 @@ public partial class SupportUnit : CharacterBody3D
 			projectile.LookAt(projectile.GlobalPosition + dir, Vector3.Up);
 		}
 
-		SfxService.Play("weapon_fire", (float)GD.RandRange(1.05, 1.25), -6f);
+		SfxService.PlayEnergyFireSupport(-6f, muzzlePos, fullVolume: false);
 	}
 
 	private void EnsureCollision()
@@ -290,9 +291,17 @@ public partial class SupportUnit : CharacterBody3D
 			return;
 
 		var body = TeamBodyColor();
-		var mat = MakeMat(body, 0.32f, 0.55f, TeamAccentColor(), 0.35f);
-		var dark = MakeMat(body.Darkened(0.28f), 0.4f, 0.5f);
-		var accent = MakeMat(TeamAccentColor(), 0.25f, 0.4f, TeamAccentColor(), 0.9f);
+		// Issued plate (scratch normals, clean tint) — not full PaintedMetal rust albedo.
+		var mat = SurfaceLibrary.GetMechPlate(body, metersPerTile: 0.85f, normalScale: 0.55f);
+		var dark = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.SteelDark, body.Darkened(0.28f), metersPerTile: 0.9f);
+		var rust = SurfaceLibrary.GetMech(SurfaceLibrary.Kind.Rust, new Color(0.52f, 0.28f, 0.14f),
+			metersPerTile: 0.7f, normalScale: 0.45f);
+		var accent = SurfaceLibrary.Flat(
+			TeamAccentColor(),
+			metallic: 0.25f,
+			roughness: 0.4f,
+			emission: TeamAccentColor(),
+			emissionEnergy: 0.9f);
 
 		_visual = new Node3D { Name = "Visual" };
 		AddChild(_visual);
@@ -306,11 +315,14 @@ public partial class SupportUnit : CharacterBody3D
 				AddBox(_visual, mat, new Vector3(0.5f, 1.35f, 0.5f) * _data.VisualScale, new Vector3(0f, 1.05f, 0f));
 				AddBox(_visual, dark, new Vector3(0.18f, 0.9f, 0.18f), new Vector3(0.45f, 0.7f, 0.45f));
 				AddBox(_visual, dark, new Vector3(0.18f, 0.9f, 0.18f), new Vector3(-0.45f, 0.7f, 0.45f));
+				AddBox(_visual, rust, new Vector3(0.22f, 0.06f, 0.18f), new Vector3(0.18f, 0.4f, 0.42f));
+				AddBox(_visual, rust, new Vector3(0.14f, 0.1f, 0.14f), new Vector3(-0.45f, 0.28f, 0.45f));
 				_turret = new Node3D { Name = "Turret", Position = new Vector3(0f, 1.6f, 0f) };
 				_visual.AddChild(_turret);
 				AddBox(_turret, mat, new Vector3(0.75f, 0.32f, 0.75f), Vector3.Zero);
 				AddBox(_turret, dark, new Vector3(0.2f, 0.2f, 1.0f), new Vector3(0f, 0.05f, -0.5f));
 				AddBox(_turret, accent, new Vector3(0.12f, 0.12f, 0.12f), new Vector3(0f, 0.05f, -1.0f));
+				AddBox(_turret, rust, new Vector3(0.16f, 0.05f, 0.12f), new Vector3(0.28f, -0.12f, 0.2f));
 				break;
 			}
 			case SupportUnitKind.ScoutBuggy:
@@ -322,6 +334,8 @@ public partial class SupportUnit : CharacterBody3D
 				AddWheel(_visual, dark, new Vector3(0.5f, 0.22f, -0.45f));
 				AddWheel(_visual, dark, new Vector3(-0.5f, 0.22f, 0.5f));
 				AddWheel(_visual, dark, new Vector3(0.5f, 0.22f, 0.5f));
+				AddBox(_visual, rust, new Vector3(0.18f, 0.08f, 0.22f), new Vector3(-0.42f, 0.34f, -0.55f));
+				AddBox(_visual, rust, new Vector3(0.14f, 0.06f, 0.2f), new Vector3(0.4f, 0.34f, 0.58f));
 				_turret = new Node3D { Name = "Turret", Position = new Vector3(0f, 0.88f, -0.2f) };
 				_visual.AddChild(_turret);
 				AddBox(_turret, mat, new Vector3(0.16f, 0.12f, 0.6f), new Vector3(0f, 0f, -0.2f));
@@ -338,11 +352,15 @@ public partial class SupportUnit : CharacterBody3D
 				AddWheel(_visual, dark, new Vector3(0.7f, 0.22f, -0.55f));
 				AddWheel(_visual, dark, new Vector3(-0.7f, 0.22f, 0.55f));
 				AddWheel(_visual, dark, new Vector3(0.7f, 0.22f, 0.55f));
+				AddBox(_visual, rust, new Vector3(0.22f, 0.1f, 0.28f), new Vector3(-0.58f, 0.28f, -0.72f));
+				AddBox(_visual, rust, new Vector3(0.2f, 0.08f, 0.24f), new Vector3(0.6f, 0.28f, 0.7f));
+				AddBox(_visual, rust, new Vector3(0.28f, 0.06f, 0.16f), new Vector3(0.15f, 0.26f, -0.82f));
 				_turret = new Node3D { Name = "Turret", Position = new Vector3(0f, 1.05f, 0f) };
 				_visual.AddChild(_turret);
 				AddBox(_turret, mat, new Vector3(0.58f, 0.28f, 0.58f), Vector3.Zero);
 				AddBox(_turret, dark, new Vector3(0.16f, 0.16f, 0.95f), new Vector3(0f, 0.02f, -0.45f));
 				AddBox(_turret, accent, new Vector3(0.1f, 0.1f, 0.1f), new Vector3(0f, 0.02f, -0.95f));
+				AddBox(_turret, rust, new Vector3(0.12f, 0.05f, 0.14f), new Vector3(-0.22f, -0.1f, 0.18f));
 				break;
 			}
 		}
@@ -361,38 +379,16 @@ public partial class SupportUnit : CharacterBody3D
 		AddChild(_damageSmoke);
 	}
 
-	private static StandardMaterial3D MakeMat(
-		Color albedo,
-		float metallic,
-		float roughness,
-		Color? emission = null,
-		float emissionEnergy = 0f)
-	{
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = albedo,
-			Metallic = metallic,
-			Roughness = roughness
-		};
-		if (emission.HasValue && emissionEnergy > 0f)
-		{
-			mat.EmissionEnabled = true;
-			mat.Emission = emission.Value;
-			mat.EmissionEnergyMultiplier = emissionEnergy;
-		}
-		return mat;
-	}
-
 	private Color TeamBodyColor()
 	{
 		// Clear team read first; slight kind shift so tanks/towers/buggies aren't identical.
 		var baseColor = Team == TeamId.Player
-			? new Color(0.28f, 0.52f, 0.92f)
-			: new Color(0.88f, 0.22f, 0.18f);
+			? new Color(0.32f, 0.58f, 0.95f)
+			: new Color(0.9f, 0.24f, 0.18f);
 		return _data?.Kind switch
 		{
-			SupportUnitKind.GunTower => baseColor.Darkened(0.12f),
-			SupportUnitKind.ScoutBuggy => baseColor.Lightened(0.1f),
+			SupportUnitKind.GunTower => baseColor.Darkened(0.1f),
+			SupportUnitKind.ScoutBuggy => baseColor.Lightened(0.08f),
 			_ => baseColor
 		};
 	}
