@@ -189,7 +189,9 @@ public sealed class CadetRangeMission : MissionBase
 		{
 			Name = "ScrapDrillMarker",
 			Mesh = new BoxMesh { Size = new Vector3(1.4f, 1.1f, 1.4f) },
-			MaterialOverride = MakeMat(new Color(0.75f, 0.55f, 0.2f), 0.85f)
+			MaterialOverride = SurfaceLibrary.Get(
+				SurfaceLibrary.Kind.PaintedMetal,
+				new Color(0.75f, 0.55f, 0.2f))
 		};
 		root.AddChild(marker);
 		marker.GlobalPosition = pos + Vector3.Up * 0.55f;

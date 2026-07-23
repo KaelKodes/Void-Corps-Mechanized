@@ -90,15 +90,10 @@ public partial class DropBeacon : Node3D
 		_vesselRoot = new Node3D { Name = "Vessel" };
 		AddChild(_vesselRoot);
 
-		_hullMat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.16f, 0.18f, 0.22f),
-			Metallic = 0.72f,
-			Roughness = 0.32f,
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 0.35f
-		};
+		_hullMat = SurfaceLibrary.Get(SurfaceLibrary.Kind.SteelDark, new Color(0.45f, 0.5f, 0.58f));
+		_hullMat.EmissionEnabled = true;
+		_hullMat.Emission = _teamColor;
+		_hullMat.EmissionEnergyMultiplier = 0.35f;
 		_hull = new MeshInstance3D
 		{
 			Name = "Hull",
@@ -115,15 +110,10 @@ public partial class DropBeacon : Node3D
 		_vesselRoot.AddChild(_hull);
 
 		// Hull stripe + landing fins for a less-generic pod silhouette.
-		var stripeMat = new StandardMaterial3D
-		{
-			AlbedoColor = _teamColor.Darkened(0.15f),
-			Metallic = 0.65f,
-			Roughness = 0.35f,
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 0.55f
-		};
+		var stripeMat = SurfaceLibrary.Get(SurfaceLibrary.Kind.PaintedMetal, _teamColor.Darkened(0.15f));
+		stripeMat.EmissionEnabled = true;
+		stripeMat.Emission = _teamColor;
+		stripeMat.EmissionEnergyMultiplier = 0.55f;
 		_vesselRoot.AddChild(new MeshInstance3D
 		{
 			Name = "HullStripe",
@@ -137,12 +127,7 @@ public partial class DropBeacon : Node3D
 			Position = new Vector3(0f, VesselHeight * 0.62f, 0f),
 			MaterialOverride = stripeMat
 		});
-		var finMat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.12f, 0.14f, 0.17f),
-			Metallic = 0.7f,
-			Roughness = 0.4f
-		};
+		var finMat = SurfaceLibrary.Get(SurfaceLibrary.Kind.SteelDark, new Color(0.35f, 0.38f, 0.42f));
 		for (var i = 0; i < 4; i++)
 		{
 			var yaw = i * Mathf.Tau * 0.25f;
@@ -164,15 +149,10 @@ public partial class DropBeacon : Node3D
 			_vesselRoot.AddChild(foot);
 		}
 
-		_hatchMat = new StandardMaterial3D
-		{
-			AlbedoColor = _teamColor.Darkened(0.4f),
-			Metallic = 0.75f,
-			Roughness = 0.28f,
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 0.55f
-		};
+		_hatchMat = SurfaceLibrary.Get(SurfaceLibrary.Kind.Steel, _teamColor.Darkened(0.25f));
+		_hatchMat.EmissionEnabled = true;
+		_hatchMat.Emission = _teamColor;
+		_hatchMat.EmissionEnergyMultiplier = 0.55f;
 		// Pivot at the rear lip so the hatch flips open like a cargo door.
 		_hatchPivot = new Node3D
 		{
@@ -189,14 +169,13 @@ public partial class DropBeacon : Node3D
 		};
 		_hatchPivot.AddChild(_hatch);
 
-		_glowMat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(_teamColor.R, _teamColor.G, _teamColor.B, 0.35f),
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 1.2f,
-			Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-		};
+		_glowMat = SurfaceLibrary.Flat(
+			new Color(_teamColor.R, _teamColor.G, _teamColor.B, 0.35f),
+			metallic: 0.2f,
+			roughness: 0.5f,
+			emission: _teamColor,
+			emissionEnergy: 1.2f);
+		_glowMat.Transparency = BaseMaterial3D.TransparencyEnum.Alpha;
 		_glow = new MeshInstance3D
 		{
 			Name = "BayGlow",
@@ -221,15 +200,10 @@ public partial class DropBeacon : Node3D
 			Visible = false
 		};
 		AddChild(_terminalRoot);
-		_terminalMat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.14f, 0.16f, 0.2f),
-			Metallic = 0.6f,
-			Roughness = 0.4f,
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 0.45f
-		};
+		_terminalMat = SurfaceLibrary.Get(SurfaceLibrary.Kind.SteelDark, new Color(0.4f, 0.45f, 0.52f));
+		_terminalMat.EmissionEnabled = true;
+		_terminalMat.Emission = _teamColor;
+		_terminalMat.EmissionEnergyMultiplier = 0.45f;
 		var pedestal = new MeshInstance3D
 		{
 			Mesh = new BoxMesh { Size = new Vector3(1.1f, 1.8f, 0.7f) },
@@ -241,13 +215,12 @@ public partial class DropBeacon : Node3D
 		{
 			Mesh = new BoxMesh { Size = new Vector3(0.85f, 0.55f, 0.08f) },
 			Position = new Vector3(0f, 1.55f, 0.38f),
-			MaterialOverride = new StandardMaterial3D
-			{
-				AlbedoColor = _teamColor,
-				EmissionEnabled = true,
-				Emission = _teamColor,
-				EmissionEnergyMultiplier = 1.4f
-			}
+			MaterialOverride = SurfaceLibrary.Flat(
+				_teamColor,
+				metallic: 0.2f,
+				roughness: 0.35f,
+				emission: _teamColor,
+				emissionEnergy: 1.4f)
 		};
 		_terminalRoot.AddChild(_terminalScreen);
 		var dish = new MeshInstance3D
@@ -259,14 +232,12 @@ public partial class DropBeacon : Node3D
 		};
 		_terminalRoot.AddChild(dish);
 
-		_ringMat = new StandardMaterial3D
-		{
-			AlbedoColor = _teamColor,
-			EmissionEnabled = true,
-			Emission = _teamColor,
-			EmissionEnergyMultiplier = 0.9f,
-			Roughness = 0.4f
-		};
+		_ringMat = SurfaceLibrary.Flat(
+			_teamColor,
+			metallic: 0.35f,
+			roughness: 0.4f,
+			emission: _teamColor,
+			emissionEnergy: 0.9f);
 		_ring = new MeshInstance3D
 		{
 			Name = "Ring",

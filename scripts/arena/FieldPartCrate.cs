@@ -66,15 +66,10 @@ public partial class FieldPartCrate : Area3D
 
 	private void BuildVisual()
 	{
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = new Color(0.45f, 0.5f, 0.55f),
-			Metallic = 0.55f,
-			Roughness = 0.4f,
-			EmissionEnabled = true,
-			Emission = new Color(0.35f, 0.7f, 0.85f),
-			EmissionEnergyMultiplier = 0.55f
-		};
+		var mat = SurfaceLibrary.Get(SurfaceLibrary.Kind.Steel, new Color(0.55f, 0.62f, 0.7f));
+		mat.EmissionEnabled = true;
+		mat.Emission = new Color(0.35f, 0.7f, 0.85f);
+		mat.EmissionEnergyMultiplier = 0.55f;
 		var body = new MeshInstance3D
 		{
 			Mesh = new BoxMesh { Size = new Vector3(1.1f, 0.7f, 1.1f) },
@@ -87,13 +82,12 @@ public partial class FieldPartCrate : Area3D
 		{
 			Mesh = new BoxMesh { Size = new Vector3(1.15f, 0.08f, 0.2f) },
 			Position = new Vector3(0f, 0.55f, 0f),
-			MaterialOverride = new StandardMaterial3D
-			{
-				AlbedoColor = new Color(0.85f, 0.7f, 0.35f),
-				EmissionEnabled = true,
-				Emission = new Color(0.85f, 0.7f, 0.35f),
-				EmissionEnergyMultiplier = 1.2f
-			}
+			MaterialOverride = SurfaceLibrary.Flat(
+				new Color(0.85f, 0.7f, 0.35f),
+				metallic: 0.35f,
+				roughness: 0.45f,
+				emission: new Color(0.85f, 0.7f, 0.35f),
+				emissionEnergy: 1.2f)
 		};
 		AddChild(stripe);
 

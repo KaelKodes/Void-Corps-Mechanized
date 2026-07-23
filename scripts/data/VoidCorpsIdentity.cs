@@ -36,13 +36,13 @@ public static class VoidCorpsIdentity
 
 	/// <summary>
 	/// Default pilot handle placeholder. The player is a person under contract —
-	/// not a corp. Rival NPC corps remain organizations.
+	/// Cat or Dog faction identity, not a corp. Rival NPC corps remain organizations.
 	/// </summary>
 	public const string PlayerCorpCodename = "Rook Pilot";
 	public const string PlayerCorpBlurb =
-		"You are a licensed MAP pilot under contract. Rank, pay, and access rise with the work you finish.";
+		"You are a licensed MAP pilot under contract. Pick Cat or Dog, earn your kit, and climb the work.";
 	public const string CampaignPremise =
-		"Frontier companies are hiring pilots, survey crews, and contractors to claim contested ground. Manufacturers license kit and research; they are not your employer.";
+		"Cat-folk and dog-folk share this system. Frontier companies hire pilots to claim contested ground. Manufacturers license kit; they are not your employer.";
 	public const string CadetPremise =
 		"The MAP Cadet Program issues a military-grade training chassis for tutorial certification only.";
 	public const string ConventionPremise =
@@ -63,25 +63,25 @@ public static class VoidCorpsIdentity
 
 	public static readonly ClaimSite[] ClaimSites =
 	[
-		// --- Map gen 1.0 / Small ---
+		// --- Map gen 3.0 / Medium floor ---
 		new ClaimSite(
 			"VC-CLAIM 7-ORBITAL",
 			"Dust Claim 7-Orbital",
 			"Unregistered rock in a disputed belt. First corp to silence opposing MAP detachments files the claim.",
-			ArenaSize.Small,
-			1.0f),
+			ArenaSize.Medium,
+			3.3f),
 		new ClaimSite(
 			"VC-CLAIM GRID-ASH",
 			"Grid Ash Outpost",
-			"Abandoned relay pad. Salvage rights transfer with site control — expect rival MAP pilots.",
-			ArenaSize.Small,
-			1.0f),
+			"Abandoned relay pad cut into trenches and service tunnels. Branch the decks, deny the junction, take the salvage rights.",
+			ArenaSize.Medium,
+			3.1f),
 		new ClaimSite(
 			"VC-CLAIM BLACK-WHARF",
 			"Black Wharf Shelf",
-			"Cold industrial shelf under a dead docking spine. Hold the pad; deny the asset if you can't.",
-			ArenaSize.Small,
-			1.0f),
+			"Cold industrial shelf under a dead docking spine. Fight the freight deck, underpass, and ledge — hold the pad.",
+			ArenaSize.Medium,
+			3.2f),
 
 		// --- Map gen 2.0 ---
 		new ClaimSite(

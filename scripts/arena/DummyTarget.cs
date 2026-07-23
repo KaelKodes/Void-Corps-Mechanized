@@ -39,24 +39,9 @@ public partial class DummyTarget : StaticBody3D
 			_visualRoot = new Node3D { Name = "CrateVisual" };
 			AddChild(_visualRoot);
 
-			_mat = new StandardMaterial3D
-			{
-				AlbedoColor = AliveColor,
-				Roughness = 0.65f,
-				Metallic = 0.25f
-			};
-			var dark = new StandardMaterial3D
-			{
-				AlbedoColor = AliveColor.Darkened(0.3f),
-				Roughness = 0.6f,
-				Metallic = 0.35f
-			};
-			var strap = new StandardMaterial3D
-			{
-				AlbedoColor = AliveColor.Lightened(0.15f),
-				Roughness = 0.5f,
-				Metallic = 0.4f
-			};
+			_mat = SurfaceLibrary.Get(SurfaceLibrary.Kind.PaintedMetal, AliveColor);
+			var dark = SurfaceLibrary.Get(SurfaceLibrary.Kind.Steel, AliveColor.Darkened(0.3f));
+			var strap = SurfaceLibrary.Get(SurfaceLibrary.Kind.PaintedMetal, AliveColor.Lightened(0.15f));
 
 			var size = _visualSize;
 			AddBox(_visualRoot, _mat, size, new Vector3(0f, size.Y * 0.5f, 0f));

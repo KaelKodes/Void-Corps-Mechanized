@@ -35,26 +35,14 @@ public partial class MissionBuilding : StaticBody3D
 
 	private void BuildVisual(Color color)
 	{
-		var mat = new StandardMaterial3D
-		{
-			AlbedoColor = color,
-			Roughness = 0.68f,
-			Metallic = 0.22f
-		};
-		var dark = new StandardMaterial3D
-		{
-			AlbedoColor = color.Darkened(0.35f),
-			Roughness = 0.6f,
-			Metallic = 0.3f
-		};
-		var glass = new StandardMaterial3D
-		{
-			AlbedoColor = color.Lightened(0.25f),
-			EmissionEnabled = true,
-			Emission = color.Lightened(0.15f),
-			EmissionEnergyMultiplier = 0.55f,
-			Roughness = 0.35f
-		};
+		var mat = SurfaceLibrary.Get(SurfaceLibrary.Kind.Concrete, color);
+		var dark = SurfaceLibrary.Get(SurfaceLibrary.Kind.Steel, color.Darkened(0.35f));
+		var glass = SurfaceLibrary.Flat(
+			color.Lightened(0.25f),
+			metallic: 0.15f,
+			roughness: 0.35f,
+			emission: color.Lightened(0.15f),
+			emissionEnergy: 0.55f);
 
 		AddBox(mat, new Vector3(8f, 4f, 6f), new Vector3(0f, 2f, 0f));
 		AddBox(dark, new Vector3(8.4f, 0.35f, 6.4f), new Vector3(0f, 4.1f, 0f));

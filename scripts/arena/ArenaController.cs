@@ -487,6 +487,11 @@ public partial class ArenaController : Node3D, IMissionHost
 		PlaceCrates(_layout);
 	}
 
+	/// <summary>
+	/// Perimeter bulkhead height. Sized for booster flight — stock walls were 4 m and trivially hoppable.
+	/// </summary>
+	private const float PerimeterWallHeight = 28f;
+
 	/// <summary>Resize the shared floor/walls. Supports rectangular sabotage corridors.</summary>
 	private void ApplyArenaShell(ClaimArenaLayout layout)
 	{
@@ -496,8 +501,9 @@ public partial class ArenaController : Node3D, IMissionHost
 		var extentZ = halfZ * 2f;
 		var floorSize = new Vector3(extentX, 1f, extentZ);
 		// West/East are pre-rotated 90° in arena.tscn, so their local X maps to world Z.
-		var wallNS = new Vector3(extentX, 4f, 1f);
-		var wallEW = new Vector3(extentZ, 4f, 1f);
+		var wallNS = new Vector3(extentX, PerimeterWallHeight, 1f);
+		var wallEW = new Vector3(extentZ, PerimeterWallHeight, 1f);
+		var wallY = PerimeterWallHeight * 0.5f;
 
 		SetBoxMeshAndShape("World/Floor/Mesh", "World/Floor/Collision", floorSize);
 		SetBoxMeshAndShape("World/WallNorth/Mesh", "World/WallNorth/Collision", wallNS);
@@ -505,10 +511,10 @@ public partial class ArenaController : Node3D, IMissionHost
 		SetBoxMeshAndShape("World/WallWest/Mesh", "World/WallWest/Collision", wallEW);
 		SetBoxMeshAndShape("World/WallEast/Mesh", "World/WallEast/Collision", wallEW);
 
-		SetNodePosition("World/WallNorth", new Vector3(0f, 2f, -halfZ));
-		SetNodePosition("World/WallSouth", new Vector3(0f, 2f, halfZ));
-		SetNodePosition("World/WallWest", new Vector3(-halfX, 2f, 0f));
-		SetNodePosition("World/WallEast", new Vector3(halfX, 2f, 0f));
+		SetNodePosition("World/WallNorth", new Vector3(0f, wallY, -halfZ));
+		SetNodePosition("World/WallSouth", new Vector3(0f, wallY, halfZ));
+		SetNodePosition("World/WallWest", new Vector3(-halfX, wallY, 0f));
+		SetNodePosition("World/WallEast", new Vector3(halfX, wallY, 0f));
 	}
 
 	private void SetBoxMeshAndShape(string meshPath, string collisionPath, Vector3 size)
@@ -549,7 +555,22 @@ public partial class ArenaController : Node3D, IMissionHost
 			env.BackgroundColor = layout.SkyColor;
 			env.AmbientLightSource = Godot.Environment.AmbientSource.Color;
 			env.AmbientLightColor = layout.AmbientColor;
-			env.AmbientLightEnergy = layout.AmbientEnergy;
+			// Slightly lower ambient so SSAO / sun shadows carve the PBR.
+			env.AmbientLightEnergy = Mathf.Clamp(layout.AmbientEnergy * 0.85f, 0.25f, 1.2f);
+
+			env.SsaoEnabled = true;
+			env.SsaoRadius = 1.35f;
+			env.SsaoIntensity = 0.55f;
+			env.SsaoPower = 1.5f;
+			env.SsaoHorizon = 0.06f;
+			env.SsaoSharpness = 0.85f;
+
+			env.GlowEnabled = true;
+			env.GlowIntensity = 0.35f;
+			env.GlowStrength = 0.8f;
+			env.GlowBloom = 0.12f;
+			env.TonemapMode = Godot.Environment.ToneMapper.Aces;
+			env.TonemapExposure = 1.05f;
 		}
 
 		var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
@@ -558,32 +579,27 @@ public partial class ArenaController : Node3D, IMissionHost
 			sun.LightColor = layout.SunColor;
 			sun.LightEnergy = layout.SunEnergy;
 			sun.RotationDegrees = layout.SunRotationDegrees;
+			sun.ShadowEnabled = true;
+			sun.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
+			sun.ShadowBias = 0.04f;
+			sun.ShadowNormalBias = 1.0f;
+			sun.DirectionalShadowMaxDistance = 180f;
+			sun.LightAngularDistance = 0.6f;
 		}
 
-		TintWorldMeshes(layout.FloorColor, layout.WallColor);
+		TintWorldMeshes(layout);
 	}
 
-	private void TintWorldMeshes(Color floorColor, Color wallColor)
+	private void TintWorldMeshes(ClaimArenaLayout layout)
 	{
+		var floorKind = SurfaceLibrary.FloorForClaim(layout.ClaimCode);
+		var wallKind = SurfaceLibrary.WallForClaim(layout.ClaimCode);
+
 		var floorMesh = GetNodeOrNull<MeshInstance3D>("World/Floor/Mesh");
 		if (floorMesh != null)
-		{
-			var floorMat = new StandardMaterial3D
-			{
-				AlbedoColor = floorColor,
-				Roughness = 0.92f,
-				Metallic = 0.08f
-			};
-			MeshMat.Bind(floorMesh, floorMat);
-		}
+			MeshMat.Bind(floorMesh, SurfaceLibrary.Get(floorKind, layout.FloorColor));
 
-		var wallMat = new StandardMaterial3D
-		{
-			AlbedoColor = wallColor,
-			Roughness = 0.88f,
-			Metallic = 0.12f
-		};
-
+		var wallMat = SurfaceLibrary.Get(wallKind, layout.WallColor);
 		foreach (var name in new[] { "WallNorth", "WallSouth", "WallWest", "WallEast" })
 		{
 			var mesh = GetNodeOrNull<MeshInstance3D>($"World/{name}/Mesh");
@@ -631,7 +647,8 @@ public partial class ArenaController : Node3D, IMissionHost
 			var body = new StaticBody3D
 			{
 				Name = $"Cover_{piece.Kind}_{i}",
-				Position = new Vector3(piece.Position.X, 0f, piece.Position.Z),
+				// Y is elevation for walkable decks / ramps; ground cover stays at 0.
+				Position = piece.Position,
 				RotationDegrees = new Vector3(0f, piece.YawDegrees, 0f)
 			};
 			body.AddChild(built.Visual);
@@ -641,9 +658,24 @@ public partial class ArenaController : Node3D, IMissionHost
 				Name = "Collision",
 				Shape = new BoxShape3D { Size = built.CollisionSize },
 				Position = built.CollisionCenter,
+				RotationDegrees = built.CollisionRotationDegrees,
 				Disabled = false
 			};
 			body.AddChild(collision);
+
+			for (var e = 0; e < built.ExtraCollisions.Length; e++)
+			{
+				var vol = built.ExtraCollisions[e];
+				body.AddChild(new CollisionShape3D
+				{
+					Name = $"CollisionExtra_{e}",
+					Shape = new BoxShape3D { Size = vol.Size },
+					Position = vol.Center,
+					RotationDegrees = vol.RotationDegrees,
+					Disabled = false
+				});
+			}
+
 			root.AddChild(body);
 			// World layer — mechs mask layer 1; projectiles also hit layer 1.
 			body.CollisionLayer = PhysicsLayers.World;
@@ -1621,7 +1653,7 @@ public partial class ArenaController : Node3D, IMissionHost
 		if (beacon == null)
 			return;
 
-		var holding = Input.IsActionPressed("interact");
+		var holding = Input.IsActionPressed("interact") && _mech is not { BlocksInteractForSeat: true };
 		if (beacon.TickExtract(dt, holding, _mech.GlobalPosition))
 		{
 			SfxService.Confirm();
@@ -2382,7 +2414,7 @@ public partial class ArenaController : Node3D, IMissionHost
 							=> _mission?.ExtractBeaconOverride != null
 								? "OBJECTIVES COMPLETE — hold F at the Exfil Uplink"
 								: "OBJECTIVES COMPLETE — return to your drop beacon and hold F to extract",
-						_ => "WASD move  |  mouse look (FP)  |  tap Shift dash / hold sprint  |  Space jump  |  LMB/RMB weapons  |  TAB lock  |  1-6 modules  |  P camera  |  Esc pause"
+						_ => "WASD move  |  mouse look (FP)  |  tap Shift dash / hold sprint  |  hold Space boost  |  LMB/RMB weapons  |  TAB lock  |  1-6 modules  |  P camera  |  Esc pause"
 					};
 			}
 		}
